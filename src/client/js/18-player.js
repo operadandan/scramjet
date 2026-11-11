@@ -25,7 +25,7 @@ function wakeUp() {
 }
 function standHeight() { return 1.8 - 0.6 * P.crouch - 1.3 * P.prone; }
 function updatePlayer(dt) {
-  if (!P.alive) { localBody.root.visible = false; return; }
+  if (!P.alive) { localBody.root.visible = false; fpBody.root.visible = false; return; }
   const an = P.anat;
   an.update(dt);
   if (an.dead) { localDeath(); return; }
@@ -34,7 +34,7 @@ function updatePlayer(dt) {
   // a down only counts as a kill for the shooter if it isn't just pain (spine or both legs gone); pain knockouts wait for the death
   if (P.downed && !P.downSent && S.mode === 'online' && an.lastBy && (an.paralyzed || an.bothLegs())) { P.downSent = true; net.send({ t: 'down', by: an.lastBy }); }
   else if (P.downed && !an.isDowned()) wakeUp();
-  if (P.downed) { bleedDrips(P, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1)); localBody.root.visible = false; if (P.rag) P.pos.set(P.rag.p[2].x, 0, P.rag.p[2].z); P.vel.set(0, 0, 0); P.speed = 0; return; }
+  if (P.downed) { bleedDrips(P, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1)); localBody.root.visible = false; fpBody.root.visible = false; if (P.rag) P.pos.set(P.rag.p[2].x, 0, P.rag.p[2].z); P.vel.set(0, 0, 0); P.speed = 0; return; }
   let fx_ = 0, fz = 0;
   if (keys.KeyW) fz -= 1; if (keys.KeyS) fz += 1; if (keys.KeyA) fx_ -= 1; if (keys.KeyD) fx_ += 1;
   const len = Math.hypot(fx_, fz); if (len) { fx_ /= len; fz /= len; }
@@ -93,8 +93,16 @@ function updatePlayer(dt) {
   localBody.root.position.copy(P.pos); localBody.root.rotation.y = P.yaw;
   Object.assign(a, { speed: P.speed, crouch: P.crouch, prone: P.prone, limp: downed ? 1 : oneLeg ? 0.5 : 0, lean: P.leanEff, pitch: P.pitch, sprint: P.sprintBlend, ads: P.ads, air: P.onGround ? 0 : 1, weapon: P.slot >= 2 ? MEDKIT_W : P.weapon, unarmed: P.slot === 4, bb: an.brokenMask(), ah: an.armHangMask(), ls: an.lostMask(), lc: an.cutArr(), reload: P.reloading ? Math.max(0.001, P.reloadT / P.reloadDur) : 0 });
   localBody.update(dt);
+  // the visible first-person body follows the same pose, set back from the eye; hidden when prone (the eye is down among it)
+  fpBody.root.visible = !S.tp && P.prone < 0.3;
+  if (fpBody.root.visible) {
+    fpBody.root.position.copy(P.pos).add(_fpo.set(Math.sin(P.yaw), 0, Math.cos(P.yaw)).multiplyScalar(0.17 + 0.06 * P.crouch));
+    fpBody.root.rotation.y = P.yaw; Object.assign(fpBody.anim, a); fpBody.update(dt);
+    for (const k of ['head', 'neck', 'shL', 'shR']) if (fpBody[k]) fpBody[k].visible = false;
+  }
   bleedDrips(P, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1));
 }
+const _fpo = new V3();
 P.hum = localBody;
 
 // ---------------------------------------------------------------- weapons logic
@@ -342,7 +350,7 @@ function localDeath() {
 }
 function onSelfHurt(res) {
   hurtFlash();
-  syncLost(localBody, P.anat.lostMask(), P.anat.lastDir, P.anat.cutArr());
+  syncLost(localBody, P.anat.lostMask(), P.anat.lastDir, P.anat.cutArr()); fpBody.setLost(P.anat.lostMask(), P.anat.cutArr());
   if (res && res.severed) flashMsg(LIMB_NAME[res.severed].toUpperCase() + ' SEVERED', 2500);
   P.pitch = clamp(P.pitch + rnd(0.02, 0.06), -1.5, 1.5); P.yaw += rnd(-0.04, 0.04); P.kick += 0.6;
   if (res && res.stopped) noiseHit(300, 0.15, 0.12);

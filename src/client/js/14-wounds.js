@@ -90,7 +90,7 @@ function wallSpatter(point, dir, size, goreK) {
 // a head coming apart: skull pieces, brain, flesh, mist, and the spatter behind it
 function goreBurst(p, dir, skin) {
   goreBlast('head', p, dir, 1, skin);
-  if (!wallSpatter(p, dir, rnd(0.9, 1.25), true)) sprayDecal(p, dir, rnd(0.8, 1.1));
+  blowSpatter(p, dir, rnd(0.9, 1.25), true);
   noiseHit(250, 0.3, 0.14);
 }
 // entry: a puff of back-spatter mist. exit (strong): a cone of mist and heavy droplets thrown forward, painting what is behind
@@ -101,7 +101,7 @@ function bloodFx(point, dir, strong, amt) {
   if (!strong) return;
   for (let i = 0; i < 4; i++) mist(point.clone().addScaledVector(dir, 0.05 + i * 0.07), dir.clone().multiplyScalar(rnd(1.5, 4)).add(new V3(rnd(-0.4, 0.4), rnd(-0.2, 0.3), rnd(-0.4, 0.4))), 0.35 + i * 0.12, 0.7, 0x6a0408, 0.5 - i * 0.07);
   for (let i = 0; i < 16; i++) spawnDrop(point, dir.clone().multiplyScalar(rnd(3, 7.5)).add(new V3(rnd(-1, 1), rnd(-0.5, 0.8), rnd(-1, 1)).multiplyScalar(0.9)), rnd(0.004, 0.011), 1, 0.3);
-  sprayDecal(point, dir, rnd(0.6, 0.95));
+  blowSpatter(point, dir, rnd(0.6, 0.95));
 }
 function floorSplat(x, y, z, size) { feedPool(x, y, z, size * 6); }
 function floorSplatOld(x, y, z, size) {
@@ -283,11 +283,59 @@ function addStump(parent, pos, dir, r) {
   const m = new THREE.Mesh(stumpGeo(r), vcMat); m.position.copy(pos); m.quaternion.setFromUnitVectors(_a.set(0, -1, 0), dir.clone().normalize()); m.userData.keep = true; m.castShadow = true; parent.add(m); return m;
 }
 // wounds: an entry mark, a ragged exit, a stain that soaks outward, and for rifle rounds a real hole through the body
-// torn tissue round a blast wound, lying on the body surface
-function tearMesh(group, p, n, size) { const m = new THREE.Mesh(splatGeo, bmat('tear')); m.userData.keep = true; m.quaternion.setFromUnitVectors(_Z, n); m.rotateZ(Math.random() * 6.28); m.position.copy(p).addScaledVector(n, 0.006); m.scale.setScalar(size); m.renderOrder = 3; group.add(m); return m; }
+// ---------------------------------------------------------------- liquid blood on the body
+// Not a flat picture: glossy beads of blood placed by casting rays onto the body's own surface around the wound, so they sit on
+// whatever shape is there and move with it. A big wound gets a wide wet patch and runs heading downhill.
+const LIQ_GEO = new THREE.SphereGeometry(1, 10, 6);
+const LIQ_MAT = [0x6e070b, 0x52040a, 0x3a0206].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.07, metalness: 0.12 }));
+const _lray = new THREE.Raycaster(), _lqL = new THREE.Quaternion(), _lqG = new THREE.Quaternion();
+function liquidBlood(group, p, n, R, count, runs) {
+  group.updateMatrixWorld(true);
+  const targets = []; group.traverse(o => { if (o.isMesh && !o.userData.keep && !o.userData.organ && !o.userData.inner && !o.userData.tube && o.visible) targets.push(o); });
+  if (!targets.length) return null;
+  const out = new THREE.Group(); out.userData.keep = true; group.add(out); out.updateMatrixWorld(true);
+  const wp = group.localToWorld(p.clone()), wn = n.clone().transformDirection(group.matrixWorld).normalize();
+  const t1 = new V3().crossVectors(wn, Math.abs(wn.y) < 0.9 ? _Y : _Z).normalize(), t2 = new V3().crossVectors(wn, t1);
+  const gq = group.getWorldQuaternion(_lqG).invert();
+  const drop = (o, r, stretch, along) => {
+    _lray.set(o.clone().addScaledVector(wn, 0.12), wn.clone().negate()); _lray.far = 0.26;
+    const h = _lray.intersectObjects(targets, false)[0]; if (!h || !h.face) return null;
+    const hn = h.face.normal.clone().transformDirection(h.object.matrixWorld);
+    const b = new THREE.Mesh(LIQ_GEO, LIQ_MAT[Math.floor(Math.random() * LIQ_MAT.length)]); b.userData.keep = true; b.userData.liquid = true;
+    _lqL.setFromUnitVectors(_Y, hn); if (along) { const a = along.clone().addScaledVector(hn, -along.dot(hn)).normalize(), x0 = new V3(0, 0, 1).applyQuaternion(_lqL); _lqL.premultiply(new THREE.Quaternion().setFromUnitVectors(x0, a)); } else _lqL.multiply(new THREE.Quaternion().setFromAxisAngle(_Y, Math.random() * 6.28));
+    b.quaternion.copy(gq).multiply(_lqL); b.position.copy(out.worldToLocal(h.point.clone().addScaledVector(hn, r * 0.08)));
+    b.scale.set(r, r * rnd(0.1, 0.16), r * stretch); out.add(b); return h.point;
+  };
+  const k = clamp(R / 0.05, 0.6, 1.8);
+  // a wet patch: many flat, overlapping drops that run together, biggest in the middle
+  for (let i = 0; i < count * 2; i++) { const a = Math.random() * 6.28, d = R * Math.pow(Math.random(), 0.7) * (i < count * 0.6 ? 0.45 : 1); drop(wp.clone().addScaledVector(t1, Math.cos(a) * d).addScaledVector(t2, Math.sin(a) * d), rnd(0.01, 0.022) * k * (1 - 0.55 * d / R), rnd(1, 1.5)); }
+  // runs: blood heading downhill across the surface from the wound
+  const down = new V3(0, -1, 0).addScaledVector(wn, wn.y); if (runs && down.length() > 0.25) {
+    down.normalize();
+    for (let j = 0; j < runs; j++) { const side = t1.clone().multiplyScalar(rnd(-0.6, 0.6) * R); let o = wp.clone().add(side); for (let s = 0; s < 4; s++) { o = o.addScaledVector(down, R * rnd(0.35, 0.6)); if (!drop(o, rnd(0.004, 0.008) * k * (1 - s * 0.18), rnd(2, 3.2), down)) break; } }
+  }
+  return out;
+}
+// kept under the old name: the torn ring round a blast wound is now a wide patch of liquid blood
+function tearMesh(group, p, n, size) { return liquidBlood(group, p, n, clamp(size * 0.32, 0.04, 0.13), 26, 4); }
+// ---------------------------------------------------------------- spatter thrown out of a body
+// For every gun: whatever flies out of an exit (or out of a head) paints the wall behind if there is one within reach,
+// otherwise it comes down on the floor ahead, as a droplet field stretched along the line it flew with a little puddle in it.
+function blowSpatter(point, dir, size, goreK) {
+  if (wallSpatter(point, dir, size, goreK)) return;
+  const fy = floorAt(point.x, point.y, point.z), hgt = Math.max(0.03, point.y - fy);
+  const dh = new V3(dir.x, 0, dir.z); let hl = dh.length(); if (hl < 0.15) { dh.set(rnd(-1, 1), 0, rnd(-1, 1)); hl = 0.3; } dh.normalize();
+  const v = rnd(3, 6), vy = dir.y * v + 0.6, vh = Math.max(0.6, hl * v), t = (vy + Math.sqrt(vy * vy + 2 * 9.8 * hgt)) / 9.8, land = clamp(vh * t * 0.75, 0.4, 4);
+  const n = _Y, m = new THREE.Mesh(splatGeo, bmat(goreK ? 'gore' : 'spray')); m.quaternion.setFromUnitVectors(_Z, n);
+  const vl = dh.clone().applyQuaternion(m.quaternion.clone().invert()); m.rotateZ(-Math.atan2(vl.x, vl.y));
+  const sz = size * (1 + land * 0.35);
+  m.position.set(point.x, fy + 0.004 + Math.random() * 0.002, point.z).addScaledVector(dh, land * 0.55 + sz * 0.3); m.scale.set(sz * 0.75, sz * 1.25, 1);
+  m.receiveShadow = true; scene.add(m); decals.push(m); trimDecals();
+  for (let i = 0; i < 3; i++) { const q = new V3(point.x, fy, point.z).addScaledVector(dh, land * rnd(0.6, 1.3)).add(new V3(rnd(-0.12, 0.12), 0, rnd(-0.12, 0.12))); feedPool(q.x, fy, q.z, size * rnd(2, 5)); }
+}
 function addWound(hum, frame, group, p, n, kind, size) {
   const mk = () => { const m = new THREE.Object3D(); m.position.copy(p).addScaledVector(n, 0.004); m.userData.keep = true; group.add(m); return m; };
-  const m = mk(), st = soakMesh(group, p, n, kind === 'blast' ? 0.09 : 0.045), tr = kind === 'blast' ? tearMesh(group, p, n, size) : null;
+  const m = mk(), st = soakMesh(group, p, n, kind === 'blast' ? 0.09 : 0.045), tr = kind === 'blast' ? tearMesh(group, p, n, size) : liquidBlood(group, p, n, clamp(size * 0.9, 0.012, 0.03), 5, 1);
   const rg = !hum && group.parent && group.parent.userData.ragObj; if (rg) { rg.anchors.push({ m, n: n.clone() }); rg.soaks = rg.soaks || []; rg.soaks.push([st, clamp(size * 4, 0.12, 0.3)]); }
   if (!hum || !frame) return;
   hum.wounds = hum.wounds || [];

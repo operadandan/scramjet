@@ -87,7 +87,7 @@ function leave() {
   $('hud').style.display = 'none'; $('pause').style.display = 'none'; $('menu').style.display = 'flex';
   $('black').style.opacity = '0'; $('deathmsg').style.display = 'none'; $('dmgv').style.opacity = '0';
   if (document.pointerLockElement) document.exitPointerLock();
-  buildArena();
+  buildArena(); setTimeout(warmShaders, 50);
 }
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 $('create').onclick = () => { let c = ''; for (let i = 0; i < 5; i++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]; startOnline(c, true); };
@@ -97,12 +97,14 @@ $('test').onclick = () => startTest();
 $('resume').onclick = () => renderer.domElement.requestPointerLock();
 try { S.showTarget = localStorage.getItem('breach_target_panel') === '1'; } catch (e) { S.showTarget = false; }
 $('opt_target').checked = !!S.showTarget;
+{ let pv = 25; try { const s = localStorage.getItem('breach_pixel'); if (s !== null) pv = +s; } catch (e) {} $('opt_pixel').value = pv; $('opt_pixel_v').textContent = pv; setPixelation(pv);
+  $('opt_pixel').oninput = () => { $('opt_pixel_v').textContent = $('opt_pixel').value; setPixelation($('opt_pixel').value); }; }
 $('opt_target').onchange = () => { S.showTarget = $('opt_target').checked; try { localStorage.setItem('breach_target_panel', S.showTarget ? '1' : '0'); } catch (e) {} };
 document.querySelectorAll('.attm1').forEach(b => b.onclick = () => openAttMenu(P.loadout[+b.dataset.i]));
 $('leave').onclick = () => leave();
 
 // ---------------------------------------------------------------- main loop
-buildArena();
+buildArena(); setTimeout(warmShaders, 300);
 let last = performance.now();
 const focus = new V3();
 function loop(now) {

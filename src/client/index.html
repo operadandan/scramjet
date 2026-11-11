@@ -130,6 +130,7 @@ select{width:100%;padding:9px 10px;margin:4px 0 8px;background:#0b0e12;border:1p
 #score td{padding:6px;border-top:1px solid rgba(255,255,255,.06)}#score tr.me td{color:#ffd166}#score td.n{text-align:right;font-variant-numeric:tabular-nums}
 #black{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:10}
 #deathmsg{position:fixed;left:0;right:0;top:40%;text-align:center;font-size:22px;letter-spacing:3px;z-index:11;pointer-events:none;text-shadow:0 2px 6px #000;display:none}
+.optr{display:flex;align-items:center;gap:8px}.optr input[type=range]{flex:1;accent-color:#e8432d}
 #pause{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5);z-index:15}
 #calc{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:radial-gradient(1200px 800px at 20% 10%,#2a3550 0,transparent 60%),radial-gradient(900px 700px at 90% 100%,#3b2440 0,transparent 55%),#0e1016;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,sans-serif;user-select:none}
 #calc .cw{width:340px;padding:22px;border-radius:30px;background:linear-gradient(160deg,rgba(40,42,50,.92),rgba(22,23,28,.96));border:1px solid rgba(255,255,255,.07);box-shadow:0 30px 80px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.06)}
@@ -248,6 +249,7 @@ select{width:100%;padding:9px 10px;margin:4px 0 8px;background:#0b0e12;border:1p
   <div class="keys" id="lonote"></div>
   <div class="keys">WASD move, Shift sprint, Space jump<br>C crouch, X prone, Q / E lean, Z or RMB aim (all toggles)<br>R reload, M check mag, 1 / 2 guns, 3 medkit, 4 plate<br>G inventory, F pick up, B drop held item, T laser / light, Left Alt third person, Space give up when downed<br>LMB fire / use, Tab scoreboard, ` slow motion, Esc pause</div>
   <label class="opt"><input type="checkbox" id="opt_target"> Show the condition panel of whoever you shoot</label>
+  <label class="opt optr">Pixelation <input type="range" id="opt_pixel" min="0" max="100" step="1" value="25"> <span id="opt_pixel_v">25</span></label>
   <button class="alt" id="leave">Leave to menu</button>
   <div class="keys" id="pauseinfo"></div>
 </div></div>

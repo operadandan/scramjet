@@ -106,6 +106,9 @@ function maskUniforms(G) {
   const s1 = new V3().setComponent(G.a1, 1), s2 = new V3().setComponent(G.a2, 1);
   return { hMask: { value: G.tex }, hMP: { value: new THREE.Vector4(G.min1, G.min2, G.n1 * G.cs1, G.n2 * G.cs2) }, hS1: { value: s1 }, hS2: { value: s2 } };
 }
+// a wall with no grid still gets the same shader, with an empty mask
+const NO_MASK = { hMask: { value: new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType) }, hMP: { value: new THREE.Vector4(0, 0, 1, 1) }, hS1: { value: new V3(1, 0, 0) }, hS2: { value: new V3(0, 1, 0) } };
+NO_MASK.hMask.value.needsUpdate = true;
 const MASK_DECL = '\nuniform sampler2D hMask; uniform vec4 hMP; uniform vec3 hS1; uniform vec3 hS2;\n';
 function wallMask(mesh) {
   const G = wallGrid(mesh), m = mesh.material; if (!G || m.userData.hMask) return;
@@ -121,6 +124,19 @@ function wallMask(mesh) {
       .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n' + MASK_GLSL('vHolePos') + 'for (int i = 0; i < ' + BRK + '; i++) { if (hA[i].w > 0.0) { vec3 hq = vHolePos - hA[i].xyz; float L2 = max(dot(hB[i].xyz, hB[i].xyz), 1e-8); float t = dot(hq, hB[i].xyz) / L2; if (t > 0.0 && t < 1.0) { vec3 hp = hq - hB[i].xyz * t; if (length(hp) < mix(hA[i].w, hB[i].w, t) * holeJag(i, hp, hB[i].xyz)) discard; } } }');
   };
   dm.customProgramCacheKey = () => 'wallshadow'; mesh.customDepthMaterial = dm;
+}
+function warmShaders() {
+  try {
+    const ws = new THREE.Scene(), L = new THREE.DirectionalLight(0xffffff, 1); L.castShadow = true; ws.add(L, new THREE.AmbientLight(0xffffff, 0.3));
+    const mk = (kind, w, h, d) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(0x999999)); m.userData.kind = kind; m.userData.box = { min: new V3(-w / 2, 0, -d / 2), max: new V3(w / 2, h, d / 2), mesh: m }; m.position.set(0, h / 2, -3); m.updateMatrixWorld(true); m.userData.grid = undefined; ws.add(m); return m; };
+    const w = mk('plywood', 1.2, 2, 0.02), w2 = mk('metal', 1, 1, 1);
+    holeify(w, SLOTS, DESTR.plywood.inner); w.userData.holeMax = SLOTS; wallMask(w);
+    const add = mt => { const q = new THREE.Mesh(splatGeo, mt); q.position.set(0, 1, -2.9); ws.add(q); };
+    for (const k of ['spatter', 'gore', 'spray', 'cast', 'splat', 'drip', 'smear']) { add(wallClipMat(bmat(k), w, -1)); add(bmat(k)); add(edgeClipMat(bmat(k), w2)); }
+    add(wallClipMat(tubeMat(w), w, 0)); add(bmat('tear')); add(goreWet); add(goreDry); add(boneIn);
+    const cam = new THREE.PerspectiveCamera(60, 1, 0.1, 10); renderer.compile(ws, cam);
+    ws.traverse(o => { if (o.isMesh && o.customDepthMaterial) renderer.compile(o, cam); });
+  } catch (e) { console.warn('shader warm-up skipped', e); }
 }
 function cutSlot(mesh, i, p, d, len, r0, r1, inner, t0, t1, cap) {
   holeify(mesh, SLOTS, inner); mesh.userData.holeMax = SLOTS; wallMask(mesh);
@@ -156,14 +172,16 @@ function wallClipMat(base, wall, skip) {
   if (!DESTR_OF[wall.userData.kind]) return skip === -1 && wall.geometry ? edgeClipMat(base, wall) : base;
   if (wall.userData.holeN === undefined) holeify(wall, SLOTS, DESTR[DESTR_OF[wall.userData.kind]].inner);
   wall.userData.holeMax = SLOTS;
-  const m = base.clone(), U = wall.material.userData, hW = { value: wall.matrixWorld.clone().invert() }, bb = _wallBox(wall), bMin = { value: bb.min.clone() }, bMax = { value: bb.max.clone() }, G = wallGrid(wall), MU = G ? maskUniforms(G) : null;
+  // one shader for every decal and tunnel on a wall: which slot to leave out is a uniform, not baked into the code, so a new hole
+  // never has to compile a new program (that stall was the lag when shooting walls). Everything is also cut at the wall's edges.
+  const m = base.clone(), U = wall.material.userData, hW = { value: wall.matrixWorld.clone().invert() }, bb = _wallBox(wall), bMin = { value: bb.min.clone() }, bMax = { value: bb.max.clone() }, G = wallGrid(wall), MU = G ? maskUniforms(G) : NO_MASK, hSkip = { value: skip };
   m.onBeforeCompile = sh => {
-    sh.uniforms.hA = U.hA; sh.uniforms.hB = U.hB; sh.uniforms.hW = hW; sh.uniforms.bMin = bMin; sh.uniforms.bMax = bMax; if (MU) Object.assign(sh.uniforms, MU);
+    sh.uniforms.hA = U.hA; sh.uniforms.hB = U.hB; sh.uniforms.hW = hW; sh.uniforms.bMin = bMin; sh.uniforms.bMax = bMax; sh.uniforms.hSkip = hSkip; Object.assign(sh.uniforms, MU);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform mat4 hW;\nvarying vec3 vWallPos;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWallPos = (hW * modelMatrix * vec4(transformed, 1.0)).xyz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWallPos;\nuniform vec3 bMin; uniform vec3 bMax;' + (MU ? MASK_DECL : '') + '\nuniform vec4 hA[' + SLOTS + '];\nuniform vec4 hB[' + SLOTS + '];\n' + HOLE_JAG)
-      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n' + (skip === -1 ? EDGE_CLIP : '') + (MU ? MASK_GLSL('vWallPos') : '') + '\nfor (int i = 0; i < ' + SLOTS + '; i++) { if (i != ' + skip + ' && hA[i].w > 0.0) { vec3 hq = vWallPos - hA[i].xyz; float L2 = max(dot(hB[i].xyz, hB[i].xyz), 1e-8); float t = dot(hq, hB[i].xyz) / L2; if (t > 0.0 && t < 1.0) { vec3 hp = hq - hB[i].xyz * t; if (length(hp) < mix(hA[i].w, hB[i].w, t) * holeJag(i, hp, hB[i].xyz)) discard; } } }');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWallPos;\nuniform vec3 bMin; uniform vec3 bMax; uniform int hSkip;' + MASK_DECL + '\nuniform vec4 hA[' + SLOTS + '];\nuniform vec4 hB[' + SLOTS + '];\n' + HOLE_JAG)
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n' + EDGE_CLIP + MASK_GLSL('vWallPos') + '\nfor (int i = 0; i < ' + SLOTS + '; i++) { if (i != hSkip && hA[i].w > 0.0) { vec3 hq = vWallPos - hA[i].xyz; float L2 = max(dot(hB[i].xyz, hB[i].xyz), 1e-8); float t = dot(hq, hB[i].xyz) / L2; if (t > 0.0 && t < 1.0) { vec3 hp = hq - hB[i].xyz * t; if (length(hp) < mix(hA[i].w, hB[i].w, t) * holeJag(i, hp, hB[i].xyz)) discard; } } }');
   };
-  m.customProgramCacheKey = () => 'wclip' + skip + (MU ? 'm' : '');
+  m.customProgramCacheKey = () => 'wclipU';
   return m;
 }
 function placeDecalD(mesh, point, normal, size, material, depth) {

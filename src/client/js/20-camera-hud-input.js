@@ -32,14 +32,19 @@ function updateCamera(dt) {
     s = Math.max(0, s);
   }
   P.leanEff = P.lean * s;
+  // view bob: the head dips on every footfall, sways over the planted foot and rolls a little with it; stronger at a run,
+  // much less while aiming, eased in and out so stopping does not snap the view
   const mv = P.onGround ? clamp(P.speed / 4.3, 0, 1.7) : 0;
-  P.bobT += dt * (5 + P.speed * 1.4) * (mv > 0.05 ? 1 : 0);
-  const bob = 0.035 * mv * (1 - P.ads * 0.8);
-  camera.position.copy(head).addScaledVector(right, P.leanEff * 0.42 + Math.sin(P.bobT * 0.5) * bob * 0.5);
-  camera.position.y += -Math.abs(P.leanEff) * 0.08 + Math.abs(Math.sin(P.bobT)) * bob * -0.6;
+  P.bobT += dt * (5.2 + P.speed * 1.35) * (mv > 0.05 ? 1 : 0);
+  P.bobA = damp(P.bobA || 0, mv * (1 - P.ads * 0.8) * (P.prone > 0.5 ? 0.4 : 1), 6, dt);
+  const bob = 0.05 * P.bobA, step = Math.sin(P.bobT), sway = Math.sin(P.bobT * 0.5);
+  camera.position.copy(head).addScaledVector(right, P.leanEff * 0.42 + sway * bob * 0.55);
+  camera.position.y += -Math.abs(P.leanEff) * 0.08 - Math.abs(step) * bob * 0.75 + bob * 0.35;
+  P.bobRot = { p: -Math.abs(step) * 0.009 * P.bobA + Math.sin(P.bobT * 2) * 0.002 * P.bobA, r: sway * 0.011 * P.bobA, y: sway * 0.004 * P.bobA };
   const tt = performance.now() / 1000;
   const rlB = P.reloading ? Math.sin(P.reloadT / P.reloadDur * Math.PI) : 0;
-  camera.rotation.set(P.pitch + P.recoilPitch - rlB * 0.03 + Math.sin(tt * 3.1) * shake, P.yaw + Math.sin(tt * 2.3) * shake, -P.leanEff * 0.22);
+  const br = P.bobRot || { p: 0, r: 0, y: 0 };
+  camera.rotation.set(P.pitch + P.recoilPitch - rlB * 0.03 + Math.sin(tt * 3.1) * shake + br.p, P.yaw + Math.sin(tt * 2.3) * shake + br.y, -P.leanEff * 0.22 + br.r);
   const w = WEAPONS[P.weapon];
   const zW = VMW[P.weapon], mag = zW && zW.lens; camera.fov = lerp(75, mag ? (w.scope ? 52 : 60) : w.fovAds, P.ads) + P.sprintBlend * 4; camera.updateProjectionMatrix();
 }
@@ -235,6 +240,14 @@ document.addEventListener('pointerlockchange', () => {
   $('pause').style.display = (!S.locked && S.mode && !S.inv) ? 'flex' : 'none';
   if (!S.locked) { mouse.left = false; for (const k in keys) keys[k] = false; }
 });
+// pixelation: the scene is drawn at a lower resolution and scaled up with hard edges. 0 is off, 100 is very blocky
+function setPixelation(v) {
+  S.pixel = clamp(+v || 0, 0, 100);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * (1 - 0.86 * Math.pow(S.pixel / 100, 0.8)));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.domElement.style.imageRendering = S.pixel > 0 ? 'pixelated' : 'auto';
+  try { localStorage.setItem('breach_pixel', String(S.pixel)); } catch (e) {}
+}
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = vmCamera.aspect = innerWidth / innerHeight;

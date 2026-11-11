@@ -21,6 +21,9 @@ class Ragdoll {
     this.p = pts.map(v => v.clone()); this.q = pts.map(v => v.clone());
     this.rad = RAG_RAD.slice();
     this.c = []; this.life = 0; this.acc = 0; this.pool = null; this.keep = !!masks.keep;
+    // bleeding that carries on after death (ml/s at the start), and whether the body twitches for a few seconds as it dies
+    this.bleedR = masks.bleed !== undefined ? masks.bleed : (masks.w && masks.w.length ? 12 + 7 * masks.w.length : 0); this.bledV = 0;
+    this.twitch = masks.twitch || 0; this.actT = 0; this.actSeed = Math.random() * 50;
     const p = this.p, C = this.c;
     // a limb cut part-way keeps its first segment, clipped at the cut; everything past it is gone
     const hidden = new Set(), cutSeg = {}, lc = masks.lc || [];
@@ -89,7 +92,7 @@ class Ragdoll {
       const m = new THREE.Object3D(); m.position.copy(w.p).addScaledVector(w.n, 0.004); m.position.y += dy; m.userData.keep = true; g.add(m);
       this.anchors.push({ m, n: w.n.clone() });
       if (w.st && w.st.isMesh) { const sk = soakMesh(g, w.p.clone().setY(w.p.y + dy), w.n, w.st.scale.x); this.soaks = this.soaks || []; this.soaks.push([sk, w.grow]); }
-      if (w.tear) tearMesh(g, w.p.clone().setY(w.p.y + dy), w.n, w.tear);
+      (this.liq = this.liq || []).push([w.frame, w.p.clone().setY(w.p.y + dy), w.n.clone(), w.tear]);
     }
     if (masks.gib) B.add(sph(0.052), 0x6a0505, this.torso, 0, 0.315, 0, null, [1, 0.6, 1]);
     if (masks.nh) this.group.traverse(o => { if (o.userData.armor === 'helmet') o.visible = false; });
@@ -100,7 +103,8 @@ class Ragdoll {
     this.lostMask = lost; this.sync(); this.group.updateMatrixWorld(true);
     for (const i of hidden) if ((i % 2 === 0 || !hidden.has(i - 1)) && !cutSeg[i - (i % 2)] && !(i % 2 && cutSeg[i - 1])) this.stump(i);
     for (const i in cutSeg) this.cutAt(+i, cutSeg[i]);
-    if (masks.gib) { addStump(this.torso, new V3(0, 0.33, 0), new V3(0, 1, 0), 0.05); }
+    if (this.liq) { this.group.updateMatrixWorld(true); for (const [fr, lp, n, tear] of this.liq) { const [g] = this.frameGroup(fr); if (g) { if (tear) tearMesh(g, lp, n, tear); else liquidBlood(g, lp, n, 0.022, 5, 1); } } this.liq = null; }
+    if (masks.gib) { addStump(this.torso, new V3(0, 0.33, 0), new V3(0, 1, 0), 0.05); const st = new THREE.Object3D(); st.position.set(0, 0.34, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) }); this.bleedR += 70; }
     this.sync();
   }
   // which piece of the ragdoll stands for a skeleton frame, and the y offset from frame coordinates to that piece
@@ -111,14 +115,15 @@ class Ragdoll {
   // bone-and-flesh stump on whatever segment si was attached to
   stump(si) {
     const r = si < 4 ? (si % 2 ? 0.04 : 0.05) : (si % 2 ? 0.055 : 0.075);
-    if (si % 2 === 0) { const lp = this.torso.worldToLocal(this.p[RAG_LIMBS[si][0]].clone()); addStump(this.torso, lp, si < 4 ? new V3(Math.sign(lp.x), -0.4, 0) : new V3(0, -1, 0), r); }
-    else { let par = null; for (const l of this.limbs) if (l.seg === si - 1) par = l; if (par) addStump(par.g, new V3(0, par.bot, 0), new V3(0, -1, 0), r); }
+    if (si % 2 === 0) { const lp = this.torso.worldToLocal(this.p[RAG_LIMBS[si][0]].clone()), n = si < 4 ? new V3(Math.sign(lp.x), -0.4, 0).normalize() : new V3(0, -1, 0); addStump(this.torso, lp, n, r); const a = new THREE.Object3D(); a.position.copy(lp); this.torso.add(a); this.anchors.push({ m: a, n }); this.bleedR += 25; }
+    else { let par = null; for (const l of this.limbs) if (l.seg === si - 1) par = l; if (par) { addStump(par.g, new V3(0, par.bot, 0), new V3(0, -1, 0), r); const a = new THREE.Object3D(); a.position.set(0, par.bot, 0); par.g.add(a); this.anchors.push({ m: a, n: new V3(0, -1, 0) }); this.bleedR += 15; } }
   }
   gibHead(dir) {
     const hp = this.headG.getWorldPosition(new V3()); this.headG.visible = false; this.headG.traverse(o => { o.visible = false; });
     addStump(this.torso, new V3(0, 0.33, 0), new V3(0, 1, 0), 0.05);
     for (const a of this.anchors) if (a.m.parent === this.headG) this.anchors.splice(this.anchors.indexOf(a), 1);
     const st = new THREE.Object3D(); st.position.set(0, 0.34, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) });
+    this.bleedR += 70; this.twitch = Math.max(this.twitch, 3); this.asleep = false;
     goreBurst(hp, dir.clone().normalize(), this.skin);
   }
   // clip segment si at fraction t from its top, with a stump on the end that stays; returns the cut height
@@ -217,7 +222,7 @@ class Ragdoll {
     const p = this.p, q = this.q;
     for (let i = 0; i < p.length; i++) {
       const r = this.rad[i], P = p[i], Q = q[i];
-      if (P.y < r) { P.y = r; Q.y = Math.max(Q.y, r); Q.x = P.x - (P.x - Q.x) * 0.45; Q.z = P.z - (P.z - Q.z) * 0.45; }
+      if (P.y < r) { P.y = r; Q.y = Math.max(Q.y, r); const fk = this.fric || 0.45; Q.x = P.x - (P.x - Q.x) * fk; Q.z = P.z - (P.z - Q.z) * fk; }
       for (const c of colliders) {
         if (P.x > c.min.x - r && P.x < c.max.x + r && P.y > c.min.y - r && P.y < c.max.y + r && P.z > c.min.z - r && P.z < c.max.z + r && !(c.mesh && gridOpenW(c.mesh, P))) {
           const d = [P.x - (c.min.x - r), (c.max.x + r) - P.x, P.y - (c.min.y - r), (c.max.y + r) - P.y, P.z - (c.min.z - r), (c.max.z + r) - P.z];
@@ -230,10 +235,61 @@ class Ragdoll {
     }
   }
   kick(dir, power, idx) { const h = 1 / 120; const i = idx === undefined ? 1 : idx; this.q[i].addScaledVector(dir, -power * h); this.q[2].addScaledVector(dir, -power * 0.3 * h); this.life = Math.min(this.life, 4); this.asleep = false; this.still = 0; }
+  // ---------------------------------------------------------------- the body moving on its own
+  // Writhing: someone down but awake rolls side to side, draws the knees up and holds the wound, weaker as the blood runs out.
+  // Twitching: in the first seconds after a sudden death (brain, spine, a destroyed head) the limbs jerk at random.
+  act(dt) {
+    const own = this.owner, d = own && own.dummy, an = d && !d.dead && d.rag === this ? d.anat : null;
+    // conscious and down: rolls around for a long while; knocked down by pain: thrashes for a few seconds, then passes out
+    const writhe = an && an.blood > 2200 ? clamp((an.blood - 2200) / 2000, 0.25, 1) * (an.painDown ? Math.exp(-this.actT / 5) : Math.exp(-this.actT / 40)) : 0;
+    const tw = this.twitch > 0 && this.life < this.twitch * 1.6 + 1 ? Math.exp(-this.life / Math.max(1, this.twitch * 1.1)) : 0;
+    this.fric = writhe > 0.02 ? 0.82 : 0.45;   // a writhing body grips and slides less than a dead weight
+    if (writhe <= 0.02 && tw <= 0.02) return false;
+    this.actT += dt; const p = this.p, q = this.q, h = 1 / 120, t = this.actT + this.actSeed, push = (i, v) => { if (p[i]) q[i].addScaledVector(v, -h * dt * 30); };   // a steady push: about 30 x v per second of speed gained
+    if (writhe > 0) {
+      const up = _a.subVectors(p[1], p[2]).normalize(), side = _b.subVectors(p[6], p[3]).normalize(), roll = Math.sin(t * 1.3) * Math.sin(t * 0.37 + 1);
+      // rolling: shoulders and hips pushed the same way across the floor, the shoulder leading
+      const rv = side.clone().multiplyScalar(roll * 0.9 * writhe).add(new V3(0, 0.25 * writhe * Math.max(0, roll), 0));
+      push(3, rv); push(6, rv); push(1, rv.clone().multiplyScalar(0.6));
+      if (!an.paralyzed && !an.bothLegs()) {
+        // knees drawn up toward the belly, one then the other, and a slow kick out again
+        for (const [k, f, s] of [[10, 11, 1], [13, 14, -1]]) { const pull = Math.max(0, Math.sin(t * 0.9 + s)) * writhe; const to = _c.subVectors(p[2], p[k]).normalize().multiplyScalar(pull * 0.8); push(k, to); push(f, to.clone().multiplyScalar(0.6)); }
+      }
+      // a hand goes to the newest wound and presses on it
+      const a = this.anchors[this.anchors.length - 1];
+      if (a && a.m.parent) { const w = a.m.getWorldPosition(new V3()); for (const hi of [5, 8]) { const dv = w.clone().sub(p[hi]); const L = dv.length(); if (L > 0.05) push(hi, dv.multiplyScalar(Math.min(1.4, L * 3) / L * writhe * (hi === 5 ? 1 : 0.6))); } }
+      // the head lifts and drops
+      push(0, up.clone().multiplyScalar(Math.sin(t * 2.1) * 0.35 * writhe));
+    }
+    if (tw > 0) {
+      this.twN = (this.twN || 0) - dt;
+      if (this.twN <= 0) {
+        this.twN = rnd(0.06, 0.35) / (0.4 + tw);
+        const i = pick([0, 4, 5, 7, 8, 10, 11, 13, 14]), v = new V3(rnd(-1, 1), rnd(-0.3, 1), rnd(-1, 1)).multiplyScalar(rnd(0.8, 2.2) * tw);
+        if (p[i]) q[i].addScaledVector(v, -h);   // one jerk: the limb is suddenly moving at v
+      }
+    }
+    this.asleep = false; this.still = 0; return true;
+  }
+  // blood that keeps coming after death: under each wound and stump, slowing over about half a minute, into pools
+  bleed(dt) {
+    const own = this.owner, alive = own && own.dummy && !own.dummy.dead && own.dummy.rag === this;
+    if (alive || this.bleedR < 0.3 || !this.anchors.length || this.bledV > 2600) return;
+    const r = this.bleedR; this.bleedR *= Math.exp(-dt / 45); this.bledV += r * dt;
+    const per = r * dt / this.anchors.length, w = new V3(), n = new V3();
+    for (const a of this.anchors) {
+      if (!a.m.parent) continue; a.m.getWorldPosition(w); n.copy(a.n).transformDirection(a.m.parent.matrixWorld);
+      const fy = floorAt(w.x, w.y, w.z);
+      if (w.y - fy < 0.5) feedPool(w.x + n.x * 0.07, fy, w.z + n.z * 0.07, per);
+      else { a.drip = (a.drip || 0) + dt * Math.min(6, 0.5 + r * 0.05); while (a.drip > 1) { a.drip--; spawnDrop(w, new V3(rnd(-0.05, 0.05), -0.1, rnd(-0.05, 0.05)), rnd(0.005, 0.008), 1, 0.6, per * 4); } }
+    }
+  }
   update(dt) {
     this.life += dt;
+    const acting = this.act(dt);
+    this.bleed(dt);
     // the body settles and then lies still (a new hit wakes it), so a first-person view from its head does not drift
-    if (this.life < 9 && !this.asleep) {
+    if ((this.life < 9 || acting) && !this.asleep) {
       this.acc += dt; let n = 0;
       while (this.acc >= 1 / 120 && n < 5) { this.step(1 / 120); this.acc -= 1 / 120; n++; }
       if (this.acc > 1 / 120) this.acc = 0;

@@ -154,7 +154,7 @@ function blastVisual(shot, hit, dir, info, key, hum) {
   const k = clamp((g.n - 2) / 5, 0.3, 1) * (sp < 0.06 ? 1 : 0.6);
   if (part === 'headwound') { spawnGore(c, dir, 'flesh', 3, 2.5, 0.5, 0.014); spawnGore(c, dir, 'bone', 2, 3, 0.5, 0.01); spawnGore(c, dir, 'skull', 2, 3, 0.5, 0.025, hum && hum.pal && hum.pal.skin); }
   else goreBlast(part, c, dir, k);
-  if (!wallSpatter(c.clone().addScaledVector(dir, 0.1), dir, rnd(0.6, 0.95) * (0.6 + k * 0.5), true)) sprayDecal(c, dir, rnd(0.7, 1.05));
+  blowSpatter(c.clone().addScaledVector(dir, 0.1), dir, rnd(0.6, 0.95) * (0.6 + k * 0.5), true);
   noiseHit(320, 0.12, 0.1);
 }
 // what a round does when it reaches something. Returns where and how fast it carries on, or null if it stopped.
@@ -177,7 +177,7 @@ function onBulletHit(b, hit, dir, dist) {
       if (b.shot) blastVisual(b.shot, hit, dir, info, rag, null);
     }
     if (b.w === 2 && (info.frame === 'head' || info.frame === 'neck') && rag.headG.visible && b.local) { rag.gibHead(dir); cont = null; }
-    else if (cont && (info.frame === 'head' || info.frame === 'neck')) wallSpatter(cont.point, dir, rnd(0.55, 0.8));
+    else if (cont && (info.frame === 'head' || info.frame === 'neck')) wallSpatter(cont.point, dir, rnd(0.55, 0.8), true);
     let ni = 1, nd = 1e9; for (let i = 0; i < 16; i++) { const dd = rag.p[i].distanceToSquared(hit.point); if (dd < nd) { nd = dd; ni = i; } }
     rag.kick(dir, (0.35 + v / 1500) * (b.w === 2 ? 3 : 1) * (cont ? 0.5 : 1), ni);
     if (!b.local) return cont;
@@ -206,8 +206,8 @@ function onBulletHit(b, hit, dir, dist) {
       const pen = bodyPen(info.frame, info.e, info.d, ex ? ex.len : 0.3, afterArmor(info.armor, info.d), b.w);
       info.pd = pen.depth; bodyWound(hit, dir, b.w, pen, ex, ud.hum);
       bloodFx(hit.point, dir, false, pen.v > 0 && ex ? 1 : 0.4);
-      if (pen.v > 0 && ex) { bloodFx(ex.point, dir, true); cont = { point: ex.point, dir, v: pen.v }; if (info.frame === 'head' || info.frame === 'neck') wallSpatter(ex.point, dir, rnd(0.6, 0.9)); }
-      else if (info.frame === 'head' || info.frame === 'neck') { bloodFx(hit.point, dir, false, 2); wallSpatter(hit.point, dir, rnd(0.3, 0.45)); }
+      if (pen.v > 0 && ex) { bloodFx(ex.point, dir, true); cont = { point: ex.point, dir, v: pen.v }; if (info.frame === 'head' || info.frame === 'neck') wallSpatter(ex.point, dir, rnd(0.6, 0.9), true); }
+      else if (info.frame === 'head' || info.frame === 'neck') { bloodFx(hit.point, dir, false, 2); blowSpatter(hit.point, dir, rnd(0.35, 0.55)); }
       if (b.shot) blastVisual(b.shot, hit, dir, info, ud.hum, ud.hum);
     }
     if (!b.local) return cont;
