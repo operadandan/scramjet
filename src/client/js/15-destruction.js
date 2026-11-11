@@ -26,15 +26,104 @@ function packHit(hit, dir, v) {
 // 10 cm across. When a patch has taken enough it breaks open into a ragged hole, and every round landing around it after that
 // tears the hole wider. Plaster and plywood give way after a few rounds; concrete takes rifle fire for a long time or a couple of .50s.
 const DESTR = {
-  plywood:  { hp: 1100, grow: 0.08, rmax: 0.6, col: 0xc89c66, inner: 0x6a4a28, pit: 0x6a4a28, deb: 'wood', dust: 0xb48c5c, snd: [900, 0.07] },
-  wood:     { hp: 2600, grow: 0.06, rmax: 0.4, col: 0xa0784a, inner: 0x3a2614, pit: 0x3a2614, deb: 'wood', dust: 0x8a6a45, snd: [800, 0.07] },
-  drywall:  { hp: 800, grow: 0.1, rmax: 0.7, col: 0xe8e4dc, inner: 0x8f8a80, pit: 0xb9b3a8, deb: 'plaster', dust: 0xeeeae4, snd: [1100, 0.06] },
-  concrete: { hp: 24000, grow: 0.09, rmax: 0.45, col: 0x9d988f, inner: 0x6e6a62, pit: 0x7c776e, deb: 'rock', dust: 0xb8b2a6, snd: [1400, 0.07] }
+  plywood:  { hp: 1100, grow: 0.09, rmax: 0.8, col: 0xc89c66, inner: 0x6a4a28, pit: 0x6a4a28, deb: 'wood', dust: 0xb48c5c, snd: [900, 0.07] },
+  wood:     { hp: 2600, grow: 0.07, rmax: 0.5, col: 0xa0784a, inner: 0x3a2614, pit: 0x3a2614, deb: 'wood', dust: 0x8a6a45, snd: [800, 0.07] },
+  drywall:  { hp: 800, grow: 0.11, rmax: 0.9, col: 0xe8e4dc, inner: 0x8f8a80, pit: 0xb9b3a8, deb: 'plaster', dust: 0xeeeae4, snd: [1100, 0.06] },
+  concrete: { hp: 24000, grow: 0.09, rmax: 0.55, col: 0x9d988f, inner: 0x6e6a62, pit: 0x7c776e, deb: 'rock', dust: 0xb8b2a6, snd: [1400, 0.07] }
 };
 const DESTR_OF = { plywood: 'plywood', crate: 'wood', drywall: 'drywall', concrete: 'concrete' };
 const BRK = 32, PIT0 = 32, SLOTS = 48;
+
+// ---------------------------------------------------------------- what is left of a wall
+// A grid of 5 cm cells over the wall face records what is open: inside a hole that goes all the way through, or broken away.
+// After every break, any solid part no longer joined to something that holds it up (the floor, a wall or roof it touches)
+// falls out as chunks, so nothing hangs in the air. The same grid lets players, bodies, blood and rounds through the openings.
+const GRID_CS = 0.05;
+function wallGrid(mesh) {
+  const ud = mesh.userData; if (ud.grid !== undefined) return ud.grid;
+  const gp = mesh.geometry.parameters; if (!gp || gp.width === undefined || !ud.box) return ud.grid = null;
+  const dims = [gp.width, gp.height, gp.depth]; let ax = 0; for (let k = 1; k < 3; k++) if (dims[k] < dims[ax]) ax = k;
+  if (ax === 1 || dims[ax] > 0.4) return ud.grid = null;
+  const a1 = ax === 0 ? 2 : 0, a2 = 1, n1 = Math.max(2, Math.round(dims[a1] / GRID_CS)), n2 = Math.max(2, Math.round(dims[a2] / GRID_CS));
+  const tex = new THREE.DataTexture(new Uint8Array(n1 * n2), n1, n2, THREE.RedFormat, THREE.UnsignedByteType); tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter; tex.needsUpdate = true;
+  const G = { ax, a1, a2, n1, n2, cs1: dims[a1] / n1, cs2: dims[a2] / n2, min1: -dims[a1] / 2, min2: -dims[a2] / 2, cell: new Uint8Array(n1 * n2), tex, any: false };
+  // what holds it up: the floor under it, and any other solid it touches at the sides or on top
+  const b = ud.box, touch = (x, y, z) => b.min.y <= 0.02 && y < 0.01 ? true : colliders.some(c => c !== b && x > c.min.x - 0.01 && x < c.max.x + 0.01 && y > c.min.y - 0.01 && y < c.max.y + 0.01 && z > c.min.z - 0.01 && z < c.max.z + 0.01);
+  const ctr = mesh.position, hs = (k, s) => ctr.getComponent(k) + s * (dims[k] / 2 + 0.02), side = s => [0.2, 0.5, 0.8].some(f => { const p = ctr.clone(); p.setComponent(a1, hs(a1, s)); p.y = b.min.y + dims[1] * f; return touch(p.x, p.y, p.z); });
+  G.hold = { bottom: b.min.y <= 0.02 || touch(ctr.x, b.min.y - 0.02, ctr.z), top: touch(ctr.x, b.max.y + 0.02, ctr.z), s0: side(-1), s1: side(1) };
+  return ud.grid = G;
+}
+// local wall coordinates of a world point (walls are never rotated)
+const gridIdx = (G, mesh, x, y, z) => { const l1 = (G.a1 === 0 ? x : z) - mesh.position.getComponent(G.a1), l2 = y - mesh.position.y, i = Math.floor((l1 - G.min1) / G.cs1), j = Math.floor((l2 - G.min2) / G.cs2); return i < 0 || j < 0 || i >= G.n1 || j >= G.n2 ? -1 : j * G.n1 + i; };
+function gridOpenW(mesh, p) { const G = mesh.userData.grid; if (!G || !G.any) return false; const k = gridIdx(G, mesh, p.x, p.y, p.z); return k >= 0 && G.cell[k] > 0; }
+// can something of this half-width and height stand where pos is and pass through the wall's openings
+function gridPass(c, pos, h, r) {
+  const mesh = c.mesh, G = mesh && mesh.userData.grid; if (!G || !G.any) return false;
+  const along = G.a1 === 0 ? 'x' : 'z';
+  // a low sill left at the bottom of an opening is stepped over
+  for (let y = pos.y + 0.26; y <= pos.y + h - 0.02 + 1e-6; y += 0.1) for (const s of [-1, -0.5, 0, 0.5, 1]) {
+    const q = { x: pos.x, y, z: pos.z }; q[along] += s * r * 0.8;
+    const k = gridIdx(G, mesh, q.x, q.y, q.z); if (k >= 0 && !G.cell[k]) return false;
+  }
+  return true;
+}
+function updateWallGrid(mesh, D, dir) {
+  const G = wallGrid(mesh); if (!G) return;
+  const ud = mesh.userData, { n1, n2, cs1, cs2, min1, min2, cell } = G, q = new V3();
+  const holes = ud.dmg.filter(c => c.through && c.r > 0 && c.ax === G.ax).map(c => { q.set(0, 0, 0); q.setComponent((c.ax + 1) % 3, c.u); q.setComponent((c.ax + 2) % 3, c.v); return [q.getComponent(G.a1), q.getComponent(G.a2), c.r * 1.0]; });
+  if (!holes.length) return;
+  for (let j = 0; j < n2; j++) for (let i = 0; i < n1; i++) {
+    const k = j * n1 + i; if (cell[k]) continue; const u = min1 + (i + 0.5) * cs1, v = min2 + (j + 0.5) * cs2;
+    for (const [hu, hv, r] of holes) if ((u - hu) * (u - hu) + (v - hv) * (v - hv) < r * r) { cell[k] = 1; G.any = true; G.tex.image.data[k] = 255; G.dirty = true; break; }
+  }
+  // flood fill the solid part from whatever holds it up; the rest breaks away
+  const seen = new Uint8Array(n1 * n2), st = [], push = k => { if (!cell[k] && !seen[k]) { seen[k] = 1; st.push(k); } };
+  if (G.hold.bottom) for (let i = 0; i < n1; i++) push(i);
+  if (G.hold.top) for (let i = 0; i < n1; i++) push((n2 - 1) * n1 + i);
+  if (G.hold.s0) for (let j = 0; j < n2; j++) push(j * n1);
+  if (G.hold.s1) for (let j = 0; j < n2; j++) push(j * n1 + n1 - 1);
+  while (st.length) { const k = st.pop(), i = k % n1, j = (k - i) / n1; if (i > 0) push(k - 1); if (i < n1 - 1) push(k + 1); if (j > 0) push(k - n1); if (j < n2 - 1) push(k + n1); }
+  const fall = []; for (let k = 0; k < n1 * n2; k++) if (!cell[k] && !seen[k]) { cell[k] = 2; fall.push(k); }
+  if (G.dirty) { G.tex.needsUpdate = true; G.dirty = false; }
+  if (!fall.length) return;
+  for (const k of fall) G.tex.image.data[k] = 255; G.tex.needsUpdate = true;
+  // the loose piece comes down as chunks, roughly one per 10 x 10 cm, capped so a big slab does not flood the scene
+  const thick = [mesh.geometry.parameters.width, mesh.geometry.parameters.height, mesh.geometry.parameters.depth][G.ax], step = Math.max(1, Math.round(Math.sqrt(fall.length / 70)));
+  for (let n = 0; n < fall.length; n += step * 2) {
+    const k = fall[n], i = k % n1, j = (k - i) / n1; q.set(0, 0, 0); q.setComponent(G.a1, min1 + (i + 0.5) * cs1); q.setComponent(G.a2, min2 + (j + 0.5) * cs2); q.setComponent(G.ax, rnd(-0.4, 0.4) * thick);
+    const wp = mesh.localToWorld(q.clone()), out = new V3().setComponent(G.ax, Math.random() < 0.5 ? 1 : -1);
+    spawnDebris(wp, 1, (dir ? dir.clone().lerp(out, 0.5) : out).normalize(), 0.35, rnd(0.4, 1.6), D, Math.min(0.06, Math.max(cs1, cs2) * step * 0.9 + thick * 0.3));
+  }
+  const mid = fall[fall.length >> 1], mi = mid % n1, mj = (mid - mi) / n1; q.set(0, 0, 0); q.setComponent(G.a1, min1 + (mi + 0.5) * cs1); q.setComponent(G.a2, min2 + (mj + 0.5) * cs2);
+  dust(mesh.localToWorld(q.clone()), new V3(0, -1, 0), D.dust, 0.8 + Math.sqrt(fall.length) * 0.05, 0.65, 2.6); noiseHit(D.deb === 'rock' ? 300 : 520, 0.3, 0.14);
+  // craters that sat on the piece that fell go with it
+  for (const c of ud.dmg) c.chips = c.chips.filter(ch => { q.set(0, 0, 0); q.setComponent((c.ax + 1) % 3, ch.u); q.setComponent((c.ax + 2) % 3, ch.v); const w = mesh.localToWorld(q.clone()); if (gridOpenW(mesh, w)) { dropDecal(ch.m); return false; } return true; });
+}
+// the wall shader also drops whatever the grid marks as broken away (with a slightly ragged edge)
+const MASK_GLSL = p => '{ vec2 muv = vec2((dot(' + p + ', hS1) - hMP.x) / hMP.z, (dot(' + p + ', hS2) - hMP.y) / hMP.w); float jt = fract(sin(dot(floor(' + p + ' * 70.0), vec3(12.9898, 78.233, 37.719))) * 43758.5453);' +
+  ' if (muv.x >= 0.0 && muv.x <= 1.0 && muv.y >= 0.0 && muv.y <= 1.0 && texture2D(hMask, muv).r > 0.3 + 0.35 * jt) discard; }\n';
+function maskUniforms(G) {
+  const s1 = new V3().setComponent(G.a1, 1), s2 = new V3().setComponent(G.a2, 1);
+  return { hMask: { value: G.tex }, hMP: { value: new THREE.Vector4(G.min1, G.min2, G.n1 * G.cs1, G.n2 * G.cs2) }, hS1: { value: s1 }, hS2: { value: s2 } };
+}
+const MASK_DECL = '\nuniform sampler2D hMask; uniform vec4 hMP; uniform vec3 hS1; uniform vec3 hS2;\n';
+function wallMask(mesh) {
+  const G = wallGrid(mesh), m = mesh.material; if (!G || m.userData.hMask) return;
+  const U = maskUniforms(G); Object.assign(m.userData, U); const prev = m.onBeforeCompile;
+  m.onBeforeCompile = sh => { prev(sh); Object.assign(sh.uniforms, U); sh.fragmentShader = sh.fragmentShader.replace('uniform vec4 hCut;', 'uniform vec4 hCut;' + MASK_DECL).replace('if (dot(vHolePos, hCut.xyz) > hCut.w) discard;', 'if (dot(vHolePos, hCut.xyz) > hCut.w) discard;\n' + MASK_GLSL('vHolePos')); };
+  m.customProgramCacheKey = () => 'holesmask' + SLOTS; m.needsUpdate = true;
+  // the wall's shadow gets the same openings
+  const dm = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  dm.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, U, { hA: m.userData.hA, hB: m.userData.hB });
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vHolePos;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvHolePos = position;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vHolePos;' + MASK_DECL + 'uniform vec4 hA[' + SLOTS + '];\nuniform vec4 hB[' + SLOTS + '];\n' + HOLE_JAG)
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n' + MASK_GLSL('vHolePos') + 'for (int i = 0; i < ' + BRK + '; i++) { if (hA[i].w > 0.0) { vec3 hq = vHolePos - hA[i].xyz; float L2 = max(dot(hB[i].xyz, hB[i].xyz), 1e-8); float t = dot(hq, hB[i].xyz) / L2; if (t > 0.0 && t < 1.0) { vec3 hp = hq - hB[i].xyz * t; if (length(hp) < mix(hA[i].w, hB[i].w, t) * holeJag(i, hp, hB[i].xyz)) discard; } } }');
+  };
+  dm.customProgramCacheKey = () => 'wallshadow'; mesh.customDepthMaterial = dm;
+}
 function cutSlot(mesh, i, p, d, len, r0, r1, inner, t0, t1, cap) {
-  holeify(mesh, SLOTS, inner); mesh.userData.holeMax = SLOTS;
+  holeify(mesh, SLOTS, inner); mesh.userData.holeMax = SLOTS; wallMask(mesh);
   const u = mesh.material.userData; u.hA.value[i].set(p.x, p.y, p.z, r0); u.hB.value[i].set(d.x * len, d.y * len, d.z * len, r1);
   const T = mesh.userData.tubes = mesh.userData.tubes || {};
   if (T[i]) { T[i].removeFromParent(); T[i].geometry.dispose(); }
@@ -67,14 +156,14 @@ function wallClipMat(base, wall, skip) {
   if (!DESTR_OF[wall.userData.kind]) return skip === -1 && wall.geometry ? edgeClipMat(base, wall) : base;
   if (wall.userData.holeN === undefined) holeify(wall, SLOTS, DESTR[DESTR_OF[wall.userData.kind]].inner);
   wall.userData.holeMax = SLOTS;
-  const m = base.clone(), U = wall.material.userData, hW = { value: wall.matrixWorld.clone().invert() }, bb = _wallBox(wall), bMin = { value: bb.min.clone() }, bMax = { value: bb.max.clone() };
+  const m = base.clone(), U = wall.material.userData, hW = { value: wall.matrixWorld.clone().invert() }, bb = _wallBox(wall), bMin = { value: bb.min.clone() }, bMax = { value: bb.max.clone() }, G = wallGrid(wall), MU = G ? maskUniforms(G) : null;
   m.onBeforeCompile = sh => {
-    sh.uniforms.hA = U.hA; sh.uniforms.hB = U.hB; sh.uniforms.hW = hW; sh.uniforms.bMin = bMin; sh.uniforms.bMax = bMax;
+    sh.uniforms.hA = U.hA; sh.uniforms.hB = U.hB; sh.uniforms.hW = hW; sh.uniforms.bMin = bMin; sh.uniforms.bMax = bMax; if (MU) Object.assign(sh.uniforms, MU);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform mat4 hW;\nvarying vec3 vWallPos;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWallPos = (hW * modelMatrix * vec4(transformed, 1.0)).xyz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWallPos;\nuniform vec3 bMin; uniform vec3 bMax;\nuniform vec4 hA[' + SLOTS + '];\nuniform vec4 hB[' + SLOTS + '];\n' + HOLE_JAG)
-      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n' + (skip === -1 ? EDGE_CLIP : '') + '\nfor (int i = 0; i < ' + SLOTS + '; i++) { if (i != ' + skip + ' && hA[i].w > 0.0) { vec3 hq = vWallPos - hA[i].xyz; float L2 = max(dot(hB[i].xyz, hB[i].xyz), 1e-8); float t = dot(hq, hB[i].xyz) / L2; if (t > 0.0 && t < 1.0) { vec3 hp = hq - hB[i].xyz * t; if (length(hp) < mix(hA[i].w, hB[i].w, t) * holeJag(i, hp, hB[i].xyz)) discard; } } }');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWallPos;\nuniform vec3 bMin; uniform vec3 bMax;' + (MU ? MASK_DECL : '') + '\nuniform vec4 hA[' + SLOTS + '];\nuniform vec4 hB[' + SLOTS + '];\n' + HOLE_JAG)
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n' + (skip === -1 ? EDGE_CLIP : '') + (MU ? MASK_GLSL('vWallPos') : '') + '\nfor (int i = 0; i < ' + SLOTS + '; i++) { if (i != ' + skip + ' && hA[i].w > 0.0) { vec3 hq = vWallPos - hA[i].xyz; float L2 = max(dot(hB[i].xyz, hB[i].xyz), 1e-8); float t = dot(hq, hB[i].xyz) / L2; if (t > 0.0 && t < 1.0) { vec3 hp = hq - hB[i].xyz * t; if (length(hp) < mix(hA[i].w, hB[i].w, t) * holeJag(i, hp, hB[i].xyz)) discard; } } }');
   };
-  m.customProgramCacheKey = () => 'wclip' + skip;
+  m.customProgramCacheKey = () => 'wclip' + skip + (MU ? 'm' : '');
   return m;
 }
 function placeDecalD(mesh, point, normal, size, material, depth) {
@@ -172,7 +261,7 @@ function updateDebris(dt) {
     let floor = d.r;
     for (const c of colliders) {
       const p = d.m.position;
-      if (p.x > c.min.x && p.x < c.max.x && p.z > c.min.z && p.z < c.max.z && p.y < c.max.y + d.r && p.y > c.min.y) {
+      if (p.x > c.min.x && p.x < c.max.x && p.z > c.min.z && p.z < c.max.z && p.y < c.max.y + d.r && p.y > c.min.y && !(c.mesh && gridOpenW(c.mesh, p))) {
         if (_dprev.y >= c.max.y + d.r * 0.5) floor = Math.max(floor, c.max.y + d.r);
         else { d.m.position.x = _dprev.x; d.m.position.z = _dprev.z; if (_dprev.x <= c.min.x || _dprev.x >= c.max.x) d.v.x *= -0.3; else d.v.z *= -0.3; }
       }
@@ -195,9 +284,11 @@ function dust(p, n, col, size, op, life) {
 // an open hole that a round goes straight through without touching anything
 function holePass(mesh, point, n, dir, v) {
   const ud = mesh.userData; if (!ud.dmg || !ud.box) return null;
+  const fresh = performance.now() - (ud.brokeT || 0) < 40;
+  if (!fresh && gridOpenW(mesh, point.clone().addScaledVector(dir, 0.01))) { const bx = boxExit(ud.box, point, dir); return { point: point.clone().addScaledVector(dir, bx.t + 0.01), dir, v, free: true }; }
   const ax = Math.abs(n.x) > 0.7 ? 0 : Math.abs(n.y) > 0.7 ? 1 : 2, pl = mesh.worldToLocal(point.clone());
   for (const c of ud.dmg) {
-    if (c.r <= 0 || !c.through || c.ax !== ax) continue;
+    if (c.r <= 0 || !c.through || c.ax !== ax || fresh) continue;
     if (Math.hypot(pl.getComponent((ax + 1) % 3) - c.u, pl.getComponent((ax + 2) % 3) - c.v) < c.r * 0.92) {
       const bx = boxExit(ud.box, point, dir); return { point: point.clone().addScaledVector(dir, bx.t + 0.01), dir, v, free: true };
     }
@@ -216,7 +307,7 @@ function wallDamage(mesh, point, n, dir, E, w, side, through) {
   for (const k of ud.dmg) { if (k.ax !== ax) continue; const dd = Math.hypot(k.u - u, k.v - v); if (dd < Math.max(0.09, k.r + 0.12) && dd < bd) { bd = dd; c = k; } }
   if (!c) { c = { ax, u, v, d: 0, r: 0, slot: -1, chips: [], rings: [], through: false }; ud.dmg.push(c); }
   // a pistol round flattens and bursts on concrete: lots of dust and a scar, very little real damage
-  c.d += E * (side ? 1 : 0.5) * (rock && pistol ? 0.2 : 1);
+  c.d += E * (side ? 1 : 0.5) * (rock && pistol ? 0.2 : 1) * (isShotgun(w) ? (rock ? 1.4 : 3.2) : 1);
   const out = n.clone(), pOut = point.clone().addScaledVector(out, 0.012);
   const refl = dir.clone().addScaledVector(out, -2 * dir.dot(out)).normalize();
   const eject = side ? refl.lerp(out, 0.5).normalize() : dir.clone().lerp(out, 0.4).normalize();
@@ -258,7 +349,7 @@ function breakOpen(mesh, c, nr, D, dims, dir, sgn) {
   if (full) { p0.setComponent(ax, -(thick / 2 + 0.05)); d.setComponent(ax, 1); }
   else { p0.setComponent(ax, sgn * (thick / 2 + 0.05)); d.setComponent(ax, -sgn); }
   const ln = full ? thick + 0.1 : 0.3; cutSlot(mesh, c.slot, p0, d, ln, nr, nr * (D.deb === 'rock' ? 1.12 : 1.04), D.inner, 0.05 / ln, full ? (thick + 0.05) / ln : 1, !full);
-  c.r = nr; c.through = full;
+  c.r = nr; c.through = full; ud.brokeT = performance.now();
   // craters that are now inside the hole would float in the air: take them away
   for (const o of ud.dmg) if (o.ax === ax) o.chips = o.chips.filter(ch => { if (Math.hypot(ch.u - c.u, ch.v - c.v) < nr * 1.05) { dropDecal(ch.m); return false; } return true; });
   for (const r of c.rings) dropDecal(r); c.rings = [];
@@ -274,6 +365,7 @@ function breakOpen(mesh, c, nr, D, dims, dir, sgn) {
   dust(cw, fw, D.dust, 0.9 + nr * 3, 0.7, 2.4);
   dust(mesh.localToWorld(p0.clone().setComponent(ax, sgn * thick / 2)), bk, D.dust, 0.6 + nr * 2, 0.55, 2);
   noiseHit(D.deb === 'rock' ? 400 : 650, 0.18, 0.12);
+  if (full) updateWallGrid(mesh, D, dir);
 }
 // a hit on a ragdoll piece, expressed in the skeleton frame that piece stands for, so the anatomy sees the right body part
 function ragHitInfo(hit, dir) {

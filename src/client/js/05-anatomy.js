@@ -168,8 +168,48 @@ class Anatomy {
     }
     this.wounds.push({ region, name: 'Gunshot wound, ' + REGION_NAME[region].toLowerCase(), rate: 0.9 + 2.8 * cavity * Math.min(2, E0 / 600), treated: false });
     this.shock += 15 + E0 / 200;
+    if ((WEAPONS[w] || {}).pellets) out.blast = this.blastHit(frame, region, e, d, E0, w, limb);
     out.dead = this.dead; out.cause = this.cause; out.helmetOff = helmetOff; out.plate = armorHit;
     return out;
+  }
+  // Buckshot at close range does not arrive as nine separate bullets: the load is still a tight mass and tears one big wound.
+  // Pellets from one shot that land together on one part of the body are added up here (within a tenth of a second, the
+  // spread being how far apart they struck). A tight cluster destroys the head, takes a limb off where it hits, or opens
+  // the torso with massive bleeding. Returns what happened so the body can show it.
+  blastHit(frame, region, e, d, E0, w, limb) {
+    const now = performance.now() / 1000;
+    if (!this.bg || now - this.bg.t > 0.12 || this.bg.w !== w) this.bg = { t: now, w, z: {} };
+    const zone = region === 'neck' || region === 'head' ? 'head' : limb ? limb[0] + limb[1] : region;
+    const z = this.bg.z[zone] || (this.bg.z[zone] = { n: 0, E: 0, pts: [], frame, done: 0 });
+    z.n++; z.E += E0;
+    // head and neck share one cluster: a neck point is moved into head coordinates (the neck sits about 0.16 m below the head frame)
+    if (frame === z.frame) z.pts.push(e.clone()); else if (zone === 'head') z.pts.push(e.clone().add(new V3(0, z.frame === 'head' ? -0.16 : 0.16, 0)));
+    let spread = 0; const c = new V3(); for (const p of z.pts) c.add(p); c.multiplyScalar(1 / z.pts.length);
+    for (const p of z.pts) spread = Math.max(spread, p.distanceTo(c));
+    const res = { zone, n: z.n, spread, center: c, frame: z.frame, region };
+    if (z.n < 3) return res;
+    // every pellet in the cluster past the second tears more than it would alone
+    const k = Math.min(3, E0 / 280) * (spread < 0.05 ? 1.6 : spread < 0.1 ? 1.2 : 0.8);
+    if (zone === 'head') {
+      for (const st of STRUCTS_BY_FRAME[z.frame] || []) this.damage(this.s[st.id], st, 45 * k, region);
+      this.flesh.head = Math.max(0, this.flesh.head - 30 * k); this.flesh.neck = Math.max(0, this.flesh.neck - 15 * k);
+      if ((z.n >= 4 && spread < 0.1 || z.n >= 6 && spread < 0.14) && !this.gibHead) { this.gibHead = true; res.gib = true; this.wounds.push({ region: 'neck', name: 'Head destroyed', rate: 120, treated: false, artery: 1 }); this.kill('brain'); }
+      else if (z.n >= 3 && spread < 0.11 && !this.dead) this.kill(z.frame === 'neck' ? 'spinal' : 'brain');
+    } else if (limb) {
+      const bones = (STRUCTS_BY_FRAME[z.frame] || []).filter(st => st.type === 'bone' || st.type === 'artery');
+      for (const st of bones) if (pathDist(c, c.clone().addScaledVector(d, 0.2), st)[0] < st.r + 0.03 + spread) this.damage(this.s[st.id], st, 40 * k, region);
+      this.flesh[region] = Math.max(0, this.flesh[region] - 35 * k);
+      if (z.n >= 4 && spread < 0.07 && !z.done) { z.done = 1; const t = /hand|foot/.test(region) ? 0.93 : clamp(-c.y / (LSEG[z.frame] || 0.3), 0.1, 0.9); this.sever(limb[0], limb[1], t); res.sever = limb[0]; }
+    } else {
+      for (const st of STRUCTS_BY_FRAME[z.frame] || []) if (!st.shell && pathDist(c, c.clone().addScaledVector(d, 0.3), st)[0] < st.r + 0.02 + spread) this.damage(this.s[st.id], st, 30 * k, region);
+      this.flesh[region] = Math.max(0, this.flesh[region] - 18 * k);
+      if (z.n === 3) this.wounds.push({ region, name: 'Shotgun wound, massive tissue loss', rate: 0, treated: false, blast: 1 });
+      const bw = this.wounds.find(x => x.blast && x.region === region); if (bw) bw.rate = Math.min(70, 10 + 6 * z.n * (spread < 0.06 ? 1.4 : 1));
+      this.shock += 25; this.pain = Math.min(1, this.pain + 0.2);
+      if (z.n >= 6 && spread < 0.06 && region === 'abdomen') res.evisc = true;
+    }
+    res.big = z.n >= 3; this.version++;
+    return res;
   }
   sever(limb, lvl, t) {
     const cur = this.lost[limb]; t = t === undefined ? (lvl === 1 ? 0.12 : 0.08) : t;

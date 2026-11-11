@@ -97,6 +97,78 @@ const POOL_MAT = [0, 1, 2].map(() => { const m = wetMat(fieldTex(512, ({ blob, r
 const BLOOD_MAT = {}; for (const k in BLOOD_TEX) BLOOD_MAT[k] = wetMat(BLOOD_TEX[k], k === 'stain' ? -3 : /entry|exit|rim/.test(k) ? -5 : -4);
 BLOOD_MAT.soak.side = THREE.DoubleSide; BLOOD_MAT.soak.roughness = 0.5;
 BLOOD_MAT.stain.roughness = 0.5; BLOOD_MAT.entry.roughness = BLOOD_MAT.exit.roughness = 0.3;
+// ---------------------------------------------------------------- variety: several versions of every blood mark, picked at random
+// The same generators run several times (they are random inside), plus a few new kinds: a droplet field for exit spray, a drag
+// smear where a piece of tissue lands and slides, and spatter flecked with bits of tissue for blasts.
+const BV = {};
+function bloodKind(kind, n, size, gen, opt, off) { BV[kind] = []; for (let i = 0; i < n; i++) BV[kind].push(wetMat(fieldTex(size, gen, Object.assign({ soft: 0.1 }, opt)), off)); }
+const bmat = k => BV[k][Math.floor(Math.random() * BV[k].length)];
+const GEN = {
+  splat: ({ blob, run, s, c }) => {
+    const core = 4 + Math.floor(Math.random() * 6);
+    for (let i = 0; i < core; i++) { const a = Math.random() * 6.28, d = rnd(0, 0.09) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.1, 0.19)); }
+    const n = 5 + Math.floor(Math.random() * 10);
+    for (let i = 0; i < n; i++) {
+      const a = i / n * 6.28 + rnd(-0.4, 0.4), L = rnd(0.16, 0.34) * s, w = rnd(0.02, 0.05) * s;
+      run(c + Math.cos(a) * s * 0.12, c + Math.sin(a) * s * 0.12, c + Math.cos(a) * L, c + Math.sin(a) * L, w * 1.6, w * 0.7, 7);
+      if (Math.random() < 0.75) blob(c + Math.cos(a) * (L + w * 1.8), c + Math.sin(a) * (L + w * 1.8), w * rnd(0.8, 1.4));
+    }
+    for (let i = 0; i < 4 + Math.random() * 10; i++) { const a = Math.random() * 6.28, d = rnd(0.3, 0.46) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.008, 0.024)); }
+  },
+  cast: ({ blob, run, s, c }) => {
+    const L = rnd(0.25, 0.5);
+    run(c, s * 0.72, c + rnd(-0.03, 0.03) * s, s * (0.72 - L * 0.5), s * rnd(0.12, 0.17), s * 0.08, 10);
+    for (let i = 0; i < 2 + Math.random() * 4; i++) { const x = c + rnd(-0.15, 0.15) * s, y1 = s * rnd(0.1, 0.35); run(x, s * 0.62, x + rnd(-0.04, 0.04) * s, y1, s * rnd(0.03, 0.055), s * 0.014, 10); blob(x, y1 - s * 0.03, s * rnd(0.014, 0.024)); }
+    for (let i = 0; i < 6 + Math.random() * 10; i++) blob(c + rnd(-0.3, 0.3) * s, s * rnd(0.04, 0.45), s * rnd(0.008, 0.024));
+  },
+  // exit spray: thousands of droplets in a cone, thick near the source and thinning out, each a little longer the faster it flew
+  spray: ({ blob, run, s, c }) => {
+    const oy = s * 0.92, sp = rnd(0.28, 0.45);
+    for (let i = 0; i < 5; i++) blob(c + rnd(-0.03, 0.03) * s, oy - rnd(0, 0.08) * s, s * rnd(0.04, 0.08));
+    for (let i = 0; i < 260; i++) {
+      const u = Math.pow(Math.random(), 1.6), a = (Math.random() + Math.random() + Math.random() - 1.5) * sp, L = s * (0.06 + 0.82 * u);
+      const w = s * (0.004 + 0.022 * (1 - u) * Math.random()), x = c + Math.sin(a) * L, y = oy - Math.cos(a) * L, k = s * 0.01 * (1 + u * 2);
+      if (w > s * 0.012 && Math.random() < 0.5) run(x, y, x + Math.sin(a) * k, y - Math.cos(a) * k, w, w * 0.6, 4); else blob(x, y, w);
+    }
+  },
+  spatter: ({ blob, run, s, c }) => {
+    for (let i = 0; i < 6 + Math.random() * 6; i++) { const a = Math.random() * 6.28, d = rnd(0, 0.09) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.06, 0.12)); }
+    for (let i = 0; i < 24 + Math.random() * 20; i++) { const a = Math.random() * 6.28, L = s * rnd(0.14, 0.45), w = s * rnd(0.01, 0.028); run(c + Math.cos(a) * s * 0.06, c + Math.sin(a) * s * 0.06, c + Math.cos(a) * L, c + Math.sin(a) * L, w * 1.4, w * 0.4, 10); blob(c + Math.cos(a) * (L + w * 1.5), c + Math.sin(a) * (L + w * 1.5), w * rnd(0.9, 1.5)); }
+    for (let i = 0; i < 40; i++) { const a = Math.random() * 6.28, L = s * rnd(0.15, 0.48); blob(c + Math.cos(a) * L, c + Math.sin(a) * L, s * rnd(0.004, 0.012)); }
+  },
+  drip: ({ blob, run, s, c }) => { const x1 = c + rnd(-0.05, 0.05) * s; run(c, 0, x1, s * 0.8, s * rnd(0.05, 0.08), s * rnd(0.08, 0.11), 16); blob(x1, s * 0.85, s * rnd(0.11, 0.15)); },
+  // a piece of tissue that landed and slid: heavy where it stopped (texture "up" end), streaked behind it
+  smear: ({ blob, run, s, c }) => {
+    const top = s * rnd(0.15, 0.25);
+    for (let i = 0; i < 4; i++) blob(c + rnd(-0.06, 0.06) * s, top + rnd(0, 0.06) * s, s * rnd(0.07, 0.11));
+    for (let i = 0; i < 9; i++) { const x = c + rnd(-0.1, 0.1) * s; run(x, top + s * 0.05, x + rnd(-0.03, 0.03) * s, s * rnd(0.5, 0.88), s * rnd(0.02, 0.04), s * 0.008, 14); }
+    for (let i = 0; i < 12; i++) blob(c + rnd(-0.2, 0.2) * s, s * rnd(0.1, 0.9), s * rnd(0.006, 0.016));
+  }
+};
+const fleck = (g, s) => {
+  // bits of tissue caught in the blood: pale fatty specks, grey-pink brain matter, dark clots
+  for (let i = 0; i < 70; i++) { const a = Math.random() * 6.28, L = s * Math.pow(Math.random(), 0.7) * 0.4, x = s / 2 + Math.cos(a) * L, y = s / 2 + Math.sin(a) * L, r = s * rnd(0.004, 0.014);
+    g.fillStyle = ['rgba(214,170,160,0.95)', 'rgba(190,150,150,0.9)', 'rgba(60,4,6,0.95)', 'rgba(232,214,190,0.9)'][i % 4]; g.beginPath(); g.ellipse(x, y, r, r * rnd(0.5, 1), Math.random() * 3, 0, 7); g.fill(); }
+};
+bloodKind('splat', 4, 512, GEN.splat, {}, -4);
+bloodKind('cast', 4, 512, GEN.cast, { th: 0.34 }, -4);
+bloodKind('spray', 4, 512, GEN.spray, { th: 0.34, c0: [128, 6, 10], c1: [50, 0, 3] }, -4);
+bloodKind('spatter', 4, 512, GEN.spatter, { th: 0.36, c0: [126, 6, 10], c1: [48, 0, 3] }, -4);
+bloodKind('gore', 3, 512, GEN.spatter, { th: 0.34, c0: [120, 6, 10], c1: [46, 0, 3], post: fleck }, -4);
+bloodKind('drip', 3, 256, GEN.drip, { th: 0.3 }, -4);
+// torn skin and tissue around a blast wound: raw muscle, fat, shredded edges, the middle left clear so the hole shows
+bloodKind('tear', 3, 256, ({ blob, run, s, c }) => {
+  for (let i = 0; i < 26; i++) { const a = i / 26 * 6.28 + rnd(-0.15, 0.15), r = s * rnd(0.17, 0.26); blob(c + Math.cos(a) * r, c + Math.sin(a) * r, s * rnd(0.06, 0.12)); }
+  for (let i = 0; i < 12; i++) { const a = Math.random() * 6.28; run(c + Math.cos(a) * s * 0.22, c + Math.sin(a) * s * 0.22, c + Math.cos(a) * s * rnd(0.32, 0.44), c + Math.sin(a) * s * rnd(0.32, 0.44), s * 0.05, s * 0.015, 6); }
+}, { th: 0.3, c0: [170, 28, 24], c1: [92, 6, 8], post: (g, s) => { fleck(g, s); g.globalCompositeOperation = 'destination-out'; const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s * 0.16); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.7, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); g.globalCompositeOperation = 'source-over'; } }, -5);
+bloodKind('smear', 4, 256, GEN.smear, { th: 0.34, c0: [150, 12, 16], c1: [82, 3, 6], alpha: 0.85 }, -4);
+// mist: a cloud of very fine droplets rather than a soft glowing ball
+const mistTex = canvasTex((g, s) => {
+  g.clearRect(0, 0, s, s); const c = s / 2;
+  for (let i = 0; i < 900; i++) { const a = Math.random() * 6.28, d = c * Math.pow(Math.random(), 0.8) * 0.95, r = rnd(0.6, 2.2) * (1 - d / c * 0.6); g.fillStyle = 'rgba(255,255,255,' + (0.9 - d / c * 0.7).toFixed(2) + ')'; g.beginPath(); g.arc(c + Math.cos(a) * d, c + Math.sin(a) * d, r, 0, 7); g.fill(); }
+  const gr = g.createRadialGradient(c, c, 0, c, c, c * 0.6); gr.addColorStop(0, 'rgba(255,255,255,0.25)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s);
+}, 128, false);
+
 // ---------------------------------------------------------------- muzzle smoke and barrel heat
 function smoke(p, vel, size, life, op, col) {
   const mt = new THREE.SpriteMaterial({ map: puffTex, color: col || 0xc4c1ba, transparent: true, depthWrite: false, opacity: op }); mt.rotation = Math.random() * 6.28;

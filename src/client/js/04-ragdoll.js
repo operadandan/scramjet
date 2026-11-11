@@ -53,11 +53,13 @@ class Ragdoll {
     for (const [a, b] of bones.concat(RAG_TORSO)) { if (a === hitIdx) near.add(b); if (b === hitIdx) near.add(a); }
     for (let i = 0; i < p.length; i++) {
       const v = vel.clone().addScaledVector(dir, power * 0.12);
+      // a blast or a fall in mid-stride: the upper body and the legs start out moving differently
+      if (masks.vTop && (i <= 8 || i === 15)) v.add(masks.vTop); if (masks.vLeg && i >= 9 && i <= 14) v.add(masks.vLeg);
       if (i === hitIdx) v.addScaledVector(dir, power); else if (near.has(i)) v.addScaledVector(dir, power * 0.4);
       v.x += (Math.random() - 0.5) * 0.3; v.z += (Math.random() - 0.5) * 0.3;
       this.q[i].addScaledVector(v, -h);
     }
-    const pl = Object.assign({}, HUM_DEFAULT, pal);
+    const pl = Object.assign({}, HUM_DEFAULT, pal); this.skin = pl.skin;
     const B = new Body(pl, (c, r, m) => mat(c, r, m));
     this.group = new THREE.Group(); this.group.userData.ragObj = this; scene.add(this.group);
     this.torso = new THREE.Group(); this.group.add(this.torso); this.torso.userData.rf = 'torso';
@@ -87,6 +89,7 @@ class Ragdoll {
       const m = new THREE.Object3D(); m.position.copy(w.p).addScaledVector(w.n, 0.004); m.position.y += dy; m.userData.keep = true; g.add(m);
       this.anchors.push({ m, n: w.n.clone() });
       if (w.st && w.st.isMesh) { const sk = soakMesh(g, w.p.clone().setY(w.p.y + dy), w.n, w.st.scale.x); this.soaks = this.soaks || []; this.soaks.push([sk, w.grow]); }
+      if (w.tear) tearMesh(g, w.p.clone().setY(w.p.y + dy), w.n, w.tear);
     }
     if (masks.gib) B.add(sph(0.052), 0x6a0505, this.torso, 0, 0.315, 0, null, [1, 0.6, 1]);
     if (masks.nh) this.group.traverse(o => { if (o.userData.armor === 'helmet') o.visible = false; });
@@ -116,7 +119,7 @@ class Ragdoll {
     addStump(this.torso, new V3(0, 0.33, 0), new V3(0, 1, 0), 0.05);
     for (const a of this.anchors) if (a.m.parent === this.headG) this.anchors.splice(this.anchors.indexOf(a), 1);
     const st = new THREE.Object3D(); st.position.set(0, 0.34, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) });
-    goreBurst(hp, dir.clone().normalize());
+    goreBurst(hp, dir.clone().normalize(), this.skin);
   }
   // clip segment si at fraction t from its top, with a stump on the end that stays; returns the cut height
   cutAt(si, t) {
@@ -137,9 +140,9 @@ class Ragdoll {
         // part-way: the near end stays on, a copy of the far end flies off
         const c = this.cutAt(segs[0], t), piece = copySegment(c.l.g);
         clipGroup(piece, c.y, true); addStump(piece, new V3(0, c.y, 0), new V3(0, 1, 0), segs[0] < 4 ? 0.04 : 0.06);
-        scene.add(piece); addProp(piece, dir.clone().multiplyScalar(rnd(1.5, 3.5)).add(new V3(rnd(-1, 1), rnd(1.5, 3), rnd(-1, 1))), new V3(rnd(-7, 7), rnd(-7, 7), rnd(-7, 7)), segs[0] < 4 ? 0.05 : 0.07, 'limb', 60);
+        scene.add(piece); addProp(piece, dir.clone().multiplyScalar(rnd(0.6, 1.6)).add(new V3(rnd(-0.6, 0.6), rnd(0.4, 1.2), rnd(-0.6, 0.6))), new V3(rnd(-7, 7), rnd(-7, 7), rnd(-7, 7)), segs[0] < 4 ? 0.05 : 0.07, 'limb', 60);
         const at = c.l.g.localToWorld(new V3(0, c.y, 0));
-        for (let i = this.limbs.length - 1; i >= 0; i--) { const l = this.limbs[i]; if (!segs.slice(1).includes(l.seg)) continue; this.limbs.splice(i, 1); scene.attach(l.g); l.g.traverse(o => { if (o.isMesh) o.userData.rag = null; }); addProp(l.g, dir.clone().multiplyScalar(rnd(1.5, 3.5)).add(new V3(rnd(-1, 1), rnd(1.5, 3), rnd(-1, 1))), new V3(rnd(-7, 7), rnd(-7, 7), rnd(-7, 7)), l.seg < 4 ? 0.05 : 0.07, 'limb', 60); }
+        for (let i = this.limbs.length - 1; i >= 0; i--) { const l = this.limbs[i]; if (!segs.slice(1).includes(l.seg)) continue; this.limbs.splice(i, 1); scene.attach(l.g); l.g.traverse(o => { if (o.isMesh) o.userData.rag = null; }); addProp(l.g, dir.clone().multiplyScalar(rnd(0.6, 1.6)).add(new V3(rnd(-0.6, 0.6), rnd(0.4, 1.2), rnd(-0.6, 0.6))), new V3(rnd(-7, 7), rnd(-7, 7), rnd(-7, 7)), l.seg < 4 ? 0.05 : 0.07, 'limb', 60); }
         for (let i = 0; i < 3; i++) bloodFx(at.clone().add(new V3(rnd(-0.03, 0.03), rnd(-0.03, 0.03), rnd(-0.03, 0.03))), dir.clone().add(new V3(rnd(-0.5, 0.5), rnd(0, 0.4), rnd(-0.5, 0.5))).normalize(), true);
         noiseHit(300, 0.25, 0.12);
         continue;
@@ -151,7 +154,7 @@ class Ragdoll {
         this.limbs.splice(i, 1); scene.attach(l.g);
         if (l.seg === segs[0] && l.first) addStump(l.g, new V3(0, l.top, 0), new V3(0, 1, 0), l.seg < 4 ? 0.045 : 0.065);
         l.g.traverse(o => { if (o.isMesh) { o.userData.rag = null; } });
-        addProp(l.g, dir.clone().multiplyScalar(rnd(1.5, 3.5)).add(new V3(rnd(-1, 1), rnd(1.5, 3), rnd(-1, 1))), new V3(rnd(-7, 7), rnd(-7, 7), rnd(-7, 7)), l.seg < 4 ? 0.05 : 0.07, 'limb', 60);
+        addProp(l.g, dir.clone().multiplyScalar(rnd(0.6, 1.6)).add(new V3(rnd(-0.6, 0.6), rnd(0.4, 1.2), rnd(-0.6, 0.6))), new V3(rnd(-7, 7), rnd(-7, 7), rnd(-7, 7)), l.seg < 4 ? 0.05 : 0.07, 'limb', 60);
       }
       for (let i = 0; i < 3; i++) bloodFx(at.clone().add(new V3(rnd(-0.05, 0.05), rnd(-0.05, 0.05), rnd(-0.05, 0.05))), dir.clone().add(new V3(rnd(-0.5, 0.5), rnd(0, 0.6), rnd(-0.5, 0.5))).normalize(), true);
       noiseHit(300, 0.25, 0.12);
@@ -216,7 +219,7 @@ class Ragdoll {
       const r = this.rad[i], P = p[i], Q = q[i];
       if (P.y < r) { P.y = r; Q.y = Math.max(Q.y, r); Q.x = P.x - (P.x - Q.x) * 0.45; Q.z = P.z - (P.z - Q.z) * 0.45; }
       for (const c of colliders) {
-        if (P.x > c.min.x - r && P.x < c.max.x + r && P.y > c.min.y - r && P.y < c.max.y + r && P.z > c.min.z - r && P.z < c.max.z + r) {
+        if (P.x > c.min.x - r && P.x < c.max.x + r && P.y > c.min.y - r && P.y < c.max.y + r && P.z > c.min.z - r && P.z < c.max.z + r && !(c.mesh && gridOpenW(c.mesh, P))) {
           const d = [P.x - (c.min.x - r), (c.max.x + r) - P.x, P.y - (c.min.y - r), (c.max.y + r) - P.y, P.z - (c.min.z - r), (c.max.z + r) - P.z];
           let k = 0; for (let j = 1; j < 6; j++) if (d[j] < d[k]) k = j;
           if (k === 0) P.x = c.min.x - r; else if (k === 1) P.x = c.max.x + r;
@@ -260,7 +263,7 @@ class Ragdoll {
 function spawnRagdoll(hum, vel, dir, part, head, masks) {
   masks = Object.assign({ nh: !!hum.helmetOff, w: hum.wounds, h: hum.holes }, masks);
   if (masks.gib && hum.root.visible) {
-    goreBurst(hum.headMark.getWorldPosition(new V3()), dir.clone().normalize());
+    goreBurst(hum.headMark.getWorldPosition(new V3()), dir.clone().normalize(), hum.pal && hum.pal.skin);
   }
   const r = new Ragdoll(hum.capture(), hum.pal, vel || new V3(), part === 'arm' ? (Math.random() < 0.5 ? 4 : 7) : part === 'leg' ? (Math.random() < 0.5 ? 10 : 13) : PART_IDX[part] || 1, dir, masks.soft ? 0.25 : head ? 5.5 : 3, masks);
   ragdolls.push(r);
@@ -304,7 +307,7 @@ function spawnLimb(hum, bit, dir, t, lowerGone) {
   addStump(g, new V3(0, cy, 0), new V3(0, 1, 0), arm ? 0.042 : 0.065);
   root.matrixWorld.decompose(g.position, g.quaternion, g.scale);
   const at = g.position.clone();
-  addProp(g, dir.clone().multiplyScalar(rnd(2.5, 4.5)).add(new V3(rnd(-1, 1), rnd(1.5, 3), rnd(-1, 1))), new V3(rnd(-8, 8), rnd(-8, 8), rnd(-8, 8)), arm ? 0.05 : 0.07, 'limb', 40);
+  addProp(g, dir.clone().multiplyScalar(rnd(0.8, 2)).add(new V3(rnd(-0.6, 0.6), rnd(0.5, 1.4), rnd(-0.6, 0.6))), new V3(rnd(-8, 8), rnd(-8, 8), rnd(-8, 8)), arm ? 0.05 : 0.07, 'limb', 40);
   for (let i = 0; i < 3; i++) bloodFx(at.clone().add(new V3(rnd(-0.05, 0.05), rnd(-0.05, 0.05), rnd(-0.05, 0.05))), dir.clone().add(new V3(rnd(-0.5, 0.5), rnd(0, 0.6), rnd(-0.5, 0.5))).normalize());
   puff(at, 0x7a0000, 0.9, 0.8, 0.05, 0.9);
   noiseHit(300, 0.25, 0.12);

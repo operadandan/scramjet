@@ -62,24 +62,24 @@ function sprayDecal(point, dir, size) {
   if (h && h.face) { n = h.face.normal.clone().transformDirection(h.object.matrixWorld); p = h.point; size *= 0.8 + Math.max(0, 2.6 - h.distance) * 0.25; }
   else { n = new V3(0, 1, 0); p = new V3(point.x, 0, point.z).addScaledVector(new V3(dir.x, 0, dir.z).normalize(), rnd(0.5, 1.4)); }
   const t = dir.clone().addScaledVector(n, -dir.dot(n)); if (t.lengthSq() < 1e-4) t.set(1, 0, 0).addScaledVector(n, -n.x); t.normalize();
-  const m = new THREE.Mesh(splatGeo, h && h.face ? wallClipMat(BLOOD_MAT.spray, h.object, -1) : BLOOD_MAT.spray); m.quaternion.setFromUnitVectors(_Z, n);
+  const mt = bmat('spray'), m = new THREE.Mesh(splatGeo, h && h.face ? wallClipMat(mt, h.object, -1) : mt); m.quaternion.setFromUnitVectors(_Z, n);
   const vl = t.clone().applyQuaternion(m.quaternion.clone().invert()); m.rotateZ(-Math.atan2(vl.x, vl.y));
   m.position.copy(p).addScaledVector(t, size * 0.38).addScaledVector(n, 0.004 + Math.random() * 0.002); m.scale.setScalar(size);
   m.receiveShadow = true; scene.add(m); decals.push(m); trimDecals();
 }
 // a fine red mist that moves with the spray and hangs for a moment
 function mist(p, v, size, life, col, op) {
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, color: col, transparent: true, depthWrite: false, opacity: op }));
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: mistTex, color: col, transparent: true, depthWrite: false, opacity: op * 1.2 })); sp.material.rotation = Math.random() * 6.28;
   sp.position.copy(p); sp.scale.setScalar(size * 0.3); scene.add(sp);
-  fx.push({ o: sp, life, max: life, fade: op, grow: size, rise: -0.05, dispose: true, sprite: true, sv: v });
+  life *= 0.6; fx.push({ o: sp, life, max: life, fade: op, grow: size, rise: -0.05, dispose: true, sprite: true, sv: v });
 }
 // head shot / head burst: the wall behind gets a high-velocity spatter, cut away wherever that wall later gets shot open
-function wallSpatter(point, dir, size) {
+function wallSpatter(point, dir, size, goreK) {
   sprayRay.set(point, dir); sprayRay.far = 4.5;
   const h = sprayRay.intersectObjects(worldMeshes, false)[0];
   if (!h || !h.face) return false;
   const n = h.face.normal.clone().transformDirection(h.object.matrixWorld);
-  const m = new THREE.Mesh(splatGeo, wallClipMat(BLOOD_MAT.spatter, h.object, -1)); m.quaternion.setFromUnitVectors(_Z, n); m.rotateZ(Math.random() * 6.28);
+  const m = new THREE.Mesh(splatGeo, wallClipMat(bmat(goreK ? 'gore' : 'spatter'), h.object, -1)); m.quaternion.setFromUnitVectors(_Z, n); m.rotateZ(Math.random() * 6.28);
   // the further it flew, the wider and thinner it spreads; at a slant it stretches along the wall
   const k = size * (0.7 + h.distance * 0.35), slant = 1 / Math.max(0.35, Math.abs(n.dot(dir)));
   const t = dir.clone().addScaledVector(n, -dir.dot(n)); if (t.lengthSq() > 1e-4) { t.normalize(); const vl = t.applyQuaternion(m.quaternion.clone().invert()); m.rotation.set(m.rotation.x, m.rotation.y, 0); m.quaternion.setFromUnitVectors(_Z, n); m.rotateZ(-Math.atan2(vl.x, vl.y)); }
@@ -88,14 +88,9 @@ function wallSpatter(point, dir, size) {
   return true;
 }
 // a head coming apart: skull pieces, brain, flesh, mist, and the spatter behind it
-function goreBurst(p, dir) {
-  const G = (col, pit) => ({ deb: 'rock', col, pit });
-  spawnDebris(p, 14, dir.clone().add(new V3(0, 0.35, 0)).normalize(), 0.7, rnd(3, 6), G(0xd6a6a2, 0x9c5c5a), 0.026);
-  spawnDebris(p, 10, dir.clone().add(new V3(0, 0.4, 0)).normalize(), 0.8, rnd(3, 6), G(0xe6dcc6, 0xb8a888), 0.022);
-  spawnDebris(p, 12, dir.clone().add(new V3(0, 0.3, 0)).normalize(), 0.8, rnd(2, 5), G(0x7a0c0c, 0x4a0404), 0.02);
-  for (let i = 0; i < 5; i++) mist(p.clone().addScaledVector(dir, 0.05 + i * 0.08), dir.clone().multiplyScalar(rnd(2, 5)).add(new V3(rnd(-0.6, 0.6), rnd(-0.2, 0.6), rnd(-0.6, 0.6))), 0.5 + i * 0.15, 0.9, 0x6a0408, 0.6 - i * 0.08);
-  for (let i = 0; i < 26; i++) spawnDrop(p, dir.clone().multiplyScalar(rnd(3, 8)).add(new V3(rnd(-1.5, 1.5), rnd(-0.5, 1.5), rnd(-1.5, 1.5))), rnd(0.005, 0.013), 1, 0.3, 1.2);
-  if (!wallSpatter(p, dir, rnd(0.9, 1.2))) sprayDecal(p, dir, rnd(0.8, 1.1));
+function goreBurst(p, dir, skin) {
+  goreBlast('head', p, dir, 1, skin);
+  if (!wallSpatter(p, dir, rnd(0.9, 1.25), true)) sprayDecal(p, dir, rnd(0.8, 1.1));
   noiseHit(250, 0.3, 0.14);
 }
 // entry: a puff of back-spatter mist. exit (strong): a cone of mist and heavy droplets thrown forward, painting what is behind
@@ -125,14 +120,14 @@ function floorSplatOld(x, y, z, size) {
 function groundSplat(p, size) { floorSplat(p.x, 0, p.z, size); }
 const _wn = new V3(), _wq = new THREE.Quaternion(), _Z = new V3(0, 0, 1);
 function wallSplat(p, n, size, vdir, bottom) {
-  const m = new THREE.Mesh(splatGeo, Math.random() < 0.45 ? BLOOD_MAT.cast : BLOOD_MAT.splat);
+  const cast = Math.random() < 0.45, m = new THREE.Mesh(splatGeo, bmat(cast ? 'cast' : 'splat'));
   m.position.copy(p).addScaledVector(n, 0.004 + Math.random() * 0.003); m.quaternion.setFromUnitVectors(_Z, n);
-  if (m.material === BLOOD_MAT.cast && vdir) { const vl = vdir.clone().applyQuaternion(m.quaternion.clone().invert()); m.rotateZ(-Math.atan2(vl.x, vl.y)); } else m.rotateZ(Math.random() * 6); m.scale.setScalar(size); scene.add(m); decals.push(m);
+  if (cast && vdir) { const vl = vdir.clone().applyQuaternion(m.quaternion.clone().invert()); m.rotateZ(-Math.atan2(vl.x, vl.y)); } else m.rotateZ(Math.random() * 6); m.scale.setScalar(size); scene.add(m); decals.push(m);
   // the heavier splats run: a streak creeps down the wall and feeds a puddle at the bottom
   if (size > 0.1 && p.y - bottom > 0.12) {
     const k = Math.random() < 0.5 ? 2 : 1;
     for (let i = 0; i < k; i++) {
-      const d = new THREE.Mesh(splatGeo, BLOOD_MAT.drip), w = rnd(0.012, 0.024), ox = rnd(-0.3, 0.3) * size;
+      const d = new THREE.Mesh(splatGeo, bmat('drip')), w = rnd(0.012, 0.024), ox = rnd(-0.3, 0.3) * size;
       const tan = new V3(-n.z, 0, n.x);
       d.position.copy(p).addScaledVector(tan, ox).addScaledVector(n, 0.006); d.position.y -= size * 0.1; d.quaternion.setFromUnitVectors(_Z, n);
       d.scale.set(w, 0.001, 1); scene.add(d); decals.push(d);
@@ -149,7 +144,7 @@ function updateBlood(dt) {
     let hit = d.life <= 0;
     if (d.p.y <= 0.004) { feedPool(d.p.x, 0, d.p.z, d.ml || dropMl(d.r)); hit = true; }
     else for (const c of colliders) {
-      if (d.p.x > c.min.x && d.p.x < c.max.x && d.p.y > c.min.y && d.p.y < c.max.y && d.p.z > c.min.z && d.p.z < c.max.z) {
+      if (d.p.x > c.min.x && d.p.x < c.max.x && d.p.y > c.min.y && d.p.y < c.max.y && d.p.z > c.min.z && d.p.z < c.max.z && !(c.mesh && gridOpenW(c.mesh, d.p))) {
         // which face did it come through? the one the previous position was outside of
         if (py >= c.max.y) feedPool(d.p.x, c.max.y, d.p.z, d.ml || dropMl(d.r));
         else {
@@ -288,14 +283,16 @@ function addStump(parent, pos, dir, r) {
   const m = new THREE.Mesh(stumpGeo(r), vcMat); m.position.copy(pos); m.quaternion.setFromUnitVectors(_a.set(0, -1, 0), dir.clone().normalize()); m.userData.keep = true; m.castShadow = true; parent.add(m); return m;
 }
 // wounds: an entry mark, a ragged exit, a stain that soaks outward, and for rifle rounds a real hole through the body
+// torn tissue round a blast wound, lying on the body surface
+function tearMesh(group, p, n, size) { const m = new THREE.Mesh(splatGeo, bmat('tear')); m.userData.keep = true; m.quaternion.setFromUnitVectors(_Z, n); m.rotateZ(Math.random() * 6.28); m.position.copy(p).addScaledVector(n, 0.006); m.scale.setScalar(size); m.renderOrder = 3; group.add(m); return m; }
 function addWound(hum, frame, group, p, n, kind, size) {
   const mk = () => { const m = new THREE.Object3D(); m.position.copy(p).addScaledVector(n, 0.004); m.userData.keep = true; group.add(m); return m; };
-  const m = mk(), st = soakMesh(group, p, n, 0.045);
+  const m = mk(), st = soakMesh(group, p, n, kind === 'blast' ? 0.09 : 0.045), tr = kind === 'blast' ? tearMesh(group, p, n, size) : null;
   const rg = !hum && group.parent && group.parent.userData.ragObj; if (rg) { rg.anchors.push({ m, n: n.clone() }); rg.soaks = rg.soaks || []; rg.soaks.push([st, clamp(size * 4, 0.12, 0.3)]); }
   if (!hum || !frame) return;
   hum.wounds = hum.wounds || [];
-  hum.wounds.push({ frame, p: p.clone(), n: n.clone(), kind, m, st, size, grow: clamp(size * 4, 0.12, 0.3) });
-  while (hum.wounds.length > 16) { const w = hum.wounds.shift(); w.m.removeFromParent(); w.st.removeFromParent(); }
+  hum.wounds.push({ frame, p: p.clone(), n: n.clone(), kind, m, st, size, grow: clamp(size * 4, 0.12, kind === 'blast' ? 0.45 : 0.3), tear: tr ? size : 0, tr });
+  while (hum.wounds.length > 16) { const w = hum.wounds.shift(); w.m.removeFromParent(); w.st.removeFromParent(); if (w.tr) w.tr.removeFromParent(); }
 }
 const wray = new THREE.Raycaster();
 // blood soaking out through the clothes below a wound: starts small, spreads down over the next seconds
@@ -310,7 +307,7 @@ function soakMesh(group, p, n, size) {
 function setSoak(m, size) { const u = m.userData.soak; m.scale.setScalar(size); m.position.copy(u.p).addScaledVector(u.n, 0.005).addScaledVector(u.dn, size * 0.3); }
 function updateWounds(hum, dt) { if (hum.wounds) for (const w of hum.wounds) if (w.st && w.st.isMesh && w.st.scale.x < w.grow) setSoak(w.st, Math.min(w.grow, w.st.scale.x + dt * 0.03)); }
 function clearWounds(hum) {
-  if (hum.wounds) for (const w of hum.wounds) { w.m.removeFromParent(); w.st.removeFromParent(); } hum.wounds = []; hum.holes = [];
+  if (hum.wounds) for (const w of hum.wounds) { w.m.removeFromParent(); w.st.removeFromParent(); if (w.tr) w.tr.removeFromParent(); } hum.wounds = []; hum.holes = [];
   const tubes = [];
   hum.root.traverse(o => { if (o.isMesh && o.userData.holeN) { for (const v of o.material.userData.hA.value) v.w = 0; o.userData.holeN = 0; } if (o.userData.tube) tubes.push(o); if (o.userData.organ || o.userData.inner) o.visible = false; });
   for (const t of tubes) { t.removeFromParent(); t.geometry.dispose(); }
@@ -319,7 +316,7 @@ function clearWounds(hum) {
 // Each round carries kinetic energy. Every material it passes through takes energy per metre (scaled by how the round behaves:
 // soft pistol bullets flatten and lose a lot, a heavy .50 BMG keeps going). Bones cost a lump each. When the energy runs out the
 // round stops where it is; anything left over carries on out the other side at the matching speed.
-const PEN_CF = w => isPistol(w) ? 1.6 : w === 2 ? 0.55 : isShotgun(w) ? 1.4 : 1;
+const PEN_CF = w => isPistol(w) ? 1.6 : w === 2 ? 0.55 : isShotgun(w) ? 0.85 : 1;
 const FLESH_J = 2200;
 function bodyPen(frame, e, d, len, v, w) {
   const m = WEAPONS[w].mass, cf = PEN_CF(w), FL = FLESH_J * cf * (frame === 'head' ? 0.4 : 1); let E = 0.5 * m * v * v, s = 0;

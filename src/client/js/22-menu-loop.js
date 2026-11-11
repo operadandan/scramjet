@@ -78,7 +78,7 @@ function leave() {
   for (const d of dummies) d.dispose(); dummies.length = 0;
   while (ragdolls.length) ragdolls.pop().dispose();
   clearItems(); drops.length = 0; hlMesh.visible = false; $('pickup').style.display = 'none';
-  for (const d of decals) { scene.remove(d); if (d.geometry !== splatGeo) d.geometry.dispose(); } decals.length = 0; clearPools(); for (const d of debris) scene.remove(d.m); debris.length = 0;
+  for (const d of decals) { scene.remove(d); if (d.geometry !== splatGeo) d.geometry.dispose(); } decals.length = 0; clearPools(); clearGore(); for (const d of debris) scene.remove(d.m); debris.length = 0;
   for (const p of props) scene.remove(p.m); props.length = 0;
   while (bullets.length) removeBullet(bullets.length - 1);
   S.slow = false; S.ts = 1; S.target = null; S.testKills = 0; S.testDeaths = 0; P.downed = false; $('scope').style.display = 'none'; $('score').style.display = 'none'; S.filt = ''; renderer.domElement.style.filter = ''; $('slowmo').style.display = 'none';
@@ -118,7 +118,7 @@ function loop(now) {
   }
   updateBullets(wdt);
   for (const r of ragdolls) r.update(wdt);
-  updateFx(wdt); updateDebris(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateHeats(wdt);
+  updateFx(wdt); updateDebris(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateHeats(wdt);
   updateCamera(dt); if (S.mode && P.alive && !P.downed) tpCamera();
   if (S.mode) { updateViewmodel(dt); vmCamera.updateMatrixWorld(true); updateDevices(); } else updateDevices();
   updateTPBody(dt);

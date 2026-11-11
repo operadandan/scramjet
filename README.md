@@ -22,7 +22,8 @@ Multiplayer 3D first-person shooter that runs as a single Cloudflare Worker.
 | `09-attachments.js` | optics, grips, muzzles, lasers; medkit and plate viewmodels |
 | `10-audio.js` | synthesized sounds |
 | `11-fx.js` | decals, particles, impact effects |
-| `12-blood.js` | droplets, sprays, wall spatter, gore, muzzle smoke, kill notice |
+| `12-blood.js` | droplets, sprays, wall spatter, blood mark variants (splat, cast, spray, spatter, gore, drip, smear, tear), mist, muzzle smoke, kill notice |
+| `12b-gore.js` | gore pieces (skull plates, brain, muscle, bone, gut, lung, liver) that fly, bleed and smear where they land; `goreBlast` by body part |
 | `13-third-person.js` | Left Alt third-person camera and body |
 | `14-wounds.js` | blood pools, limb clipping, body holes and wound channels, penetration |
 | `15-destruction.js` | backpack hits, wall damage, debris, holes through walls |

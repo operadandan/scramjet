@@ -1,10 +1,10 @@
 // ---------------------------------------------------------------- physics helpers
 function blocked(pos, h, r) {
-  for (const c of colliders) if (pos.x + r > c.min.x && pos.x - r < c.max.x && pos.z + r > c.min.z && pos.z - r < c.max.z && pos.y + h > c.min.y && pos.y < c.max.y) return c;
+  for (const c of colliders) if (pos.x + r > c.min.x && pos.x - r < c.max.x && pos.z + r > c.min.z && pos.z - r < c.max.z && pos.y + h > c.min.y && pos.y < c.max.y && !gridPass(c, pos, h, r)) return c;
   return null;
 }
 function pointBlocked(p, r) {
-  for (const c of colliders) if (p.x + r > c.min.x && p.x - r < c.max.x && p.y + r > c.min.y && p.y - r < c.max.y && p.z + r > c.min.z && p.z - r < c.max.z) return true;
+  for (const c of colliders) if (p.x + r > c.min.x && p.x - r < c.max.x && p.y + r > c.min.y && p.y - r < c.max.y && p.z + r > c.min.z && p.z - r < c.max.z && !(c.mesh && gridOpenW(c.mesh, p))) return true;
   return false;
 }
 const PR = 0.35;
@@ -281,7 +281,8 @@ function fire(w) {
   if (S.tp) { const ta = tpAim(); origin = ta.origin; dir.copy(ta.dir); const sp = w.disp * (1 + (1 - P.ads) * 1.5), a2 = Math.random() * 6.28, r2 = Math.sqrt(Math.random()) * sp; dir.addScaledVector(right, Math.cos(a2) * r2).addScaledVector(up, Math.sin(a2) * r2).normalize(); }
   const tracer = w.tracerEvery > 0 && P.shots % w.tracerEvery === 0;
   const seed = (Math.random() * 4294967295) >>> 0;
-  if (w.pellets) for (const d of pelletDirs(dir, P.weapon, seed)) spawnBullet(origin, d, P.weapon, false, true, S.myId);
+  const shot = { hits: new Map() };
+  if (w.pellets) for (const d of pelletDirs(dir, P.weapon, seed)) spawnBullet(origin, d, P.weapon, false, true, S.myId, shot);
   else spawnBullet(origin, dir, P.weapon, tracer, true, S.myId);
   muzzleLight.position.copy(origin).addScaledVector(dir, 0.3);
   vmMuzzleLight.position.copy(V.muzzle.getWorldPosition(new V3()));
@@ -304,7 +305,8 @@ function remoteShot(m) {
   if (!Array.isArray(m.o) || !Array.isArray(m.d)) return;
   const o = new V3().fromArray(m.o), dir = new V3().fromArray(m.d).normalize();
   const wi = WEAPONS[m.w] ? m.w : 0;
-  if (WEAPONS[wi].pellets) for (const d of pelletDirs(dir, wi, (Number(m.sd) >>> 0) || 1)) spawnBullet(o, d, wi, false, false, m.id);
+  const shot = { hits: new Map() };
+  if (WEAPONS[wi].pellets) for (const d of pelletDirs(dir, wi, (Number(m.sd) >>> 0) || 1)) spawnBullet(o, d, wi, false, false, m.id, shot);
   else spawnBullet(o, dir, wi, !!m.tr, false, m.id);
   if (!m.sp) { const f = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.25), flashMat); f.position.copy(o); f.lookAt(camera.position);
   scene.add(f); fx.push({ o: f, life: 0.04, max: 0.04 }); }
@@ -335,7 +337,7 @@ function localDeath() {
   const head = an.cause === 'brain' && an.lastRegion === 'head';
   const part = PART_OF_REGION(an.lastRegion), killer = an.lastBy ? (S.names[an.lastBy] || ('P' + an.lastBy)) : '';
   killSelf(head, an.lastDir.clone(), part, killer, DEATH_TEXT[an.cause]);
-  if (S.mode === 'online') net.send({ t: 'died', by: an.lastBy || 0, part, head, d: an.lastDir.toArray(), dist: Math.round(an.lastDist || 0), cause: an.cause, gib: an.cause === 'brain' && an.lastW === 2 ? 1 : 0 });
+  if (S.mode === 'online') net.send({ t: 'died', by: an.lastBy || 0, part, head, d: an.lastDir.toArray(), dist: Math.round(an.lastDist || 0), cause: an.cause, gib: an.gibHead || (an.cause === 'brain' && an.lastW === 2) ? 1 : 0 });
   else { S.testDeaths = (S.testDeaths || 0) + 1; setTimeout(() => { if (S.mode === 'test') respawnLocal(spawns[0]); }, 4000); }
 }
 function onSelfHurt(res) {

@@ -70,7 +70,7 @@ function addBox(x, y, z, w, h, d, kind, color) {
   m.userData.surf = SURF[kind];
   worldGroup.add(m); worldMeshes.push(m);
   colliders.push({ min: new V3(x - w / 2, y, z - d / 2), max: new V3(x + w / 2, y + h, z + d / 2) });
-  m.userData.box = colliders[colliders.length - 1]; m.userData.kind = kind;
+  m.userData.box = colliders[colliders.length - 1]; m.userData.box.mesh = m; m.userData.kind = kind;
 }
 function addGround(size, kind) {
   const t = TEX[kind].clone(); t.needsUpdate = true; t.repeat.set(size / 4, size / 4);

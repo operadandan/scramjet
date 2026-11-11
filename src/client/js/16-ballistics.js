@@ -76,12 +76,12 @@ const STREAK = {
 };
 const tracerGlowMat = new THREE.SpriteMaterial({ map: puffTex, color: 0xff4a1a, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, transparent: true });
 const _bp = new V3(), _bd = new V3(), _bq = new THREE.Quaternion();
-function spawnBullet(origin, dir, wi, tracer, local, ownerId) {
+function spawnBullet(origin, dir, wi, tracer, local, ownerId, shot) {
   const w = WEAPONS[wi];
   const mesh = new THREE.Mesh(BULLET_GEO[w.shell], w.pellets ? leadMat : copperMat); mesh.position.copy(origin); scene.add(mesh);
   const streak = new THREE.Mesh(streakGeo, tracer ? STREAK.tracer : STREAK.faint); streak.visible = false; scene.add(streak);
   let glow = null; if (tracer) { glow = new THREE.Sprite(tracerGlowMat); glow.visible = false; scene.add(glow); }
-  bullets.push({ pos: origin.clone(), vel: dir.clone().multiplyScalar(w.vel), w: wi, drag: w.drag, dist: 0, life: 0, tracer, local, ownerId, mesh, streak, glow });
+  bullets.push({ pos: origin.clone(), vel: dir.clone().multiplyScalar(w.vel), w: wi, drag: w.drag, dist: 0, life: 0, tracer, local, ownerId, mesh, streak, glow, shot });
 }
 function removeBullet(i) { const b = bullets[i]; scene.remove(b.mesh); scene.remove(b.streak); if (b.glow) scene.remove(b.glow); bullets.splice(i, 1); }
 function bulletTargets() {
@@ -135,6 +135,28 @@ function updateBullets(dt) {
     if (b.glow) { b.glow.visible = showStreak; b.glow.position.copy(b.pos); b.glow.scale.setScalar(Math.max(0.12, camD * 0.009)); }
   }
 }
+
+// pellets of one shot that land together on one body: past the third, the load tears one big opening (organs show through
+// it), throws out tissue and paints what is behind. Runs on every client that draws the shot, so everyone sees it.
+function blastVisual(shot, hit, dir, info, key, hum) {
+  let g = shot.hits.get(key); if (!g) shot.hits.set(key, g = { n: 0, pts: [], seg: hit.object.parent, frame: info.frame, lastN: 0 });
+  g.n++; if (hit.object.parent === g.seg) g.pts.push(hit.point.clone());
+  if (g.pts.length < 3 || g.n < g.lastN + 2 && g.lastN) return;
+  const c = new V3(); for (const p of g.pts) c.add(p); c.multiplyScalar(1 / g.pts.length); let sp = 0; for (const p of g.pts) sp = Math.max(sp, p.distanceTo(c));
+  if (sp > 0.16) return;
+  g.lastN = g.n;
+  const seg = g.seg, cl = seg.worldToLocal(c.clone()), dL = dir.clone().applyQuaternion(seg.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
+  const r0 = clamp(0.022 + sp * 0.55, 0.025, 0.075), st = cl.clone().addScaledVector(dL, -0.05);
+  holeInGroup(seg, st, dL, 0.3, r0, r0 * 1.6, [0.05, 0]);
+  if (!hit.object.userData.armor) addWound(hum, g.frame, seg, cl, dL.clone().negate(), 'blast', r0 * 7.5);
+  if (hum && g.frame) { hum.holes = hum.holes || []; hum.holes.push({ frame: g.frame, p: st, d: dL.clone(), len: 0.3, r0, r1: r0 * 1.6, sk: [0.05, 0] }); if (hum.holes.length > 10) hum.holes.shift(); }
+  const f = g.frame, part = f === 'head' || f === 'neck' ? 'headwound' : f === 'spine' ? (info.e.y > 0.22 ? 'chest' : 'abdomen') : f === 'hips' ? 'pelvis' : 'limb';
+  const k = clamp((g.n - 2) / 5, 0.3, 1) * (sp < 0.06 ? 1 : 0.6);
+  if (part === 'headwound') { spawnGore(c, dir, 'flesh', 3, 2.5, 0.5, 0.014); spawnGore(c, dir, 'bone', 2, 3, 0.5, 0.01); spawnGore(c, dir, 'skull', 2, 3, 0.5, 0.025, hum && hum.pal && hum.pal.skin); }
+  else goreBlast(part, c, dir, k);
+  if (!wallSpatter(c.clone().addScaledVector(dir, 0.1), dir, rnd(0.6, 0.95) * (0.6 + k * 0.5), true)) sprayDecal(c, dir, rnd(0.7, 1.05));
+  noiseHit(320, 0.12, 0.1);
+}
 // what a round does when it reaches something. Returns where and how fast it carries on, or null if it stopped.
 function onBulletHit(b, hit, dir, dist) {
   const ud = hit.object.userData, v = b.vel.length(), Eh = 0.5 * WEAPONS[b.w].mass * v * v, r4 = x => Math.round(x * 10000) / 10000;
@@ -152,16 +174,18 @@ function onBulletHit(b, hit, dir, dist) {
       const pen = bodyPen(info.frame, info.e, info.d, ex ? ex.len : 0.3, afterArmor(info.armor, info.d), b.w);
       info.pd = pen.depth; bodyWound(hit, dir, b.w, pen, ex, null);
       bloodFx(hit.point, dir, false, pen.v > 0 && ex ? 1 : 0.4); if (pen.v > 0 && ex) { bloodFx(ex.point, dir, true); cont = { point: ex.point, dir, v: pen.v }; }
+      if (b.shot) blastVisual(b.shot, hit, dir, info, rag, null);
     }
-    if (b.w === 2 && (info.frame === 'head' || info.frame === 'neck') && rag.headG.visible) { rag.gibHead(dir); cont = null; }
+    if (b.w === 2 && (info.frame === 'head' || info.frame === 'neck') && rag.headG.visible && b.local) { rag.gibHead(dir); cont = null; }
     else if (cont && (info.frame === 'head' || info.frame === 'neck')) wallSpatter(cont.point, dir, rnd(0.55, 0.8));
     let ni = 1, nd = 1e9; for (let i = 0; i < 16; i++) { const dd = rag.p[i].distanceToSquared(hit.point); if (dd < nd) { nd = dd; ni = i; } }
     rag.kick(dir, (0.35 + v / 1500) * (b.w === 2 ? 3 : 1) * (cont ? 0.5 : 1), ni);
     if (!b.local) return cont;
-    if (own.dummy) own.dummy.shot(info, v, b.w, dir, dist);
+    if (own.dummy) { own.dummy.shot(info, v, b.w, dir, dist); if (own.dummy.anat.gibHead && rag.headG.visible) rag.gibHead(dir); }
     else if (own.remote) net.send({ t: 'hit', id: own.remote, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
     else if (own.anat) {
       const res = own.anat.hit(info.frame, info.e, info.d, v, b.w, info.armor, info.pd);
+      if (own.anat.gibHead && rag.headG.visible) rag.gibHead(dir);
       if (res.helmetOff) rag.group.traverse(o => { if (o.userData.armor === 'helmet') o.visible = false; });
       rag.applyLost(own.anat.lostMask(), dir, own.anat.cutArr());
     }
@@ -184,6 +208,7 @@ function onBulletHit(b, hit, dir, dist) {
       bloodFx(hit.point, dir, false, pen.v > 0 && ex ? 1 : 0.4);
       if (pen.v > 0 && ex) { bloodFx(ex.point, dir, true); cont = { point: ex.point, dir, v: pen.v }; if (info.frame === 'head' || info.frame === 'neck') wallSpatter(ex.point, dir, rnd(0.6, 0.9)); }
       else if (info.frame === 'head' || info.frame === 'neck') { bloodFx(hit.point, dir, false, 2); wallSpatter(hit.point, dir, rnd(0.3, 0.45)); }
+      if (b.shot) blastVisual(b.shot, hit, dir, info, ud.hum, ud.hum);
     }
     if (!b.local) return cont;
     if (ud.hum.remote) net.send({ t: 'hit', id: ud.hum.remote.id, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
