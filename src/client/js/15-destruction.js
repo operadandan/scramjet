@@ -49,16 +49,30 @@ function tubeMat(mesh) {
   return mesh.userData.tubeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide });
 }
 // a material that is cut away wherever the given wall has an opening (blood on the wall, the wall's own tunnels). skip: own slot
+// decals (skip = -1) are also cut off wherever they hang past the wall's own edges
+const _wallBox = wall => { const g = wall.geometry; if (!g.boundingBox) g.computeBoundingBox(); return g.boundingBox; };
+function edgeClipMat(base, wall) {
+  const bb = _wallBox(wall), m = base.clone(), hW = { value: wall.matrixWorld.clone().invert() }, bMin = { value: bb.min.clone() }, bMax = { value: bb.max.clone() };
+  m.onBeforeCompile = sh => {
+    sh.uniforms.hW = hW; sh.uniforms.bMin = bMin; sh.uniforms.bMax = bMax;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform mat4 hW;\nvarying vec3 vWallPos;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWallPos = (hW * modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWallPos;\nuniform vec3 bMin; uniform vec3 bMax;')
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n' + EDGE_CLIP);
+  };
+  m.customProgramCacheKey = () => 'eclip';
+  return m;
+}
+const EDGE_CLIP = 'if (any(lessThan(vWallPos, bMin - vec3(0.012))) || any(greaterThan(vWallPos, bMax + vec3(0.012)))) discard;';
 function wallClipMat(base, wall, skip) {
-  if (!DESTR_OF[wall.userData.kind]) return base;
+  if (!DESTR_OF[wall.userData.kind]) return skip === -1 && wall.geometry ? edgeClipMat(base, wall) : base;
   if (wall.userData.holeN === undefined) holeify(wall, SLOTS, DESTR[DESTR_OF[wall.userData.kind]].inner);
   wall.userData.holeMax = SLOTS;
-  const m = base.clone(), U = wall.material.userData, hW = { value: wall.matrixWorld.clone().invert() };
+  const m = base.clone(), U = wall.material.userData, hW = { value: wall.matrixWorld.clone().invert() }, bb = _wallBox(wall), bMin = { value: bb.min.clone() }, bMax = { value: bb.max.clone() };
   m.onBeforeCompile = sh => {
-    sh.uniforms.hA = U.hA; sh.uniforms.hB = U.hB; sh.uniforms.hW = hW;
+    sh.uniforms.hA = U.hA; sh.uniforms.hB = U.hB; sh.uniforms.hW = hW; sh.uniforms.bMin = bMin; sh.uniforms.bMax = bMax;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform mat4 hW;\nvarying vec3 vWallPos;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWallPos = (hW * modelMatrix * vec4(transformed, 1.0)).xyz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWallPos;\nuniform vec4 hA[' + SLOTS + '];\nuniform vec4 hB[' + SLOTS + '];\n' + HOLE_JAG)
-      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nfor (int i = 0; i < ' + SLOTS + '; i++) { if (i != ' + skip + ' && hA[i].w > 0.0) { vec3 hq = vWallPos - hA[i].xyz; float L2 = max(dot(hB[i].xyz, hB[i].xyz), 1e-8); float t = dot(hq, hB[i].xyz) / L2; if (t > 0.0 && t < 1.0) { vec3 hp = hq - hB[i].xyz * t; if (length(hp) < mix(hA[i].w, hB[i].w, t) * holeJag(i, hp, hB[i].xyz)) discard; } } }');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWallPos;\nuniform vec3 bMin; uniform vec3 bMax;\nuniform vec4 hA[' + SLOTS + '];\nuniform vec4 hB[' + SLOTS + '];\n' + HOLE_JAG)
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n' + (skip === -1 ? EDGE_CLIP : '') + '\nfor (int i = 0; i < ' + SLOTS + '; i++) { if (i != ' + skip + ' && hA[i].w > 0.0) { vec3 hq = vWallPos - hA[i].xyz; float L2 = max(dot(hB[i].xyz, hB[i].xyz), 1e-8); float t = dot(hq, hB[i].xyz) / L2; if (t > 0.0 && t < 1.0) { vec3 hp = hq - hB[i].xyz * t; if (length(hp) < mix(hA[i].w, hB[i].w, t) * holeJag(i, hp, hB[i].xyz)) discard; } } }');
   };
   m.customProgramCacheKey = () => 'wclip' + skip;
   return m;

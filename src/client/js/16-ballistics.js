@@ -7,15 +7,22 @@ const SHELL_GEO = {
   '556': lathe([[0, 0], [0.0047, 0], [0.0047, 0.0012], [0.0040, 0.0016], [0.0040, 0.0022], [0.0048, 0.0028], [0.0046, 0.0362], [0.0032, 0.0392], [0.0032, 0.0447], [0.0028, 0.0447]]),
   '9mm': lathe([[0, 0], [0.0049, 0], [0.0049, 0.0013], [0.0043, 0.0017], [0.0043, 0.0023], [0.0049, 0.0027], [0.00482, 0.019], [0.0045, 0.019]]),
   '545': lathe([[0, 0], [0.005, 0], [0.005, 0.0012], [0.0043, 0.0016], [0.0043, 0.0022], [0.0051, 0.0028], [0.0048, 0.033], [0.0032, 0.0365], [0.0032, 0.0395], [0.0029, 0.0395]]),
-  '50': lathe([[0, 0], [0.0102, 0], [0.0102, 0.003], [0.0088, 0.0038], [0.0088, 0.005], [0.0102, 0.0058], [0.0098, 0.078], [0.0072, 0.086], [0.0072, 0.099], [0.0067, 0.099]])
+  '50': lathe([[0, 0], [0.0102, 0], [0.0102, 0.003], [0.0088, 0.0038], [0.0088, 0.005], [0.0102, 0.0058], [0.0098, 0.078], [0.0072, 0.086], [0.0072, 0.099], [0.0067, 0.099]]),
+  // fired 12 ga hull: brass head and rim (the red plastic body is added in ejectShell), crimp opened out
+  '12g': lathe([[0, 0], [0.0112, 0], [0.0112, 0.0014], [0.0104, 0.0016], [0.0104, 0.015], [0.0101, 0.015], [0.0101, 0.0], [0, 0.0]])
 };
+const hullGeo = lathe([[0.0098, 0.0], [0.0101, 0.0], [0.0101, 0.052], [0.0108, 0.068], [0.0103, 0.068], [0.0096, 0.053], [0.0098, 0.0]]);
+const hullMat = new THREE.MeshStandardMaterial({ color: 0xa8181a, roughness: 0.55, side: THREE.DoubleSide });
 // projectiles: 5.56 spitzer and 9mm round nose
 const BULLET_GEO = {
   '556': lathe([[0, 0.0125], [0.0009, 0.0115], [0.0019, 0.0088], [0.0026, 0.0052], [0.0028, 0.0025], [0.0028, -0.0045], [0.0025, -0.0065], [0, -0.0065]]),
   '9mm': lathe([[0, 0.0075], [0.0022, 0.0062], [0.0034, 0.004], [0.0045, 0.0005], [0.0045, -0.0075], [0, -0.0075]]),
   '545': lathe([[0, 0.014], [0.0008, 0.013], [0.0018, 0.0095], [0.0025, 0.0055], [0.0028, 0.0025], [0.0028, -0.006], [0.0024, -0.0085], [0, -0.0085]]),
-  '50': lathe([[0, 0.033], [0.002, 0.03], [0.0045, 0.02], [0.0062, 0.01], [0.0065, 0.004], [0.0065, -0.012], [0.0055, -0.025], [0, -0.025]])
+  '50': lathe([[0, 0.033], [0.002, 0.03], [0.0045, 0.02], [0.0062, 0.01], [0.0065, 0.004], [0.0065, -0.012], [0.0055, -0.025], [0, -0.025]]),
+  // 00 buck: 8.4 mm lead ball
+  '12g': new THREE.SphereGeometry(0.0042, 8, 6)
 };
+const leadMat = new THREE.MeshStandardMaterial({ color: 0x6a6d70, metalness: 0.6, roughness: 0.5 });
 function addProp(mesh, v, w, r, kind, maxLife) {
   mesh.castShadow = true; mesh.rotation.order = 'YXZ'; scene.add(mesh);
   props.push({ m: mesh, v, w, r, kind, rest: false, life: 0, max: maxLife || 15 });
@@ -24,8 +31,10 @@ function addProp(mesh, v, w, r, kind, maxLife) {
 }
 function ejectShell(pos, right, up, fwd, base, type) {
   const m = new THREE.Mesh(SHELL_GEO[type], brassMat); m.position.copy(pos);
+  // a shotgun hull: brass head plus red plastic body, open end forward. Pumped out of the port with less snap than a rifle case
+  if (type === '12g') { const h = new THREE.Mesh(hullGeo, hullMat); h.castShadow = true; m.add(h); const head = SHELL_GEO['12g']; head.computeBoundingBox(); h.position.y = head.boundingBox.max.y + 0.034 - 0.0006; }
   const v = right.clone().multiplyScalar(rnd(2.2, 3.4)).addScaledVector(up, rnd(1.2, 2)).addScaledVector(fwd, rnd(-0.6, 0.1)).add(base);
-  addProp(m, v, new V3(rnd(-25, 25), rnd(-10, 10), rnd(15, 35)), 0.005, 'shell', 25);
+  addProp(m, type === '12g' ? v.multiplyScalar(0.7) : v, new V3(rnd(-25, 25), rnd(-10, 10), rnd(15, 35)), type === '12g' ? 0.011 : 0.005, 'shell', 25);
 }
 function updateProps(dt) {
   for (let i = props.length - 1; i >= 0; i--) {
@@ -69,7 +78,7 @@ const tracerGlowMat = new THREE.SpriteMaterial({ map: puffTex, color: 0xff4a1a, 
 const _bp = new V3(), _bd = new V3(), _bq = new THREE.Quaternion();
 function spawnBullet(origin, dir, wi, tracer, local, ownerId) {
   const w = WEAPONS[wi];
-  const mesh = new THREE.Mesh(BULLET_GEO[w.shell], copperMat); mesh.position.copy(origin); scene.add(mesh);
+  const mesh = new THREE.Mesh(BULLET_GEO[w.shell], w.pellets ? leadMat : copperMat); mesh.position.copy(origin); scene.add(mesh);
   const streak = new THREE.Mesh(streakGeo, tracer ? STREAK.tracer : STREAK.faint); streak.visible = false; scene.add(streak);
   let glow = null; if (tracer) { glow = new THREE.Sprite(tracerGlowMat); glow.visible = false; scene.add(glow); }
   bullets.push({ pos: origin.clone(), vel: dir.clone().multiplyScalar(w.vel), w: wi, drag: w.drag, dist: 0, life: 0, tracer, local, ownerId, mesh, streak, glow });

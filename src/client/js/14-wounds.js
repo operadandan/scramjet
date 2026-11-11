@@ -272,7 +272,7 @@ function holeInGroup(group, p, d, len, r0, r1, sk) {
   }
 }
 // wound size by calibre: entry and exit hole radius in metres. Rifle exits are wider (the round yaws), .50 BMG is huge.
-const CAL = { 0: [0.0056, 0.013], 1: [0.006, 0.009], 2: [0.018, 0.045], 3: [0.0056, 0.012], 4: [0.006, 0.009] };
+const CAL = { 0: [0.0056, 0.013], 1: [0.006, 0.009], 2: [0.018, 0.045], 3: [0.0056, 0.012], 4: [0.006, 0.009], 5: [0.0048, 0.008] };
 // severed end: skin rim, torn muscle, and the cut bone with marrow showing. Points along -y, radius r
 const stumpGeo = r => GC('stump' + r, () => {
   const g = new THREE.Group(), M = c => mat(c, 0.5);
@@ -319,7 +319,7 @@ function clearWounds(hum) {
 // Each round carries kinetic energy. Every material it passes through takes energy per metre (scaled by how the round behaves:
 // soft pistol bullets flatten and lose a lot, a heavy .50 BMG keeps going). Bones cost a lump each. When the energy runs out the
 // round stops where it is; anything left over carries on out the other side at the matching speed.
-const PEN_CF = w => isPistol(w) ? 1.6 : w === 2 ? 0.55 : 1;
+const PEN_CF = w => isPistol(w) ? 1.6 : w === 2 ? 0.55 : isShotgun(w) ? 1.4 : 1;
 const FLESH_J = 2200;
 function bodyPen(frame, e, d, len, v, w) {
   const m = WEAPONS[w].mass, cf = PEN_CF(w), FL = FLESH_J * cf * (frame === 'head' ? 0.4 : 1); let E = 0.5 * m * v * v, s = 0;

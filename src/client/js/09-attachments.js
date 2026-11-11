@@ -6,13 +6,15 @@ const ATT = {
   side: { none: 'None', laser: 'Visible laser', light: 'Weapon light' }
 };
 const ATT_SLOT_NAME = { optic: 'Optic', muzzle: 'Muzzle', under: 'Underbarrel', side: 'Laser / light' };
-const ATT_SLOTS = { m4: ['optic', 'muzzle', 'under', 'side'], ak74: ['optic', 'muzzle', 'under', 'side'], m107: ['muzzle'], g17: ['muzzle', 'side'], m9: ['muzzle', 'side'] };
-const ATT_DEFAULT = { m4: { optic: 'holo', muzzle: 'std', under: 'none', side: 'none' }, ak74: { optic: 'irons', muzzle: 'std', under: 'none', side: 'none' }, m107: { muzzle: 'std' }, g17: { muzzle: 'std', side: 'none' }, m9: { muzzle: 'std', side: 'none' } };
+const ATT_SLOTS = { m4: ['optic', 'muzzle', 'under', 'side'], ak74: ['optic', 'muzzle', 'under', 'side'], m107: ['muzzle'], g17: ['muzzle', 'side'], m9: ['muzzle', 'side'], m870: ['side'] };
+const ATT_DEFAULT = { m4: { optic: 'holo', muzzle: 'std', under: 'none', side: 'none' }, ak74: { optic: 'irons', muzzle: 'std', under: 'none', side: 'none' }, m107: { muzzle: 'std' }, g17: { muzzle: 'std', side: 'none' }, m9: { muzzle: 'std', side: 'none' }, m870: { side: 'none' } };
 const MOUNTS = {
   m4: { optic: [0, 0.0315, -0.005], rearIron: [0, 0.0315, 0.072], frontIron: [0, 0.0315, -0.37], muzzle: [0, 0.003, -0.5], muzR: 0.0185, supLen: 0.17, under: [0, -0.0185, -0.3], side: [0.0245, 0.003, -0.33], ironsH: 0.0665, adsZ: -0.25 },
   ak74: { optic: [0, 0.03, -0.01], muzzle: [0, 0.0, -0.47], muzR: 0.019, supLen: 0.17, under: [0, -0.028, -0.25], side: [0.023, -0.006, -0.25], ironsH: 0.04, sideMount: true, adsZ: -0.27 },
   m107: { muzzle: [0, 0, -0.9], muzR: 0.036, supLen: 0.27 },
   g17: { muzzle: [0, 0.0, -0.093], muzR: 0.0145, supLen: 0.15, side: [0, -0.027, -0.062], pistol: true },
+  // weapon light clamped to the magazine tube on the right of the barrel
+  m870: { side: [0.019, -0.0128, -0.46] },
   m9: { muzzle: [0, 0.013, -0.1], muzR: 0.0145, supLen: 0.15, side: [0, -0.024, -0.062], pistol: true }
 };
 const dotTex = canvasTex((g, s) => { g.clearRect(0, 0, s, s); g.fillStyle = '#ff2a1a'; g.shadowColor = '#ff2a1a'; g.shadowBlur = 10; g.beginPath(); g.arc(s / 2, s / 2, s * 0.06, 0, 7); g.fill(); }, 128, false);

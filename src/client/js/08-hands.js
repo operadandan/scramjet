@@ -65,7 +65,8 @@ function buildGripHand(parent, at, tilt, elbow, o) {
 // visible rounds at the top of a magazine (brass case + copper tip), shown when the mag has ammo
 function cartridgeTop(parent, y, type) {
   const grp = new THREE.Group(); grp.position.y = y; parent.add(grp);
-  const C = { '556': [0.0047, 0.04, 0.0029, 0.016, 0.0042], '545': [0.005, 0.038, 0.0028, 0.017, 0.0044], '9mm': [0.0047, 0.016, 0.0029, 0.008, 0.0042], '50': [0.0098, 0.08, 0.0065, 0.035, 0.0] }[type];
+  const C0 = { '556': [0.0047, 0.04, 0.0029, 0.016, 0.0042], '545': [0.005, 0.038, 0.0028, 0.017, 0.0044], '9mm': [0.0047, 0.016, 0.0029, 0.008, 0.0042], '50': [0.0098, 0.08, 0.0065, 0.035, 0.0] }, C = C0[type];
+  if (!C) return grp;
   const rows = type === '50' ? [[0, 0]] : [[-C[4], 0], [C[4], 0.004]];
   for (const [x, dz] of rows) {
     vcyl(C[0], C[1], brassMatVM, grp, x, 0, C[1] * 0.15 + dz, 12);
@@ -88,6 +89,9 @@ const VM_DEF = {
     H0: [[0, -0.06, -0.22], [0, 0, 0]], H1: [0, -0.15, 0.0], rot: [0, 0, 0], d: [0.08, 0.12], HP: [[-0.15, -0.45, 0.12], [0.6, 0, 0.4]], HB: [[0.034, 0.02, 0.0], [0, 0, -0.4]], HBp: [[0.034, 0.02, 0.06], [0, 0, -0.4]], HV: [[-0.16, 0.16, 0.08], [1.0, -0.55, 0.35]], flash: 1.8 },
   ak74: { hand: [[0, -0.083, 0.104], -0.33], elbowR: [0.1, -0.25, 0.38], elbow: [-0.2, -0.3, 0.04], hip: [0.13, -0.135, -0.33], ads: [0, -0.04, -0.34], sightH: 0.04, magAxis: [0, -1, 0.15],
     H0: [[0, -0.006, -0.25], [0, 0, 0]], H1: [0, -0.09, -0.06], rot: [0, 0, 0], d: [0.07, 0.11], HP: [[-0.15, -0.42, 0.1], [0.6, 0, 0.4]], HB: [[0.016, 0.012, 0.11], [0, 0, -0.3]], HBp: [[0.016, 0.012, 0.15], [0, 0, -0.3]], HV: [[-0.14, 0.17, 0.06], [1.0, -0.55, 0.35]] },
+  // shotgun: right hand on the stock wrist, left hand on the pump; H1 sits under the loading port, magAxis is the way a shell comes out of it
+  m870: { hand: [[0, -0.062, 0.1], -0.98], elbowR: [0.1, -0.24, 0.42], elbow: [-0.2, -0.3, 0.02], hip: [0.13, -0.13, -0.32], ads: [0, -0.0185, -0.34], sightH: 0.0148, magAxis: [0, -0.55, 0.84],
+    H0: [[0, -0.031, -0.28], [0, 0, 0]], H1: [0, -0.07, -0.05], rot: [0, 0, 0], d: [0.05, 0.08], HP: [[-0.15, -0.42, 0.1], [0.6, 0, 0.4]], HB: [[0, -0.031, -0.28], [0, 0, 0]], HBp: [[0, -0.031, -0.192], [0, 0, 0]], HV: [[-0.13, 0.15, 0.04], [1.0, -0.55, 0.35]], flash: 1.3 },
   m9: { hand: [[0, -0.07, 0.072], -0.3, { idx: 0.5, w: 0.014 }], elbowR: [0.08, -0.23, 0.32], elbow: [-0.13, -0.3, 0.28], hip: [0.12, -0.125, -0.36], ads: [0, -0.029, -0.4], sightH: 0.016, magRot: true,
     H0: [[0.0, -0.056, 0.064], [-0.3, 0, 0]], H1: [0.0, -0.118, 0.082], rot: [-0.3, 0, 0], d: [0.06, 0.08], HP: [[-0.12, -0.4, 0.16], [0.4, 0, 0.4]], HB: [[-0.012, -0.02, 0.02], [0, 0, 0.2]], HBp: [[-0.008, -0.018, 0.024], [0, 0, 0.2]], HV: [[-0.11, 0.05, 0.07], [0.7, -0.55, 0.35]], flash: 0.7 }
 };
@@ -102,7 +106,7 @@ function buildVM(id) {
   const rh = buildGripHand(g, D.hand[0], D.hand[1], D.elbowR, D.hand[2]);
   const L = buildLeftHand(g); vm.add(g);
   const magAxis = D.magRot ? new V3(0, -1, 0).applyEuler(M.mag.rotation) : new V3().fromArray(D.magAxis).normalize();
-  const W = { bolt: M.bolt || null, boltMode: M.boltMode, boltTravel: M.travel || 0, boltK: 0, heat: 0, id, rh, g, mag: M.mag, magBase: M.mag.position.clone(), magQBase: M.mag.quaternion.clone(), magAxis, muzzle, flash, port, chg: M.chg, ret: null, slide: M.slide, brass, L, scope: !!D.scope,
+  const W = { boltIn: M.boltIn || null, bolt: M.bolt || null, boltMode: M.boltMode, boltTravel: M.travel || 0, boltK: 0, heat: 0, id, rh, g, mag: M.mag, magBase: M.mag.position.clone(), magQBase: M.mag.quaternion.clone(), magAxis, muzzle, flash, port, chg: M.chg, ret: null, slide: M.slide, brass, L, scope: !!D.scope,
     elbow: new V3().fromArray(D.elbow), hip: new V3().fromArray(D.hip), ads: new V3().fromArray(D.ads), sightH: D.sightH };
   if (M.eye) W.lens = W.scopeLens = makeScopeLens(g, M.eye, M.eyeR, 6, 'mildot');
   const H1 = new V3().fromArray(D.H1), r0 = D.rot, r1 = [r0[0] + (D.magRot ? 0.06 : 0.1), r0[1], r0[2]];
@@ -114,8 +118,8 @@ function buildVM(id) {
 // third-person / ground versions: one cached vertex-coloured geometry per weapon (body and magazine)
 const gunVcMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.35 });
 const TP_KIT = makeKit(false, m => mat(m.color ? m.color.getHex() : 0x202020, 0.6, 0));
-const TP_OFF = { m4: [0, 0.005, -0.345], ak74: [0, 0.005, -0.4], m107: [0, 0.01, -0.5], g17: [0, 0, -0.03], m9: [0, 0, -0.03] };
-const TP_FORE = { m4: [-0.004, -0.02, -0.26], ak74: [-0.004, -0.024, -0.2], m107: [-0.004, -0.1, -0.08] };
+const TP_OFF = { m870: [0, -0.027, -0.38], m4: [0, 0.005, -0.345], ak74: [0, 0.005, -0.4], m107: [0, 0.01, -0.5], g17: [0, 0, -0.03], m9: [0, 0, -0.03] };
+const TP_FORE = { m870: [-0.004, -0.046, -0.28], m4: [-0.004, -0.02, -0.26], ak74: [-0.004, -0.024, -0.2], m107: [-0.004, -0.1, -0.08] };
 const tpCache = {};
 function tpGunGeo(id) {
   if (tpCache[id]) return tpCache[id];
@@ -141,6 +145,14 @@ const SEQ = {
   tac: { keys: [[0, 'H0'], [0.1, 'H1'], [0.14, 'H1'], [0.2, 'H1d'], [0.36, 'HP'], [0.46, 'HP'], [0.57, 'H1miss'], [0.615, 'H1d'], [0.665, 'H1'], [0.69, 'H1up'], [0.73, 'H1'], [0.79, 'H1d'], [0.83, 'H1'], [0.95, 'H0'], [1, 'H0']], held: [[0.12, 0.665]], hidden: [], fum: 0.57, seat: 0.665 },
   empty: { keys: [[0, 'H0'], [0.09, 'H1'], [0.13, 'H1'], [0.17, 'H1d'], [0.34, 'HP'], [0.43, 'HP'], [0.54, 'H1miss'], [0.595, 'H1d'], [0.645, 'H1'], [0.675, 'H1up'], [0.71, 'H1'], [0.8, 'HB'], [0.845, 'HBp'], [0.885, 'HB'], [1, 'H0']], held: [[0.42, 0.645]], hidden: [[0.13, 0.42]], fum: 0.54, seat: 0.645 },
   inspect: { keys: [[0, 'H0'], [0.12, 'H1'], [0.24, 'H1dd'], [0.4, 'HV'], [0.66, 'HV'], [0.78, 'H1dd'], [0.86, 'H1'], [1, 'H0']], held: [[0.12, 0.86]], hidden: [] }
+};
+// shotgun: hand to the shell carrier, a shell up into the loading port, thumb pushes it home; racking keeps the hand on the pump
+const SG_SEQ = {
+  first: { keys: [[0, 'H0'], [0.24, 'HP'], [0.36, 'HP'], [0.62, 'H1d'], [0.74, 'H1'], [0.84, 'H1up'], [1, 'H1']], held: [[0.33, 0.85]], hidden: [], fum: 9, seat: 0.84 },
+  shell: { keys: [[0, 'H1'], [0.24, 'HP'], [0.36, 'HP'], [0.62, 'H1d'], [0.74, 'H1'], [0.84, 'H1up'], [1, 'H1']], held: [[0.33, 0.85]], hidden: [], fum: 9, seat: 0.84 },
+  end: { keys: [[0, 'H1'], [1, 'H0']], held: [], hidden: [], fum: 9, seat: 9 },
+  rack: { keys: [[0, 'H0'], [1, 'H0']], held: [], hidden: [], fum: 9, seat: 9, rack: 0.05 },
+  rackH1: { keys: [[0, 'H1'], [0.26, 'H0'], [1, 'H0']], held: [], hidden: [], fum: 9, seat: 9, rack: 0.28 }
 };
 // every reload is put together fresh: it may fumble the magazine well, may tug the magazine to check it, and the hand never takes quite the same path
 function makeReloadSeq(empty, stress) {

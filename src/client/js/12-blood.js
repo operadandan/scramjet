@@ -104,7 +104,7 @@ function smoke(p, vel, size, life, op, col) {
   fx.push({ o: s, life, max: life, fade: op, grow: size, rise: 0.1, dispose: true, sprite: true, sv: vel });
 }
 function muzzleSmoke(p, dir, wi, sup) {
-  const big = wi === 2 ? 2.2 : isPistol(wi) ? 0.6 : 1;
+  const big = wi === 2 ? 2.2 : isPistol(wi) ? 0.6 : isShotgun(wi) ? 1.6 : 1;
   for (let i = 0; i < 3; i++) smoke(p.clone().addScaledVector(dir, 0.02 + i * 0.03), dir.clone().multiplyScalar(rnd(0.6, 2.6) * big).add(new V3(rnd(-0.25, 0.25), rnd(0, 0.3), rnd(-0.25, 0.25))), (0.16 + i * 0.06) * big * (sup ? 0.7 : 1), rnd(0.7, 1.3), 0.22 * (sup ? 0.8 : 1));
   if (wi === 2) for (const s of [-1, 1]) smoke(p, new V3().crossVectors(dir, _Y).normalize().multiplyScalar(s * 3).addScaledVector(dir, 0.5), 0.5, 0.8, 0.25);
 }

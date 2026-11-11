@@ -301,4 +301,51 @@ function gunM9(K) {
   if (K.hi) for (let i = 0; i < 5; i++) K.c(0.0016, 0.001, 'dark', mag, 0, -0.03 + i * 0.014, 0.0167, 6);
   return { g, mag, chg: null, slide, muzzle: [0, by, -0.112], port: [0.012, 0.026, -0.01], brass: [0.051, '9mm'] };
 }
-const GUN_MODEL = { m4: gunM4, g17: gunG17, m107: gunM107, ak74: gunAK, m9: gunM9 };
+// Remington 870 Police: 18.5 in barrel with brass bead, +2 magazine extension and clamp, parkerized receiver, ribbed synthetic pump on twin
+// action bars, cross-bolt safety, synthetic stock with recoil pad. Bore axis at y = 0, magazine tube underneath.
+function gunM870(K) {
+  const g = new THREE.Group(), R = 'park', ty = -0.0255;
+  // receiver: flat top with a sighting groove, rear sloping into the stock tang
+  K.e([[-0.104, 0.008], [-0.099, 0.0135], [0.058, 0.0135], [0.084, 0.0065], [0.096, -0.004], [0.096, -0.042], [-0.104, -0.042]], 0.029, R, g, { r: 0.002, bev: 0.0018 });
+  K.b(0.004, 0.0012, 0.15, 'dark', g, 0, 0.0136, -0.025);
+  if (K.hi) for (const s of [-1, 1]) K.b(0.0006, 0.002, 0.19, 'worn', g, s * 0.0146, 0.009, -0.004);
+  // ejection port on the right, loading port and shell lifter underneath
+  K.b(0.001, 0.021, 0.072, 'dark', g, 0.0146, -0.002, -0.056);
+  const boltIn = K.grp(g, 0.0148, -0.002, -0.02); K.b(0.0008, 0.016, 0.068, 'bolt', boltIn, 0, 0, -0.034);
+  if (K.hi) K.b(0.0009, 0.004, 0.012, 'dark', boltIn, 0.0001, 0.004, -0.058);
+  K.b(0.021, 0.001, 0.078, 'dark', g, 0, -0.0424, -0.058); K.b(0.016, 0.0012, 0.062, 'worn', g, 0, -0.0412, -0.054);
+  // trigger plate pins, slide release, aluminium trigger guard, trigger, cross-bolt safety
+  K.disc2(0.0028, 0.0012, 'worn', g, 0.0146, -0.034, 0.004); K.disc2(0.0028, 0.0012, 'worn', g, 0.0146, -0.034, 0.064);
+  K.rb(0.003, 0.004, 0.02, 0.001, 'anod', g, -0.0156, -0.044, 0.004, 0.2);
+  K.e([[-0.012, -0.042], [0.092, -0.042], [0.092, -0.05], [0.076, -0.075, 0.006], [0.02, -0.076, 0.006], [0.002, -0.061, 0.004], [-0.012, -0.05]], 0.016, 'anod', g, { r: 0.001, bev: 0.0008, holes: [[[0.005, -0.046], [0.071, -0.046], [0.071, -0.069], [0.023, -0.072], [0.007, -0.06]]], hr: 0.004 });
+  K.e([[0.031, -0.043], [0.037, -0.043], [0.035, -0.055], [0.03, -0.065, 0.003], [0.0265, -0.064, 0.002], [0.029, -0.055]], 0.005, 'worn', g, { r: 0.001, bev: 0.001 });
+  K.cx(0.003, 0.025, 'worn', g, 0, -0.047, 0.08, 10); K.cx(0.0012, 0.0005, 'red', g, 0.0127, -0.047, 0.08, 8);
+  // barrel with breech ring, bead post and brass bead, open bore
+  K.c(0.0118, 0.014, R, g, 0, 0, -0.111, 20); K.c(0.0104, 0.452, R, g, 0, 0, -0.342, 20);
+  K.c(0.0093, 0.002, 'dark', g, 0, 0, -0.5675, 16);
+  K.cy(0.0013, 0.003, R, g, 0, 0.0116, -0.553, 8); K.sp(0.0017, 'brass', g, 0, 0.0142, -0.553);
+  // magazine tube, extension joint, barrel loop, extension clamp with screw, knurled cap
+  K.c(0.0112, 0.42, R, g, 0, ty, -0.314, 18); K.c(0.0118, 0.006, R, g, 0, ty, -0.372, 18);
+  K.rb(0.0255, 0.042, 0.014, 0.004, R, g, 0, -0.0128, -0.378);
+  K.rb(0.028, 0.045, 0.017, 0.003, 'anod', g, 0, -0.0128, -0.5); K.cx(0.0028, 0.032, 'worn', g, 0, -0.0128, -0.5, 8);
+  K.c(0.0124, 0.022, R, g, 0, ty, -0.535, 18); K.sp(0.0124, R, g, 0, ty, -0.546, 1, 1, 0.35);
+  if (K.hi) for (let i = 0; i < 14; i++) { const a = i / 14 * Math.PI * 2; K.b(0.0016, 0.0012, 0.018, 'worn', g, Math.cos(a) * 0.0124, ty + Math.sin(a) * 0.0124, -0.535, 0, 0, a + Math.PI / 2); }
+  // pump: ribbed synthetic forend wrapping the tube, twin action bars running back into the receiver
+  const pump = K.grp(g);
+  K.ez([[-0.0195, -0.0118], [0.0195, -0.0118], [0.0228, -0.026, 0.01], [0.0175, -0.0465, 0.012], [-0.0175, -0.0465, 0.012], [-0.0228, -0.026, 0.01]], -0.198, -0.364, 'poly', pump, { bev: 0.003, bs: 3 });
+  for (const z of [-0.198, -0.364]) K.ez([[-0.0205, -0.0118], [0.0205, -0.0118], [0.0238, -0.026, 0.01], [0.0183, -0.0475, 0.012], [-0.0183, -0.0475, 0.012], [-0.0238, -0.026, 0.01]], z - 0.004, z + 0.004, 'poly', pump, { bev: 0.0015 });
+  for (const s of [-1, 1]) for (let i = 0; i < 4; i++) K.b(0.0014, 0.0022, 0.13, 'dark', pump, s * (0.0222 - i * 0.0012), -0.019 - i * 0.0068, -0.281);
+  for (let i = 0; i < 3; i++) K.b(0.022, 0.0016, 0.13, 'dark', pump, 0, -0.0468, -0.281).position.x = (i - 1) * 0.008;
+  for (const s of [-1, 1]) K.b(0.0018, 0.0045, 0.15, 'worn', pump, s * 0.0118, ty, -0.135);
+  // synthetic stock: straight wrist, comb, butt with a ventilated recoil pad and sling stud
+  K.e([[0.094, 0.0125], [0.122, -0.008, 0.02], [0.16, -0.013, 0.03], [0.23, -0.012, 0.03], [0.392, -0.036, 0.004], [0.392, -0.172, 0.004], [0.33, -0.14, 0.03], [0.21, -0.078, 0.03], [0.15, -0.058, 0.02], [0.105, -0.05, 0.006], [0.094, -0.042]], 0.034, 'poly', g, { r: 0.004, bev: 0.005, bs: 3 });
+  K.e([[0.391, -0.035], [0.414, -0.037], [0.419, -0.045, 0.004], [0.419, -0.174, 0.004], [0.412, -0.182], [0.391, -0.18]], 0.039, 'rubber', g, { r: 0.003, bev: 0.003 });
+  if (K.hi) for (let i = 0; i < 5; i++) K.b(0.03, 0.012, 0.016, 'dark', g, 0, -0.06 - i * 0.024, 0.408);
+  K.cy(0.0032, 0.01, 'worn', g, 0, -0.152, 0.335, 8); K.tor(0.007, 0.0014, 'worn', g, 0, -0.16, 0.335, 0, Math.PI / 2);
+  // one 12 ga shell sitting in the loading port (shown in the hand while loading): red hull, brass head and rim
+  const mag = K.grp(g, 0, -0.036, -0.06);
+  K.c(0.0101, 0.052, 'red', mag, 0, 0, -0.008, 16); K.c(0.0086, 0.002, 'red', mag, 0, 0, -0.0345, 12);
+  K.c(0.0104, 0.014, 'brass', mag, 0, 0, 0.025, 16); K.c(0.0112, 0.0014, 'brass', mag, 0, 0, 0.0327, 16);
+  return { g, mag, chg: null, slide: null, bolt: pump, boltMode: 'slide', travel: 0.088, boltIn, muzzle: [0, 0, -0.568], port: [0.018, 0.0, -0.05], brass: [0, '12g'] };
+}
+const GUN_MODEL = { m4: gunM4, g17: gunG17, m107: gunM107, ak74: gunAK, m9: gunM9, m870: gunM870 };

@@ -76,7 +76,7 @@ function updateViewmodel(dt) {
   const mv = P.onGround ? clamp(P.speed / 4.3, 0, 1.7) : 0;
   const bobAmp = (0.007 + 0.01 * s) * mv * (1 - a * 0.88);
   const bx = Math.sin(P.bobT * 0.5) * bobAmp, by = -Math.abs(Math.cos(P.bobT * 0.5)) * bobAmp;
-  const r = P.reloading ? P.reloadT / P.reloadDur : 0, b = P.reloading ? Math.sin(r * Math.PI) : 0;
+  const r = P.reloading ? P.reloadT / P.reloadDur : 0, b = P.reloading && !(w.pellets && P.sgPhase !== 'load') ? Math.sin(r * Math.PI) * (w.pellets ? 0.45 : 1) : 0;
   const ik = P.inspecting ? P.inspectT / w.inspect : 0;
   const ib = P.inspecting ? ramp(ik, 0, 0.18) * (1 - ramp(ik, 0.82, 1)) : 0;
   const air = P.onGround ? 0 : clamp(-P.vel.y * 0.004, -0.02, 0.02);
@@ -114,8 +114,15 @@ function updateViewmodel(dt) {
   const held = seq && inRanges(seq.held, st), hidden = seq && inRanges(seq.hidden, st);
   if (held) { W.mag.position.copy(W.magLocal).applyQuaternion(L.h.quaternion).add(L.h.position); W.mag.quaternion.copy(L.h.quaternion).multiply(W.magQLocal); }
   else { W.mag.position.copy(W.magBase); W.mag.quaternion.copy(W.magQBase); }
-  W.mag.visible = !hidden;
+  W.mag.visible = !hidden && (!w.pellets || !!held);
   W.brass.visible = !!held && ((P.guns[P.weapon] ? P.guns[P.weapon].mag > 0 : true) || (P.reloading && r > 0.4));
+  // pump gun: the forend, action bars and bolt ride back together, and the support hand goes with them
+  if (w.pellets) {
+    let k = pumpCurve(performance.now() / 1000 - P.lastShot);
+    if (P.reloading && P.sgPhase === 'rack') k = pumpCurve(0.13 + (r - P.rlSeq.rack) * P.reloadDur * 0.95);
+    else if (P.reloading) k = 0;
+    W.pumpK = k; if (!seq || P.sgPhase === 'rack') L.h.position.z += W.boltTravel * k;
+  }
   _wr.copy(L.wrist).applyQuaternion(L.h.quaternion).add(L.h.position);
   _fd.subVectors(_wr, W.elbow); const fl = _fd.length();
   L.fa.position.addVectors(_wr, W.elbow).multiplyScalar(0.5);
@@ -126,14 +133,18 @@ function updateViewmodel(dt) {
   W.boltK = Math.max(0, W.boltK - dt / 0.075);
   if (W.bolt) {
     const G = P.guns[P.weapon], rr = P.reloading ? P.reloadT / P.reloadDur : 0;
-    const locked = W.id !== 'ak74' && G && G.mag === 0 && !G.chamber && !(P.reloading && P.reloadEmpty && rr > 0.86);
+    const locked = W.id !== 'ak74' && !w.pellets && G && G.mag === 0 && !G.chamber && !(P.reloading && P.reloadEmpty && rr > 0.86);
     const pull = W.id === 'ak74' && P.reloading && P.reloadEmpty && rr > 0.78 && rr < 0.885 ? ramp(rr, 0.78, 0.82) : 0;
-    const k = Math.max(locked ? 1 : 0, pull, Math.sin(Math.min(1, W.boltK) * Math.PI));
+    let k = Math.max(locked ? 1 : 0, pull, Math.sin(Math.min(1, W.boltK) * Math.PI));
+    // pump gun: the forend, action bars and bolt ride back together, and the support hand goes with them
+    if (w.pellets) { k = W.pumpK; if (W.boltIn) W.boltIn.scale.z = 1 - 0.85 * k; }
     if (W.boltMode === 'scale') W.bolt.scale.z = 1 - 0.82 * k; else W.bolt.position.z = W.boltTravel * k;
   }
   // a hot barrel keeps smoking after a long string of shots
-  W.heat = Math.max(0, W.heat - dt * 0.5);
-  if (W.heat > 3 && !S.tp && performance.now() / 1000 - P.lastShot > 0.3) { W.wispT = (W.wispT || 0) - dt; if (W.wispT <= 0) { W.wispT = 0.07; smoke(W.muzzle.getWorldPosition(new V3()), new V3(rnd(-0.03, 0.03), 0.22, rnd(-0.03, 0.03)), 0.05, 1.6, Math.min(0.2, (W.heat - 3) * 0.04), 0xdedbd4); } }
+  W.heat = Math.max(0, W.heat - dt * 4);
+  const sinceShot = performance.now() / 1000 - P.lastShot;
+  // a short wisp off a hot barrel right after a burst, gone within about a second and a half
+  if (W.heat > 3 && !S.tp && sinceShot > 0.3 && sinceShot < 1.5) { W.wispT = (W.wispT || 0) - dt; if (W.wispT <= 0) { W.wispT = 0.07; smoke(W.muzzle.getWorldPosition(new V3()), new V3(rnd(-0.03, 0.03), 0.22, rnd(-0.03, 0.03)), 0.05, 0.9, Math.min(0.14, (W.heat - 3) * 0.03), 0xdedbd4); } }
   if (W.ret) { const op = ramp(a, 0.85, 1); W.ret.material.opacity = op; W.ret.visible = op > 0.01; }
   P.swayX = damp(P.swayX, 0, 8, dt); P.swayY = damp(P.swayY, 0, 8, dt);
   vmCamera.position.copy(camera.position); vmCamera.quaternion.copy(camera.quaternion);

@@ -26,7 +26,8 @@ const json = (o, status) => new Response(JSON.stringify(o), { status: status || 
 const cleanCode = c => String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
 const cleanId = c => String(c || "").replace(/[^a-z0-9]/gi, "").slice(0, 24);
 const HOST_TTL = 20000;
-const WEAPON_GAP = [55, 95, 350, 70, 95]; // min ms between hits per weapon index (fire-rate sanity check)
+const WEAPON_GAP = [55, 95, 350, 70, 95, 450]; // min ms between hits per weapon index (fire-rate sanity check)
+const PELLETS = [0, 0, 0, 0, 0, 9]; // shotgun: this many pellet hits may land together before the gap applies
 const wIndex = w => Number.isInteger(w) && w >= 0 && w < WEAPON_GAP.length ? w : 0;
 
 async function handleApi(request, env, url) {
@@ -169,7 +170,7 @@ export class GameRoom extends DurableObject {
         if (!p.ready || !p.alive) return;
         const nums = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
         if (!nums(m.o) || !nums(m.d)) return;
-        this.broadcast({ t: "shot", id: p.id, o: m.o, d: m.d, w: wIndex(m.w), tr: m.tr ? 1 : 0, sp: m.sp ? 1 : 0 }, p);
+        this.broadcast({ t: "shot", id: p.id, o: m.o, d: m.d, w: wIndex(m.w), tr: m.tr ? 1 : 0, sp: m.sp ? 1 : 0, sd: (Number(m.sd) >>> 0) || 0 }, p);
         break;
       }
       case "idrop": {
@@ -190,8 +191,8 @@ export class GameRoom extends DurableObject {
     const tgt = this.players.get(m.id);
     if (!tgt || tgt === p || !tgt.alive) return;
     const w = wIndex(m.w), now = Date.now();
-    if (now - p.lastHit < WEAPON_GAP[w]) return;
-    p.lastHit = now;
+    if (PELLETS[w] && now - p.lastHit < 200 && (p.pel || 0) < PELLETS[w]) p.pel = (p.pel || 0) + 1;
+    else { if (now - p.lastHit < WEAPON_GAP[w]) return; p.lastHit = now; p.pel = 1; }
     const ok = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
     if (!ok(m.p) || !ok(m.d)) return;
     const num = (x, lo, hi) => Math.max(lo, Math.min(hi, Number(x) || 0));

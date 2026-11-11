@@ -11,7 +11,7 @@ function audio() {
 }
 function shotSound(wi, dist, sup) {
   const snd = (WEAPONS[wi] || WEAPONS[0]).snd;
-  const P_ = [[3600, 0.65, 0.28, 150, 0.5], [2800, 0.5, 0.2, 150, 0.45], [1700, 0.95, 0.9, 80, 0.9], [3100, 0.65, 0.3, 130, 0.5]][snd].slice();
+  const P_ = [[3600, 0.65, 0.28, 150, 0.5], [2800, 0.5, 0.2, 150, 0.45], [1700, 0.95, 0.9, 80, 0.9], [3100, 0.65, 0.3, 130, 0.5], [2100, 0.95, 0.55, 90, 0.95]][snd].slice();
   if (sup) { P_[0] *= 0.4; P_[1] *= 0.32; P_[2] *= 0.55; P_[4] *= 0.3; dist *= 2.2; }
   const a = audio(), t = a.currentTime, att = 1 / (1 + dist * (snd === 2 ? 0.03 : 0.07));
   const src = a.createBufferSource(); src.buffer = noiseBuf;

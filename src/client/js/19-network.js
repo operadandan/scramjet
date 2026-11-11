@@ -70,7 +70,7 @@ class HostRoom {
       case 's': if (p.ready && p.alive && Array.isArray(m.p)) { m.id = p.id; p.state = m; this.broadcast(m, p, true); } break;
       case 'shot': {
         const ok = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
-        if (p.ready && p.alive && ok(m.o) && ok(m.d)) this.broadcast({ t: 'shot', id: p.id, o: m.o, d: m.d, w: WEAPONS[m.w] ? m.w : 0, tr: m.tr ? 1 : 0, sp: m.sp ? 1 : 0 }, p);
+        if (p.ready && p.alive && ok(m.o) && ok(m.d)) this.broadcast({ t: 'shot', id: p.id, o: m.o, d: m.d, w: WEAPONS[m.w] ? m.w : 0, tr: m.tr ? 1 : 0, sp: m.sp ? 1 : 0, sd: (Number(m.sd) >>> 0) || 0 }, p);
         break;
       }
       case 'idrop': { const s = JSON.stringify(m); if (p.ready && s.length < 600 && m.it && typeof m.it === 'object') this.broadcast({ t: 'idrop', it: m.it, p: m.p, v: m.v }, p); break; }
@@ -84,7 +84,9 @@ class HostRoom {
     if (!p.ready || !p.alive) return;
     const tgt = this.players.get(m.id); if (!tgt || tgt === p || !tgt.alive) return;
     const w = WEAPONS[m.w] ? m.w : 0, now = Date.now();
-    if (now - p.lastHit < WEAPONS[w].gap) return; p.lastHit = now;
+    // a shotgun shot lands up to 9 pellets inside a short window; after that the next hit has to wait out the pump
+    if (WEAPONS[w].pellets && now - p.lastHit < 200 && (p.pel || 0) < WEAPONS[w].pellets) p.pel = (p.pel || 0) + 1;
+    else { if (now - p.lastHit < WEAPONS[w].gap) return; p.lastHit = now; p.pel = 1; }
     const ok = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
     if (!ok(m.p) || !ok(m.d)) return;
     this.send(tgt, { t: 'hurt', by: p.id, f: String(m.f || '').slice(0, 8), p: m.p, d: m.d, v: clamp(Number(m.v) || 0, 0, 1200), w, ar: ['plate', 'plateF', 'plateB', 'helmet'].includes(m.ar) ? m.ar : '', pd: clamp(Number(m.pd), 0, 2) || 0, wd: ok(m.wd) ? m.wd : m.d, dist: clamp(Math.round(Number(m.dist) || 0), 0, 5000) });

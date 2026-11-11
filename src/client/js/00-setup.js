@@ -116,7 +116,8 @@ function renderScope() {
   // smoke and dust right in front of the muzzle would fill a 10x view: leave anything within a few metres out of the scope pass
   const hid = [];
   for (const f of fx) if (f.sprite && f.o.visible && f.o.position.distanceToSquared(camera.position) < 16) { f.o.visible = false; hid.push(f.o); }
-  renderer.setRenderTarget(scopeRT); renderer.render(scene, scopeCam); renderer.setRenderTarget(null);
+  // autoClear is off for the main view, so the target has to be cleared by hand or the first frame's depth freezes the image
+  renderer.setRenderTarget(scopeRT); renderer.clear(); renderer.render(scene, scopeCam); renderer.setRenderTarget(null);
   for (const o of hid) o.visible = true;
 }
 

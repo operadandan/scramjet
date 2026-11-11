@@ -103,6 +103,7 @@ function startReload() {
   const w = WEAPONS[P.weapon], G = P.guns[P.weapon];
   if (!P.alive || P.slot >= 2 || P.reloading || P.switchT > 0 || P.sprinting) return;
   if (G.mag >= w.cap && G.chamber) return;
+  if (w.pellets) return startShellLoad(w, G);
   if (S.mode === 'test' && !G.pouch.some(n => n > 0)) G.pouch = G.pouch.concat(Array(w.spare).fill(w.cap));
   if (!G.pouch.some(n => n > 0)) { flashMsg(G.pouch.length ? 'NO LOADED MAGAZINES' : 'NO SPARE MAGAZINES', 1200); blip(200, 0.06, 0.03); return; }
   P.inspecting = false;
@@ -112,6 +113,53 @@ function startReload() {
   P.rlSeq = makeReloadSeq(P.reloadEmpty, stress);
   P.reloadDur = (P.reloadEmpty ? w.empty : w.tac) * 1.3 * rnd(0.86, 1.16) * (1 + P.anat.pain * 0.35 + (P.supp || 0) * 0.45) * (P.rlSeq.fumble ? 1.1 : 0.95) * (P.anat.handBroken('L') || P.anat.handBroken('R') ? 1.6 : 1) * (P.anat.anyArm() ? 1.3 : 1);
 }
+// ---------------------------------------------------------------- shotgun: shells go into the tube one at a time, the pump chambers one
+// Loading can be cut short by pulling the trigger: the shell in hand still goes in, then the hand goes back to the pump.
+const shellsLeft = G => G.pouch.reduce((a, n) => a + n, 0);
+function shellTime(w) {
+  return w.tac * rnd(0.88, 1.15) * (1 + P.anat.pain * 0.35 + (P.supp || 0) * 0.45) * (P.anat.handBroken('L') || P.anat.handBroken('R') ? 1.6 : 1) * (P.anat.anyArm() ? 1.3 : 1);
+}
+function startShellLoad(w, G) {
+  if (S.mode === 'test' && !shellsLeft(G)) G.pouch = G.pouch.concat(Array(w.spare).fill(w.carrier));
+  P.inspecting = false; P.reloading = true; P.reloadT = 0; P.reloadEmpty = false; P.reloadFum = true; P.reloadStage = 0; P.sgStop = false; P.sgIn = false; P.sgLoaded = 0; P.rlSeed = Math.random() * 100;
+  if (G.mag >= w.cap || !shellsLeft(G)) {
+    if (G.chamber || !G.mag) { flashMsg(shellsLeft(G) ? 'TUBE FULL' : 'NO SHELLS', 1200); blip(200, 0.06, 0.03); P.reloading = false; return; }
+    return sgPhase('rack');
+  }
+  sgPhase('load', true);
+}
+function sgPhase(ph, first) {
+  P.sgPhase = ph; P.reloadT = 0; P.sgIn = false;
+  if (ph === 'load') { P.rlSeq = first ? SG_SEQ.first : SG_SEQ.shell; P.reloadDur = shellTime(WEAPONS[P.weapon]) * (first ? 1.15 : 1); }
+  else if (ph === 'rack') { P.rlSeq = P.sgLoaded ? SG_SEQ.rackH1 : SG_SEQ.rack; P.reloadDur = 0.62; }
+  else { P.rlSeq = SG_SEQ.end; P.reloadDur = 0.28; }
+}
+function updateShellLoad(w, G, dt) {
+  P.reloadT += dt; const r = P.reloadT / P.reloadDur;
+  if (P.sgPhase === 'load') {
+    if (r > 0.4 && P.reloadStage === 0) { P.reloadStage = 1; noiseHit(2600, 0.03, 0.03); }
+    if (r > 0.84 && !P.sgIn) {
+      // take from the emptiest carrier that still has shells, so carriers run dry one at a time
+      let k = -1; for (let i = 0; i < G.pouch.length; i++) if (G.pouch[i] > 0 && (k < 0 || G.pouch[i] < G.pouch[k])) k = i;
+      if (k >= 0) { G.pouch[k]--; G.mag++; P.sgLoaded++; }
+      P.sgIn = true; noiseHit(1300, 0.05, 0.08); blip(820, 0.025, 0.05); P.rlJ = (P.rlJ || 0) + 0.5;
+    }
+    if (r >= 1) {
+      P.reloadStage = 0;
+      if (!P.sgStop && G.mag < w.cap && shellsLeft(G)) sgPhase('load');
+      else if (!G.chamber && G.mag > 0) sgPhase('rack');
+      else sgPhase('end');
+    }
+  } else if (P.sgPhase === 'rack') {
+    const k0 = P.sgLoaded ? 0.28 : 0.05;
+    if (r > k0 + 0.18 && P.reloadStage === 0) { P.reloadStage = 1; pumpSound(0); }
+    if (r > k0 + 0.42 && P.reloadStage === 1) { P.reloadStage = 2; pumpSound(1); if (!G.chamber && G.mag > 0) { G.mag--; G.chamber = 1; } }
+    if (r >= 1) P.reloading = false;
+  } else if (r >= 1) P.reloading = false;
+}
+// pump stroke after a shot: back from 0.13 s, held, forward by 0.44 s. Rack during loading uses the same shape on its own clock
+function pumpCurve(t) { return t < 0.13 ? 0 : t < 0.27 ? smooth((t - 0.13) / 0.14) : t < 0.31 ? 1 : t < 0.44 ? 1 - smooth((t - 0.31) / 0.13) : 0; }
+function pumpSound(fwd) { if (fwd) { noiseHit(1500, 0.06, 0.12); blip(380, 0.03, 0.05); } else { noiseHit(1100, 0.07, 0.1); blip(250, 0.035, 0.05); } }
 function finishReload() {
   const w = WEAPONS[P.weapon], G = P.guns[P.weapon];
   let best = 0; for (let i = 1; i < G.pouch.length; i++) if (G.pouch[i] > G.pouch[best]) best = i;
@@ -148,7 +196,8 @@ function updateWeapons(dt) {
     VMW.forEach(v => { v.flash.visible = false; }); muzzleLight.intensity = 0; vmMuzzleLight.intensity = 0;
     return;
   }
-  if (P.reloading) {
+  if (P.reloading && w.pellets) updateShellLoad(w, G, dt);
+  else if (P.reloading) {
     P.reloadT += dt; const r = P.reloadT / P.reloadDur;
     if (P.reloadStage === 0 && r > (P.reloadEmpty ? 0.13 : 0.14)) {
       P.reloadStage = 1; blip(900, 0.04, 0.06); noiseHit(1200, 0.06, 0.06);
@@ -163,7 +212,8 @@ function updateWeapons(dt) {
     P.inspectT += dt; const k = P.inspectT / w.inspect;
     if (k > 0.4 && !P.inspectShown) {
       P.inspectShown = true; noiseHit(1100, 0.05, 0.05);
-      flashMsg('MAG: ' + magEstimate(G.mag, w.cap).toUpperCase() + '<small>Spare: ' + (G.pouch.length ? G.pouch.map(n => magEstimate(n, w.cap)).join(', ') : 'none') + '</small>', w.inspect * 1000 * 0.55);
+      if (w.pellets) flashMsg('TUBE: ' + G.mag + (G.chamber ? ' + 1' : '') + ' SHELLS<small>Carriers: ' + (G.pouch.length ? G.pouch.join(', ') : 'none') + '</small>', w.inspect * 1000 * 0.55);
+      else flashMsg('MAG: ' + magEstimate(G.mag, w.cap).toUpperCase() + '<small>Spare: ' + (G.pouch.length ? G.pouch.map(n => magEstimate(n, w.cap)).join(', ') : 'none') + '</small>', w.inspect * 1000 * 0.55);
     }
     if (k >= 1) P.inspecting = false;
   }
@@ -171,6 +221,11 @@ function updateWeapons(dt) {
   P.ads = damp(P.ads, adsWant ? 1 : 0, 14 * (V.mods ? V.mods.ads : 1), dt);
   P.sprintBlend = damp(P.sprintBlend, P.sprinting ? 1 : 0, 10, dt);
   if (mouse.left && P.alive && S.locked) tryFire();
+  if (w.pellets && P.pumpStage < 2) {
+    const ts = performance.now() / 1000 - P.lastShot;
+    if (P.pumpStage === 0 && ts > 0.17) { P.pumpStage = 1; pumpSound(0); if (P.pumpEject) { const e = P.pumpEject; vmCamera.updateMatrixWorld(true); ejectShell(S.tp ? e.o : V.port.getWorldPosition(new V3()), e.right, e.up, e.f, P.vel, '12g'); P.pumpEject = null; } }
+    if (P.pumpStage === 1 && ts > 0.36) { P.pumpStage = 2; pumpSound(1); }
+  }
   P.kick = damp(P.kick, 0, 14, dt); P.recoilPitch = damp(P.recoilPitch, 0, 9, dt);
   const locked = !!V.slide && G.mag === 0 && !G.chamber && !(P.reloading && P.reloadEmpty && P.reloadT / P.reloadDur > 0.86);
   P.slideBack = locked ? 0.03 : damp(P.slideBack, 0, 28, dt);
@@ -181,6 +236,7 @@ function updateWeapons(dt) {
 }
 function tryFire() {
   const w = WEAPONS[P.weapon], G = P.guns[P.weapon], now = performance.now() / 1000;
+  if (P.reloading && w.pellets && P.sgPhase === 'load' && P.semiReady) { P.sgStop = true; P.semiReady = false; }
   if (P.reloading || P.inspecting || P.switchT > 0 || P.sprintBlend > 0.3) return;
   if (!w.auto && !P.semiReady) return;
   if (now - P.lastShot < 60 / w.rpm) return;
@@ -205,7 +261,7 @@ function fire(w) {
   const gF = new V3(0, 0, -1).applyQuaternion(_fq), up = new V3(0, 1, 0).applyQuaternion(_fq), right = new V3(1, 0, 0).applyQuaternion(_fq);
   let origin = V.muzzle.getWorldPosition(new V3());
   // the barrel is angled so the round crosses the line of sight at the zero distance (100 m), with drop compensation
-  const Z = 100, tz = Z / (w.vel * 0.93), drop = 0.5 * 9.81 * tz * tz;
+  const Z = w.zero || 100, tz = Z / (w.vel * 0.93), drop = 0.5 * 9.81 * tz * tz;
   const camF = new V3(); camera.getWorldDirection(camF);
   const camU = new V3(0, 1, 0).applyQuaternion(camera.quaternion);
   const tGun = origin.clone().addScaledVector(gF, Z).addScaledVector(up, V.sightH + drop);
@@ -224,31 +280,38 @@ function fire(w) {
   if (block) origin = block.point.clone().addScaledVector(_a, -0.02);
   if (S.tp) { const ta = tpAim(); origin = ta.origin; dir.copy(ta.dir); const sp = w.disp * (1 + (1 - P.ads) * 1.5), a2 = Math.random() * 6.28, r2 = Math.sqrt(Math.random()) * sp; dir.addScaledVector(right, Math.cos(a2) * r2).addScaledVector(up, Math.sin(a2) * r2).normalize(); }
   const tracer = w.tracerEvery > 0 && P.shots % w.tracerEvery === 0;
-  spawnBullet(origin, dir, P.weapon, tracer, true, S.myId);
+  const seed = (Math.random() * 4294967295) >>> 0;
+  if (w.pellets) for (const d of pelletDirs(dir, P.weapon, seed)) spawnBullet(origin, d, P.weapon, false, true, S.myId);
+  else spawnBullet(origin, dir, P.weapon, tracer, true, S.myId);
   muzzleLight.position.copy(origin).addScaledVector(dir, 0.3);
   vmMuzzleLight.position.copy(V.muzzle.getWorldPosition(new V3()));
-  P.flashT = w.snd === 2 ? 0.07 : 0.045;
+  P.flashT = w.snd === 2 || w.pellets ? 0.07 : 0.045;
   shotSound(P.weapon, 0, V.supp);
   muzzleSmoke(S.tp ? origin : V.muzzle.getWorldPosition(new V3()), dir, P.weapon, V.supp); V.boltK = 1; V.heat = Math.min(14, V.heat + (w.snd === 2 ? 2 : 1));
-  P.kick = Math.min(w.snd === 2 ? 3 : 1.5, P.kick + (w.snd === 2 ? 2.5 : 1));
+  P.kick = Math.min(w.snd === 2 ? 3 : w.pellets ? 2.4 : 1.5, P.kick + (w.snd === 2 ? 2.5 : w.pellets ? 2 : 1));
   if (V.slide) P.slideBack = 0.03;
-  ejectShell(V.port.getWorldPosition(new V3()), right, up, gF, P.vel, w.shell);
+  // a pump gun keeps its hull until the pump comes back
+  if (w.pellets) { P.pumpStage = 0; P.pumpEject = { o: origin.clone(), right: right.clone(), up: up.clone(), f: gF.clone() }; V.boltK = 0; }
+  else ejectShell(V.port.getWorldPosition(new V3()), right, up, gF, P.vel, w.shell);
   const rc = w.recoil * (V.mods ? V.mods.recoil : 1) * lerp(1, 0.6, P.ads) * lerp(1, 0.75, P.crouch) * lerp(1, 0.45, P.prone) * (P.anat.anyArm() ? 1.8 : 1);
   P.pitch = clamp(P.pitch + rc * 0.7, -1.5, 1.5); P.recoilPitch += rc * 0.6; P.yaw += (Math.random() - 0.45) * rc * 0.6;
   if (S.mode === 'online' && net.ready()) {
     const r4 = v => Math.round(v * 10000) / 10000;
-    net.send({ t: 'shot', o: [r4(origin.x), r4(origin.y), r4(origin.z)], d: [r4(dir.x), r4(dir.y), r4(dir.z)], w: P.weapon, tr: tracer ? 1 : 0, sp: V.supp ? 1 : 0 });
+    net.send({ t: 'shot', o: [r4(origin.x), r4(origin.y), r4(origin.z)], d: [r4(dir.x), r4(dir.y), r4(dir.z)], w: P.weapon, tr: tracer ? 1 : 0, sp: V.supp ? 1 : 0, sd: seed });
   }
 }
 function remoteShot(m) {
   if (!Array.isArray(m.o) || !Array.isArray(m.d)) return;
   const o = new V3().fromArray(m.o), dir = new V3().fromArray(m.d).normalize();
   const wi = WEAPONS[m.w] ? m.w : 0;
-  spawnBullet(o, dir, wi, !!m.tr, false, m.id);
+  if (WEAPONS[wi].pellets) for (const d of pelletDirs(dir, wi, (Number(m.sd) >>> 0) || 1)) spawnBullet(o, d, wi, false, false, m.id);
+  else spawnBullet(o, dir, wi, !!m.tr, false, m.id);
   if (!m.sp) { const f = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.25), flashMat); f.position.copy(o); f.lookAt(camera.position);
   scene.add(f); fx.push({ o: f, life: 0.04, max: 0.04 }); }
   const right = new V3().crossVectors(dir, _Y).normalize(), up = new V3().crossVectors(right, dir);
-  ejectShell(o.clone().addScaledVector(dir, isPistol(wi) ? -0.12 : wi === 2 ? -0.95 : -0.45), right, up, dir, new V3(), WEAPONS[wi].shell);
+  const ep = o.clone().addScaledVector(dir, isPistol(wi) ? -0.12 : wi === 2 ? -0.95 : -0.45);
+  if (WEAPONS[wi].pellets) setTimeout(() => { if (S.mode) ejectShell(ep, right, up, dir, new V3(), '12g'); }, 190);
+  else ejectShell(ep, right, up, dir, new V3(), WEAPONS[wi].shell);
   shotSound(wi, o.distanceTo(camera.position), !!m.sp);
   muzzleSmoke(o, dir, wi, !!m.sp);
 }

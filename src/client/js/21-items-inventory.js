@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------- ground items, pickup (F), backpack
 const items = new Map(); let itemSeq = 1;
 const PACK_COLS = 6, PACK_ROWS = 5;
-const itemSize = it => it.kind === 'gun' ? (WEAPONS[it.w].kind === 'pistol' ? [2, 1] : WEAPONS[it.w].kind === 'sniper' ? [6, 2] : [4, 2]) : it.kind === 'medkit' ? [2, 1] : it.kind === 'plate' ? [2, 2] : isPistol(it.w) ? [1, 1] : [1, 2];
-const itemName = it => it.kind === 'gun' ? WEAPONS[it.w].name : it.kind === 'mag' ? WEAPONS[it.w].name + ' magazine' : it.kind === 'medkit' ? 'IFAK medkit' : 'Armor plate';
+const itemSize = it => it.kind === 'mag' && isShotgun(it.w) ? [2, 1] : it.kind === 'gun' ? (WEAPONS[it.w].kind === 'pistol' ? [2, 1] : WEAPONS[it.w].kind === 'sniper' ? [6, 2] : [4, 2]) : it.kind === 'medkit' ? [2, 1] : it.kind === 'plate' ? [2, 2] : isPistol(it.w) ? [1, 1] : [1, 2];
+const itemName = it => it.kind === 'gun' ? WEAPONS[it.w].name : it.kind === 'mag' && isShotgun(it.w) ? '12 ga shell carrier' : it.kind === 'mag' ? WEAPONS[it.w].name + ' magazine' : it.kind === 'medkit' ? 'IFAK medkit' : 'Armor plate';
 const outlineMat = new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false, transparent: true,
   vertexShader: 'void main(){ vec4 mv = modelViewMatrix * vec4(position + normal * 0.0028, 1.0); gl_Position = projectionMatrix * mv; }',
   fragmentShader: 'void main(){ gl_FragColor = vec4(1.0, 0.82, 0.2, 0.9); }' });
@@ -70,12 +70,16 @@ const ICO = {
   g17: '<path d="M10 14h100v18H70l-4 8H48l8 22H30l-8-26H10z"/>',
   m9: '<path d="M8 16h104v8h-8v8H72l-4 8H50l8 22H32l-8-28H8z"/><rect x="100" y="12" width="14" height="8" rx="2"/>',
   magr: '<path d="M18 8h30v50q0 34-12 58H10q12-28 8-58z"/>',
+  m870: '<rect x="6" y="40" width="150" height="7" rx="2"/><rect x="5" y="36" width="4" height="4" rx="2"/><rect x="20" y="49" width="136" height="8" rx="3"/><rect x="62" y="44" width="52" height="21" rx="7"/><path d="M150 36h44l6 8v22h-50z"/><path d="M168 66h24l-5 13h-13z" fill="none" stroke="#b9c2cb" stroke-width="3"/><path d="M196 38l54 10v54h-7l-37-24-10-8v-22z"/>',
+  shells: '<rect x="6" y="30" width="116" height="26" rx="4" fill="#3a444e"/><rect x="13" y="10" width="11" height="30" rx="2" fill="#a83a32"/><rect x="13" y="38" width="11" height="9" rx="1" fill="#c9a040"/><rect x="26" y="10" width="11" height="30" rx="2" fill="#a83a32"/><rect x="26" y="38" width="11" height="9" rx="1" fill="#c9a040"/><rect x="40" y="10" width="11" height="30" rx="2" fill="#a83a32"/><rect x="40" y="38" width="11" height="9" rx="1" fill="#c9a040"/><rect x="53" y="10" width="11" height="30" rx="2" fill="#a83a32"/><rect x="53" y="38" width="11" height="9" rx="1" fill="#c9a040"/><rect x="67" y="10" width="11" height="30" rx="2" fill="#a83a32"/><rect x="67" y="38" width="11" height="9" rx="1" fill="#c9a040"/><rect x="80" y="10" width="11" height="30" rx="2" fill="#a83a32"/><rect x="80" y="38" width="11" height="9" rx="1" fill="#c9a040"/><rect x="94" y="10" width="11" height="30" rx="2" fill="#a83a32"/><rect x="94" y="38" width="11" height="9" rx="1" fill="#c9a040"/><rect x="107" y="10" width="11" height="30" rx="2" fill="#a83a32"/><rect x="107" y="38" width="11" height="9" rx="1" fill="#c9a040"/>',
   magp: '<path d="M20 8h22l4 44H14z"/><rect x="12" y="50" width="38" height="8" rx="2"/>',
   medkit: '<rect x="14" y="10" width="100" height="46" rx="8"/><rect x="20" y="4" width="88" height="10" rx="4"/><path d="M56 22h16v8h8v10h-8v8H56v-8h-8V30h8z" fill="#b01c1c"/>',
   plate: '<path d="M30 12h68l18 26v62q0 10-10 10H22q-10 0-10-10V38z"/><rect x="40" y="56" width="48" height="26" rx="3" fill="#3a444e"/>'
 };
-function itemIcon(it) { return it.kind === 'gun' ? ICO[WEAPONS[it.w].id] : it.kind === 'mag' ? (isPistol(it.w) ? ICO.magp : ICO.magr) : ICO[it.kind]; }
-const itemDesc = it => it.kind === 'gun' ? (attSummary2(it.att) || 'No attachments') + '. Drag onto a weapon slot to equip.' : it.kind === 'mag' ? magEstimate(it.n, WEAPONS[it.w].cap) + '. Click to load it on the next reload.' : it.kind === 'medkit' ? 'Stops bleeding, splints fractures, dulls pain.' : 'Level IV ceramic plate. Drag onto the plate carrier to swap it in.';
+// a shell carrier drawn with as many shells as it still holds
+function shellIcon(n) { let o = '<rect x="6" y="30" width="116" height="26" rx="4" fill="#3a444e"/>'; for (let i = 0; i < 8; i++) { const x = 13 + i * 13.5; o += i < n ? '<rect x="' + x + '" y="10" width="11" height="30" rx="2" fill="#a83a32"/><rect x="' + x + '" y="38" width="11" height="9" rx="1" fill="#c9a040"/>' : '<rect x="' + (x + 3) + '" y="36" width="5" height="6" rx="1" fill="#252c33"/>'; } return o; }
+function itemIcon(it) { return it.kind === 'gun' ? ICO[WEAPONS[it.w].id] : it.kind === 'mag' ? (isShotgun(it.w) ? shellIcon(it.n) : isPistol(it.w) ? ICO.magp : ICO.magr) : ICO[it.kind]; }
+const itemDesc = it => it.kind === 'gun' ? (attSummary2(it.att) || 'No attachments') + '. Drag onto a weapon slot to equip.' : it.kind === 'mag' && isShotgun(it.w) ? it.n + ' of 8 shells of 00 buckshot. Shells are fed from here one at a time.' : it.kind === 'mag' ? magEstimate(it.n, WEAPONS[it.w].cap) + '. Click to load it on the next reload.' : it.kind === 'medkit' ? 'Stops bleeding, splints fractures, dulls pain.' : 'Level IV ceramic plate. Drag onto the plate carrier to swap it in.';
 // icon box for an item of base size bw x bh cells, optionally turned 90 degrees
 function iconHtml(it, r, cs) {
   const [bw, bh] = itemSize(it), W = bw * cs, H = bh * cs;

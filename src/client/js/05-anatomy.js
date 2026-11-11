@@ -116,8 +116,9 @@ class Anatomy {
       const hp = this.armor[armor], cap = 2200 * Math.min(1, 0.4 + hp / 60);
       armorHit = armor;
       if (Ein < cap && w !== 2) {
-        this.armor[armor] = Math.max(0, hp - (3 + Ein / 150)); this.version++;
-        this.shock += 10 + Ein / 300; this.damage(this.s.ribs, STRUCTS.find(s => s.id === 'ribs'), Ein / 600 * 14, region); this.flesh.chest = Math.max(0, this.flesh.chest - 3);
+        const pf = isShotgun(w) ? 0.3 : 1;
+        this.armor[armor] = Math.max(0, hp - (3 + Ein / 150) * pf); this.version++;
+        this.shock += (10 + Ein / 300) * pf; this.damage(this.s.ribs, STRUCTS.find(s => s.id === 'ribs'), Ein / 600 * 14 * pf, region); this.flesh.chest = Math.max(0, this.flesh.chest - 3 * pf);
         return { stopped: 'plate', region, plate: armor, plateHp: this.armor[armor] };
       }
       this.armor[armor] = w === 2 ? 0 : Math.max(0, hp - 35); this.version++;

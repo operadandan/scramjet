@@ -6,11 +6,25 @@ const WEAPONS = [
   { id: 'g17', name: 'Glock 17', kind: 'pistol', auto: false, rpm: 450, cap: 17, spare: 3, tac: 1.7, empty: 2.0, inspect: 1.7, recoil: 0.028, fovAds: 62, shell: '9mm', vel: 375, mass: 0.0075, drag: 0.0014, disp: 0.0012, tracerEvery: 0, snd: 1, gap: 95 },
   { id: 'm107', name: 'Barrett M107', kind: 'sniper', auto: false, rpm: 110, cap: 10, spare: 4, tac: 3.2, empty: 3.8, inspect: 2.4, recoil: 0.085, fovAds: 5.5, scope: true, shell: '50', vel: 853, mass: 0.0428, drag: 0.00032, disp: 0.00025, tracerEvery: 0, snd: 2, gap: 350 },
   { id: 'ak74', name: 'AK-74M', kind: 'rifle', auto: true, rpm: 650, cap: 30, spare: 5, tac: 2.5, empty: 3.1, inspect: 2.1, recoil: 0.013, fovAds: 55, shell: '545', vel: 900, mass: 0.0034, drag: 0.00105, disp: 0.0006, tracerEvery: 4, snd: 3, gap: 70 },
-  { id: 'm9', name: 'Beretta M9', kind: 'pistol', auto: false, rpm: 450, cap: 15, spare: 3, tac: 1.8, empty: 2.1, inspect: 1.7, recoil: 0.03, fovAds: 62, shell: '9mm', vel: 381, mass: 0.008, drag: 0.0014, disp: 0.0013, tracerEvery: 0, snd: 1, gap: 95 }
+  { id: 'm9', name: 'Beretta M9', kind: 'pistol', auto: false, rpm: 450, cap: 15, spare: 3, tac: 1.8, empty: 2.1, inspect: 1.7, recoil: 0.03, fovAds: 62, shell: '9mm', vel: 381, mass: 0.008, drag: 0.0014, disp: 0.0013, tracerEvery: 0, snd: 1, gap: 95 },
+  // Remington 870 with an 18.5 in cylinder-bore barrel and a +2 extension (6 in the tube). 2 3/4 in 00 buck: 9 pellets of 3.49 g at 404 m/s,
+  // round balls shed speed fast (about 945 fps left at 50 yd). Pattern opens about 2.5 cm per metre. Spares are 8-shell carriers, loaded one shell at a time.
+  { id: 'm870', name: 'M870', kind: 'shotgun', auto: false, rpm: 105, cap: 6, spare: 4, carrier: 8, tac: 0.62, empty: 0.62, inspect: 1.8, recoil: 0.075, fovAds: 58, shell: '12g', vel: 404, mass: 0.00349, drag: 0.0074, disp: 0.0005, pellets: 9, spread: 0.0125, zero: 25, tracerEvery: 0, snd: 4, gap: 450 }
 ];
-const PRIMARIES = [0, 3, 2], SECONDARIES = [1, 4], MEDKIT_W = 9;
+const PRIMARIES = [0, 3, 2, 5], SECONDARIES = [1, 4], MEDKIT_W = 9;
 const isPistol = w => WEAPONS[w] && WEAPONS[w].kind === 'pistol';
-function freshGuns(lo) { const g = {}; for (const i of lo) { const w = WEAPONS[i]; g[i] = { mag: w.cap, chamber: 1, pouch: Array(w.spare).fill(w.cap) }; } return g; }
+const isShotgun = w => WEAPONS[w] && WEAPONS[w].kind === 'shotgun';
+const roundsPer = w => WEAPONS[w].carrier || WEAPONS[w].cap;
+// pellet directions from a seed, so every client draws the same pattern for a shot
+function seededRng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function pelletDirs(dir, wi, seed) {
+  const w = WEAPONS[wi], R = seededRng(seed), right = new V3().crossVectors(dir, new V3(0, 1, 0)); if (right.lengthSq() < 1e-6) right.set(1, 0, 0); right.normalize();
+  const up = new V3().crossVectors(right, dir).normalize(), out = [];
+  // roughly normal spread: most pellets near the centre, a few fliers
+  for (let i = 0; i < w.pellets; i++) { const a = R() * Math.PI * 2, r = w.spread * Math.min(1.6, Math.sqrt(-2 * Math.log(1 - R() * 0.999)) * 0.62); out.push(dir.clone().addScaledVector(right, Math.cos(a) * r).addScaledVector(up, Math.sin(a) * r).normalize()); }
+  return out;
+}
+function freshGuns(lo) { const g = {}; for (const i of lo) { const w = WEAPONS[i]; g[i] = { mag: w.cap, chamber: 1, pouch: Array(w.spare).fill(w.carrier || w.cap) }; } return g; }
 
 // ---------------------------------------------------------------- viewmodel
 const vm = new THREE.Group(); vmCamera.add(vm);
