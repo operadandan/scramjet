@@ -2,7 +2,8 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>BREACH</title>
+<title>Calculator</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231c1c1e'/%3E%3Crect x='12' y='10' width='40' height='14' rx='3' fill='%23a5d6a7'/%3E%3Ccircle cx='20' cy='34' r='4' fill='%23888'/%3E%3Ccircle cx='32' cy='34' r='4' fill='%23888'/%3E%3Ccircle cx='44' cy='34' r='4' fill='%23ff9f0a'/%3E%3Ccircle cx='20' cy='48' r='4' fill='%23888'/%3E%3Ccircle cx='32' cy='48' r='4' fill='%23888'/%3E%3Ccircle cx='44' cy='48' r='4' fill='%23ff9f0a'/%3E%3C/svg%3E">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box}
@@ -130,10 +131,66 @@ select{width:100%;padding:9px 10px;margin:4px 0 8px;background:#0b0e12;border:1p
 #black{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:10}
 #deathmsg{position:fixed;left:0;right:0;top:40%;text-align:center;font-size:22px;letter-spacing:3px;z-index:11;pointer-events:none;text-shadow:0 2px 6px #000;display:none}
 #pause{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5);z-index:15}
+#calc{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:radial-gradient(1200px 800px at 20% 10%,#2a3550 0,transparent 60%),radial-gradient(900px 700px at 90% 100%,#3b2440 0,transparent 55%),#0e1016;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,sans-serif;user-select:none}
+#calc .cw{width:340px;padding:22px;border-radius:30px;background:linear-gradient(160deg,rgba(40,42,50,.92),rgba(22,23,28,.96));border:1px solid rgba(255,255,255,.07);box-shadow:0 30px 80px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.06)}
+#calc .ct{display:flex;align-items:center;gap:7px;margin:-4px 0 14px 2px}#calc .ct i{width:12px;height:12px;border-radius:50%;display:block}
+#calc .ct span{margin-left:auto;font-size:12px;color:#6d717c;letter-spacing:.5px}
+#calc .cd{padding:10px 10px 16px;text-align:right;min-height:118px;display:flex;flex-direction:column;justify-content:flex-end}
+#calc .ce{color:#8b909b;font-size:19px;min-height:24px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl}
+#calc .cv{color:#fff;font-size:58px;font-weight:300;line-height:1.1;white-space:nowrap;overflow:hidden;letter-spacing:-1px;transition:font-size .1s}
+#calc .cg{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+#calc button{all:unset;height:66px;border-radius:33px;display:flex;align-items:center;justify-content:center;font-size:26px;color:#fff;background:#333439;cursor:pointer;transition:filter .08s,transform .08s;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+#calc button:hover{filter:brightness(1.18)}#calc button:active,#calc button.pr{filter:brightness(1.45);transform:scale(.96)}
+#calc button.fn{background:#a5a5aa;color:#111;font-size:22px}#calc button.op{background:#ff9f0a;font-size:30px}#calc button.op.on{background:#fff;color:#ff9f0a}
+#calc button.z{grid-column:span 2;justify-content:flex-start;padding-left:26px}
 </style>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"}}</script>
 </head>
 <body>
+<div id="calc"><div class="cw">
+  <div class="ct"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>Calculator</span></div>
+  <div class="cd"><div class="ce" id="cexp">&nbsp;</div><div class="cv" id="cval">0</div></div>
+  <div class="cg">
+    <button class="fn" data-k="c" id="cac">AC</button><button class="fn" data-k="n">&plusmn;</button><button class="fn" data-k="%">%</button><button class="op" data-k="/">&divide;</button>
+    <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button><button class="op" data-k="*">&times;</button>
+    <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button><button class="op" data-k="-">&minus;</button>
+    <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button><button class="op" data-k="+">+</button>
+    <button class="z" data-k="0">0</button><button data-k=".">.</button><button class="op" data-k="=">=</button>
+  </div>
+</div></div>
+<script>
+(function(){
+  var cur='0',acc=null,op=null,fresh=true,exp='',sym={'/':'\u00f7','*':'\u00d7','-':'\u2212','+':'+'},seq='';
+  var V=document.getElementById('cval'),E=document.getElementById('cexp'),AC=document.getElementById('cac'),root=document.getElementById('calc');
+  function fmt(n){if(!isFinite(n))return 'Error';var s=String(+n.toPrecision(12));if(s.indexOf('e')<0&&Math.abs(n)>=1000){var p=s.split('.');p[0]=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,',');s=p.join('.');}return s;}
+  function show(){var t=cur==='Error'?cur:(cur.indexOf('.')>=0&&fresh===false?cur.replace(/^(-?)(\d+)/,function(m,a,b){return a+fmt(+b);}):fmt(+cur));if(cur.slice(-1)==='.')t=fmt(+cur.slice(0,-1))+'.';V.textContent=t;V.style.fontSize=t.length>11?'34px':t.length>8?'44px':'58px';E.innerHTML=exp||'&nbsp;';AC.textContent=(cur!=='0'&&!fresh)?'C':'AC';document.querySelectorAll('#calc .op').forEach(function(b){b.classList.toggle('on',fresh&&op!==null&&b.dataset.k===op);});}
+  function calc(a,b,o){return o==='+'?a+b:o==='-'?a-b:o==='*'?a*b:b===0?NaN:a/b;}
+  function press(k){
+    if(cur==='Error'&&k!=='c'){cur='0';acc=null;op=null;exp='';}
+    if(/\d/.test(k)){if(fresh){cur=k;fresh=false;}else if(cur.replace(/[-.]/g,'').length<12)cur=cur==='0'?k:cur+k;}
+    else if(k==='.'){if(fresh){cur='0.';fresh=false;}else if(cur.indexOf('.')<0)cur+='.';}
+    else if(k==='c'){if(!fresh&&cur!=='0'){cur='0';fresh=true;}else{cur='0';acc=null;op=null;exp='';fresh=true;}}
+    else if(k==='n'){if(cur!=='0')cur=cur[0]==='-'?cur.slice(1):'-'+cur;}
+    else if(k==='%'){cur=String(+(+cur/100).toPrecision(12));}
+    else if(k==='b'){if(!fresh){cur=cur.length>1&&cur!=='-0'?cur.slice(0,-1):'0';if(cur==='-')cur='0';}}
+    else if(sym[k]){if(op!==null&&!fresh){acc=calc(acc,+cur,op);cur=String(acc);}else if(op===null||acc===null)acc=+cur;op=k;exp=fmt(acc)+' '+sym[k];fresh=true;}
+    else if(k==='='){if(op!==null){var b=+cur,r=calc(acc,b,op);exp=fmt(acc)+' '+sym[op]+' '+fmt(b)+' =';cur=isFinite(r)?String(+r.toPrecision(12)):'Error';acc=null;op=null;fresh=true;}}
+    show();
+  }
+  root.addEventListener('click',function(e){var b=e.target.closest('button');if(b)press(b.dataset.k);});
+  var map={'Enter':'=','=':'=','Backspace':'b','Escape':'c','Delete':'c','x':'*','X':'*'};
+  function onKey(e){
+    if(!root.parentNode)return;
+    var l=e.key.length===1?e.key.toLowerCase():'';
+    if(l){seq=(seq+l).slice(-3);if(seq==='fun'){removeEventListener('keydown',onKey,true);root.remove();e.preventDefault();return;}}
+    var k=map[e.key]||e.key;
+    if(/^[\d.%+\-*/=bc]$/.test(k)&&(map[e.key]||/^[\d.%+\-*/]$/.test(e.key))){e.preventDefault();e.stopPropagation();press(k);var btn=root.querySelector('[data-k="'+(k==='b'?'c':k)+'"]');if(btn){btn.classList.add('pr');setTimeout(function(){btn.classList.remove('pr');},110);}}
+    else e.stopPropagation();
+  }
+  addEventListener('keydown',onKey,true);
+  show();
+})();
+</script>
 <div id="menu"><div class="panel">
   <h1>BREACH</h1>
   <div class="sub">Multiplayer 3D game</div>
