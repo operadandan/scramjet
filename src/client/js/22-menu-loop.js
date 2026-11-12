@@ -108,7 +108,22 @@ buildArena(); setTimeout(warmShaders, 300);
 let last = performance.now();
 const focus = new V3();
 function loop(now) {
-  requestAnimationFrame(loop);
+  // ---------------------------------------------------------------- retro pixelation: the frame is drawn at a fixed number of lines and
+// blown up with hard pixel edges, so every pixel is the same size on screen whatever the distance, window size or display
+const RETRO = { rt: null, scene: new THREE.Scene(), cam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1) };
+RETRO.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false })); RETRO.scene.add(RETRO.quad);
+function retroTarget() {
+  if (!(S.pixel > 0)) return null;
+  // 0..100 on the slider: from 720 lines down to 120
+  const h = Math.max(96, Math.round(lerp(720, 120, Math.pow(S.pixel / 100, 0.75)))), w = Math.max(1, Math.round(h * innerWidth / innerHeight));
+  if (!RETRO.rt || RETRO.rt.width !== w || RETRO.rt.height !== h) {
+    if (RETRO.rt) RETRO.rt.dispose();
+    RETRO.rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false, depthBuffer: true });
+    RETRO.quad.material.map = RETRO.rt.texture; RETRO.quad.material.needsUpdate = true;
+  }
+  return RETRO.rt;
+}
+requestAnimationFrame(loop);
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   S.ts = damp(S.ts === undefined ? 1 : S.ts, S.slow && S.mode ? 0.08 : 1, 6, dt);
   const wdt = dt * S.ts;
@@ -131,7 +146,10 @@ function loop(now) {
   sun.position.copy(focus).addScaledVector(sunDir, 100); sun.target.position.copy(focus);
   renderer.clear();
   renderScope();
+  const rt = retroTarget();
+  if (rt) { renderer.setRenderTarget(rt); renderer.clear(); }
   renderer.render(scene, camera);
   if (S.mode && P.alive && !P.downed && !S.tp) { renderer.clearDepth(); renderer.render(vmScene, vmCamera); }
+  if (rt) { renderer.setRenderTarget(null); renderer.render(RETRO.scene, RETRO.cam); }
 }
 requestAnimationFrame(loop);

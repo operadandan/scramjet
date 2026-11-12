@@ -250,9 +250,9 @@ document.addEventListener('pointerlockchange', () => {
 // pixelation: the scene is drawn at a lower resolution and scaled up with hard edges. 0 is off, 100 is very blocky
 function setPixelation(v) {
   S.pixel = clamp(+v || 0, 0, 100);
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * (1 - 0.86 * Math.pow(S.pixel / 100, 0.8)));
-  renderer.setSize(innerWidth, innerHeight);
-  renderer.domElement.style.imageRendering = S.pixel > 0 ? 'pixelated' : 'auto';
+  // the low-resolution frame is made by retroTarget() (22-menu-loop.js); the canvas itself stays at full resolution
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight);
+  renderer.domElement.style.imageRendering = 'auto';
   try { localStorage.setItem('breach_pixel', String(S.pixel)); } catch (e) {}
 }
 addEventListener('resize', () => {
