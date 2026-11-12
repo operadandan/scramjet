@@ -4,6 +4,8 @@
   "main": "dist/worker.js",
   "compatibility_date": "2025-09-01",
   "build": { "command": "node build.mjs" },
+  // 3D models and textures (public/models/...), served as static files before the Worker runs
+  "assets": { "directory": "./public" },
   // Signaling database for the peer-to-peer rooms. No ID on purpose: the deploy keeps
   // whichever D1 database is already bound as DB on the Worker (or creates one if none is).
   "d1_databases": [{ "binding": "DB" }],

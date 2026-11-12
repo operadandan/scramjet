@@ -66,7 +66,7 @@ class Humanoid {
     this.tp = WEAPONS.map(w => { const t = tpGun(w.id, self.shadowOnly); if (w.kind === 'pistol') { t.g.position.set(0, 0, -0.44); this.pPiv.add(t.g); } else this.rPiv.add(t.g); return t; });
     this.medkit = buildTPMedkit(M); this.medkit.g.position.set(0, -0.12, -0.32); this.pPiv.add(this.medkit.g);
     const hmt = this.shadowOnly ? shadowMat : gunVcMat;
-    this.handMagR = new THREE.Mesh(tpGunGeo('m4').mag, hmt); this.handMagR.position.set(0, 0.02, 0); this.hdL.add(this.handMagR);
+    this.handMagR = new THREE.Mesh(tpGunGeo('m4').mag, this.shadowOnly ? shadowMat : gunMatOf('m4')); this.handMagR.position.set(0, 0.02, 0); this.hdL.add(this.handMagR);
     this.handMagP = new THREE.Mesh(tpGunGeo('g17').mag, hmt); this.hdL.add(this.handMagP);
     this.handMagR.visible = this.handMagP.visible = false;
     this.handMagR.userData.keep = this.handMagP.userData.keep = true;

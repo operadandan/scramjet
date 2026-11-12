@@ -78,6 +78,16 @@ function compact(group) {
   for (const [mt, gs] of by) { const o = new THREE.Mesh(gs.length > 1 ? mergeGeometries(gs) : gs[0], mt); group.add(o); }
   return group;
 }
+// bake an imported tree into one geometry in the root's frame, keeping UVs for its texture (all its parts share one material)
+function bakeTextured(root, skip) {
+  root.updateMatrixWorld(true); const inv = root.matrixWorld.clone().invert(), gs = [];
+  const walk = o => {
+    if (skip && skip.includes(o)) return;
+    if (o.isMesh) { const g = o.geometry.clone(); g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld)); gs.push(g); }
+    for (const c of o.children) walk(c);
+  };
+  walk(root); return gs.length > 1 ? mergeGeometries(gs) : gs[0];
+}
 // bake a whole tree into one vertex-coloured geometry in the root's frame, skipping the listed sub-groups
 function bakeColored(root, skip) {
   root.updateMatrixWorld(true); const inv = root.matrixWorld.clone().invert(), gs = [];
@@ -97,6 +107,7 @@ function bakeColored(root, skip) {
 }
 // ---------------------------------------------------------------- weapon models. x right, y up, z back; bore along -z
 function gunM4(K) {
+  if (IMPORTED.m4) return gunM4Imported(K);
   const g = new THREE.Group(), by = 0.003;
   // upper receiver: flat top, forward assist, ejection port with open dust cover, brass deflector
   K.e([[0.095, -0.011], [-0.097, -0.011], [-0.097, 0.0245], [0.095, 0.0245]], 0.029, 'anod', g, { r: 0.001, bev: 0.004 });
@@ -151,6 +162,17 @@ function gunM4(K) {
   for (let i = 0; i < 5; i++) K.rb(0.0238, 0.0035, 0.05, 0.001, 'poly', mag, 0, -0.042 - i * 0.013, -0.004 - i * 0.0028, 0.06 + i * 0.03);
   K.rb(0.026, 0.008, 0.07, 0.002, 'poly', mag, 0, -0.1085, -0.016, 0.19); K.b(0.0228, 0.03, 0.004, 'dark', mag, 0, -0.03, 0.02, 0.06);
   return { g, mag, chg, slide: null, bolt, boltMode: 'scale', muzzle: [0, by, -0.56], port: [0.02, 0.008, -0.02], brass: [0.013, '556'] };
+}
+// the Studio-built M4: named parts become the moving pieces (magazine, charging handle, bolt carrier); the rounds in the magazine are its cartridge group
+function gunM4Imported(K) {
+  const I = IMPORTED.m4, g = new THREE.Group(), MAG = new V3(0, -0.075, -0.034), own = ['Magazine', 'MagazineCartridges', 'ChargingHandle', 'BoltCarrier'];
+  const mesh = (name, P, off) => { const p = I.parts[name]; if (!p) return null; const m = new THREE.Mesh(p.geo, I.mats[p.mat]); m.userData.keep = true; m.userData.part = name; m.castShadow = true; if (off) m.position.copy(off).negate(); P.add(m); return m; };
+  for (const n in I.parts) if (!own.includes(n)) mesh(n, g);
+  const mag = K.grp(g, MAG.x, MAG.y, MAG.z); mesh('Magazine', mag, MAG);
+  const cart = K.grp(mag); cart.userData.keep = true; mesh('MagazineCartridges', cart, MAG);
+  const chg = K.grp(g); mesh('ChargingHandle', chg);
+  const bolt = K.grp(g); mesh('BoltCarrier', bolt);
+  return { g, mag, chg, slide: null, bolt, boltMode: 'slide', travel: 0.07, cart, imported: true, muzzle: [0, -0.0067, -0.473], port: [0.022, -0.006, -0.02], brass: [0, '556'], ironsY: 0.0556 };
 }
 function gunG17(K) {
   const g = new THREE.Group(), by = 0.014, slide = K.grp(g);

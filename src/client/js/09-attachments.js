@@ -17,6 +17,8 @@ const MOUNTS = {
   m870: { side: [0.019, -0.0128, -0.46] },
   m9: { muzzle: [0, 0.013, -0.1], muzR: 0.0145, supLen: 0.15, side: [0, -0.024, -0.062], pistol: true }
 };
+// the Studio M4: rails on its shorter quad-rail handguard
+if (IMPORTED.m4) Object.assign(MOUNTS.m4, { under: [0, -0.0397, -0.2], side: [0.0315, -0.007, -0.205] });
 const dotTex = canvasTex((g, s) => { g.clearRect(0, 0, s, s); g.fillStyle = '#ff2a1a'; g.shadowColor = '#ff2a1a'; g.shadowBlur = 10; g.beginPath(); g.arc(s / 2, s / 2, s * 0.06, 0, 7); g.fill(); }, 128, false);
 const lensGlow = new THREE.MeshBasicMaterial({ color: 0xff2020, toneMapped: false });
 const lightLens = new THREE.MeshBasicMaterial({ color: 0xfff6dd, toneMapped: false });
@@ -156,7 +158,8 @@ for (const [wi, W] of VMW.entries()) {
   W.parts = { optic: {}, muzzle: {}, under: {}, side: {} };
   W.muzzleBaseZ = W.muzzle.position.z;
   if (ATT_SLOTS[id].includes('optic')) {
-    if (id === 'm4') W.parts.optic.irons = buildIrons(W.g, M.rearIron, M.frontIron, M.ironsH);
+    if (id === 'm4' && W.imported) W.parts.optic.irons = { g: new THREE.Group(), ret: null, sightY: W.ironsY };   // the model's own front sight and flip-up rear
+    else if (id === 'm4') W.parts.optic.irons = buildIrons(W.g, M.rearIron, M.frontIron, M.ironsH);
     else W.parts.optic.irons = { g: new THREE.Group(), ret: null, sightY: M.ironsH };
     if (M.sideMount) { const sm = new THREE.Group(); W.g.add(sm); vrbox(0.006, 0.05, 0.06, 0.002, GM.anod, sm, -0.021, 0.005, -0.01); vrbox(0.04, 0.006, 0.07, 0.002, GM.anod, sm, -0.002, 0.03, -0.01); rail(sm, -0.045, 0.025, 0.033); W.sideMountG = sm; }
     const top = M.sideMount ? [0, 0.036, -0.01] : M.optic;
@@ -182,6 +185,8 @@ function applyAttachments(wi) {
     W.ret = o.ret; W.sightH = o.sightY; W.zoom = o.zoom || 1; W.lens = o.lens || W.scopeLens || null;
     W.ads.set(0, -o.sightY, A.optic === 'irons' ? (id === 'ak74' ? -0.34 : -0.25) : A.optic === 'acog' ? -0.27 : (M.adsZ || -0.25));
     if (W.sideMountG) W.sideMountG.visible = A.optic !== 'irons';
+    // the flip-up rear sight folds flat under an optic (the model only has it up, so it is hidden)
+    if (W.imported) W.g.traverse(o => { if (o.userData.part === 'RearBackupIronSightUp') o.visible = A.optic === 'irons'; });
     for (const k in W.parts.optic) if (W.parts.optic[k].ret) W.parts.optic[k].ret.material.opacity = 0;
   }
   // the support hand goes where the grip is: around a vertical grip, back on the ramp of an angled one

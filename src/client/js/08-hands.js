@@ -82,6 +82,7 @@ function makePoses(def) {
 }
 const VM_DEF = {
   m4: { hand: [[0, -0.09, 0.098], -0.4], elbowR: [0.1, -0.25, 0.37], elbow: [-0.2, -0.3, 0.06], hip: [0.13, -0.135, -0.32], ads: [0, -0.0665, -0.24], sightH: 0.0733, magAxis: [0, -1, 0.12],
+    imp: { H0: [[0, -0.006, -0.19], [0, 0, 0]] },   // the Studio M4's quad rail is shorter and sits lower: the support hand goes on it, not on the barrel
     H0: [[0, 0.002, -0.3], [0, 0, 0]], H1: [0, -0.112, -0.03], rot: [0, 0, 0], d: [0.07, 0.11], HP: [[-0.15, -0.42, 0.1], [0.6, 0, 0.4]], HB: [[-0.006, -0.02, 0.004], [0, 0, 0.2]], HBp: [[0.0, -0.022, 0.006], [0, 0, 0.2]], HV: [[-0.13, 0.15, 0.04], [1.0, -0.55, 0.35]] },
   g17: { hand: [[0, -0.07, 0.068], -0.36, { idx: 0.5, w: 0.013 }], elbowR: [0.08, -0.23, 0.32], elbow: [-0.13, -0.3, 0.28], hip: [0.12, -0.125, -0.36], ads: [0, -0.0352, -0.4], sightH: 0.0212, magRot: true,
     H0: [[0.0, -0.056, 0.064], [-0.36, 0, 0]], H1: [0.0, -0.118, 0.082], rot: [-0.36, 0, 0], d: [0.06, 0.08], HP: [[-0.12, -0.4, 0.16], [0.4, 0, 0.4]], HB: [[-0.012, -0.03, 0.014], [0, 0, 0.2]], HBp: [[-0.008, -0.028, 0.016], [0, 0, 0.2]], HV: [[-0.11, 0.05, 0.07], [0.7, -0.55, 0.35]], flash: 0.7 },
@@ -97,8 +98,8 @@ const VM_DEF = {
 };
 const VM_KIT = makeKit(true);
 function buildVM(id) {
-  const D = VM_DEF[id], M = GUN_MODEL[id](VM_KIT), g = M.g;
-  const brass = cartridgeTop(M.mag, M.brass[0], M.brass[1]); brass.userData.keep = true;
+  const M = GUN_MODEL[id](VM_KIT), g = M.g, D = M.imported && VM_DEF[id].imp ? Object.assign({}, VM_DEF[id], VM_DEF[id].imp) : VM_DEF[id];
+  const brass = M.cart || cartridgeTop(M.mag, M.brass[0], M.brass[1]); brass.userData.keep = true;
   for (const grp of [g, M.mag, M.slide, M.chg]) if (grp) { compact(grp); grp.children.forEach(c => { if (c.isGroup && c !== M.mag && c !== M.slide && c !== M.chg && c !== brass) compact(c); }); }
   const port = new THREE.Object3D(); port.position.fromArray(M.port); (M.slide || g).add(port);
   const muzzle = new THREE.Object3D(); muzzle.position.fromArray(M.muzzle); g.add(muzzle);
@@ -106,7 +107,7 @@ function buildVM(id) {
   const rh = buildGripHand(g, D.hand[0], D.hand[1], D.elbowR, D.hand[2]);
   const L = buildLeftHand(g); vm.add(g);
   const magAxis = D.magRot ? new V3(0, -1, 0).applyEuler(M.mag.rotation) : new V3().fromArray(D.magAxis).normalize();
-  const W = { boltIn: M.boltIn || null, bolt: M.bolt || null, boltMode: M.boltMode, boltTravel: M.travel || 0, boltK: 0, heat: 0, id, rh, g, mag: M.mag, magBase: M.mag.position.clone(), magQBase: M.mag.quaternion.clone(), magAxis, muzzle, flash, port, chg: M.chg, ret: null, slide: M.slide, brass, L, scope: !!D.scope,
+  const W = { imported: !!M.imported, ironsY: M.ironsY, boltIn: M.boltIn || null, bolt: M.bolt || null, boltMode: M.boltMode, boltTravel: M.travel || 0, boltK: 0, heat: 0, id, rh, g, mag: M.mag, magBase: M.mag.position.clone(), magQBase: M.mag.quaternion.clone(), magAxis, muzzle, flash, port, chg: M.chg, ret: null, slide: M.slide, brass, L, scope: !!D.scope,
     elbow: new V3().fromArray(D.elbow), hip: new V3().fromArray(D.hip), ads: new V3().fromArray(D.ads), sightH: D.sightH };
   if (M.eye) W.lens = W.scopeLens = makeScopeLens(g, M.eye, M.eyeR, 6, 'mildot');
   const H1 = new V3().fromArray(D.H1), r0 = D.rot, r1 = [r0[0] + (D.magRot ? 0.06 : 0.1), r0[1], r0[2]];
@@ -120,15 +121,17 @@ const gunVcMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness:
 const TP_KIT = makeKit(false, m => mat(m.color ? m.color.getHex() : 0x202020, 0.6, 0));
 const TP_OFF = { m870: [0, -0.027, -0.38], m4: [0, 0.005, -0.345], ak74: [0, 0.005, -0.4], m107: [0, 0.01, -0.5], g17: [0, 0, -0.03], m9: [0, 0, -0.03] };
 const TP_FORE = { m870: [-0.004, -0.046, -0.28], m4: [-0.004, -0.02, -0.26], ak74: [-0.004, -0.024, -0.2], m107: [-0.004, -0.1, -0.08] };
+if (IMPORTED.m4) TP_FORE.m4 = [-0.004, -0.03, -0.19];
 const tpCache = {};
 function tpGunGeo(id) {
   if (tpCache[id]) return tpCache[id];
   const M = GUN_MODEL[id](TP_KIT), D = VM_DEF[id]; M.g.updateMatrixWorld(true);
-  const body = bakeColored(M.g, [M.mag]), mag = bakeColored(M.mag);
-  return tpCache[id] = { body, mag, magPos: M.mag.position.clone(), magRot: M.mag.rotation.clone(), grip: D.hand[0], H0: D.H0[0], muzzle: M.muzzle };
+  // an imported model keeps its UVs and textures; the cartridges stay out (hidden in the magazine at that distance)
+  const body = M.imported ? bakeTextured(M.g, [M.mag]) : bakeColored(M.g, [M.mag]), mag = M.imported ? bakeTextured(M.mag, [M.cart]) : bakeColored(M.mag);
+  return tpCache[id] = { body, mag, mat: M.imported ? IMPORTED[id].mats[0] : null, magPos: M.mag.position.clone(), magRot: M.mag.rotation.clone(), grip: D.hand[0], H0: D.H0[0], muzzle: M.muzzle };
 }
 function tpGun(id, shadow) {
-  const C = tpGunGeo(id), off = TP_OFF[id], pistol = id === 'g17' || id === 'm9', mt = shadow ? shadowMat : gunVcMat;
+  const C = tpGunGeo(id), off = TP_OFF[id], pistol = id === 'g17' || id === 'm9', mt = shadow ? shadowMat : (C.mat || gunVcMat);
   const g = new THREE.Group(), inner = new THREE.Group(); inner.position.fromArray(off); g.add(inner);
   const body = new THREE.Mesh(C.body, mt); body.castShadow = true; body.userData.keep = true; inner.add(body);
   const mag = new THREE.Group(); mag.position.copy(C.magPos); mag.rotation.copy(C.magRot); inner.add(mag);
@@ -138,7 +141,8 @@ function tpGun(id, shadow) {
   return { g, mag, body, grip: mk(C.grip, 0.004, 0.012, 0), fore, well: mk([C.magPos.x, C.magPos.y - 0.03, C.magPos.z]) };
 }
 // a loose magazine or whole gun as a single mesh (ground items, magazines in hands)
-function gunItemMesh(id, magOnly) { const C = tpGunGeo(id); const m = new THREE.Mesh(magOnly ? C.mag : C.body, gunVcMat); m.castShadow = true; if (!magOnly) { const mg = new THREE.Mesh(C.mag, gunVcMat); mg.position.copy(C.magPos); mg.rotation.copy(C.magRot); mg.castShadow = true; m.add(mg); } return m; }
+function gunMatOf(id) { return tpGunGeo(id).mat || gunVcMat; }
+function gunItemMesh(id, magOnly) { const C = tpGunGeo(id), mt = C.mat || gunVcMat; const m = new THREE.Mesh(magOnly ? C.mag : C.body, mt); m.castShadow = true; if (!magOnly) { const mg = new THREE.Mesh(C.mag, mt); mg.position.copy(C.magPos); mg.rotation.copy(C.magRot); mg.castShadow = true; m.add(mg); } return m; }
 const VMW = WEAPONS.map(w => buildVM(w.id));
 // left-hand choreography. Reloads include a fumbled first try at the magazine well, a slap to seat it and a tug to check it
 const SEQ = {

@@ -1,0 +1,483 @@
+newmtl RailIntegrationSystem1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke RailIntegrationSystem1_emap.png
+
+rbx_alphamode overlay
+
+newmtl FlashHider1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke FlashHider1_emap.png
+
+rbx_alphamode overlay
+
+newmtl GasBlockSupport1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke GasBlockSupport1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Barrel1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke Barrel1_emap.png
+
+rbx_alphamode overlay
+
+newmtl PistolGrip1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke PistolGrip1_emap.png
+
+rbx_alphamode overlay
+
+newmtl BufferTube1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke BufferTube1_emap.png
+
+rbx_alphamode overlay
+
+newmtl BoltCatch1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke BoltCatch1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Selector1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke Selector1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Trigger1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke Trigger1_emap.png
+
+rbx_alphamode overlay
+
+newmtl ChargingHandle1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke ChargingHandle1_emap.png
+
+rbx_alphamode overlay
+
+newmtl ForwardIronSight1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke ForwardIronSight1_emap.png
+
+rbx_alphamode overlay
+
+newmtl MagazineRelease1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke MagazineRelease1_emap.png
+
+rbx_alphamode overlay
+
+newmtl BoltCarrier1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke BoltCarrier1_emap.png
+
+rbx_alphamode overlay
+
+newmtl ForwardAssist1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke ForwardAssist1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Receiver1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke Receiver1_emap.png
+
+rbx_alphamode overlay
+
+newmtl HeadShield1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke HeadShield1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Stock1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke Stock1_emap.png
+
+rbx_alphamode overlay
+
+newmtl DustCover1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke DustCover1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Magazine1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke Magazine1_emap.png
+
+rbx_alphamode overlay
+
+newmtl MagazineCartridges1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka MagazineCartridges1_diff.png
+map_Kd MagazineCartridges1_diff.png
+map_d MagazineCartridges1_diff.png
+
+map_Bump MagazineCartridges1_nmap.png
+
+map_Ns MagazineCartridges1_spec.png
+
+map_Ke MagazineCartridges1_emap.png
+
+rbx_alphamode overlay
+
+newmtl RearBackupIronSightUp1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearBackupIronSightUp1_diff.png
+map_Kd RearBackupIronSightUp1_diff.png
+map_d RearBackupIronSightUp1_diff.png
+
+map_Bump RearBackupIronSightUp1_nmap.png
+
+map_Ns RearBackupIronSightUp1_spec.png
+
+map_Ke RearBackupIronSightUp1_emap.png
+
+rbx_alphamode overlay
+
