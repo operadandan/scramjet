@@ -80,13 +80,79 @@ const ICO = {
 function shellIcon(n) { let o = '<rect x="6" y="30" width="116" height="26" rx="4" fill="#3a444e"/>'; for (let i = 0; i < 8; i++) { const x = 13 + i * 13.5; o += i < n ? '<rect x="' + x + '" y="10" width="11" height="30" rx="2" fill="#a83a32"/><rect x="' + x + '" y="38" width="11" height="9" rx="1" fill="#c9a040"/>' : '<rect x="' + (x + 3) + '" y="36" width="5" height="6" rx="1" fill="#252c33"/>'; } return o; }
 function itemIcon(it) { return it.kind === 'gun' ? ICO[WEAPONS[it.w].id] : it.kind === 'mag' ? (isShotgun(it.w) ? shellIcon(it.n) : isPistol(it.w) ? ICO.magp : ICO.magr) : ICO[it.kind]; }
 const itemDesc = it => it.kind === 'gun' ? (attSummary2(it.att) || 'No attachments') + '. Drag onto a weapon slot to equip.' : it.kind === 'mag' && isShotgun(it.w) ? it.n + ' of 8 shells of 00 buckshot. Shells are fed from here one at a time.' : it.kind === 'mag' ? magEstimate(it.n, WEAPONS[it.w].cap) + '. Click to load it on the next reload.' : it.kind === 'medkit' ? 'Stops bleeding, splints fractures, dulls pain.' : 'Level IV ceramic plate. Drag onto the plate carrier to swap it in.';
-// icon box for an item of base size bw x bh cells, optionally turned 90 degrees
-function iconHtml(it, r, cs) {
-  const [bw, bh] = itemSize(it), W = bw * cs, H = bh * cs;
-  const svg = '<svg viewBox="0 0 ' + bw * 64 + ' ' + bh * 64 + '" width="' + W + '" height="' + H + '" fill="#b9c2cb">' + itemIcon(it) + '</svg>';
-  return r ? '<div style="position:absolute;left:' + H + 'px;top:0;width:' + W + 'px;height:' + H + 'px;transform-origin:0 0;transform:rotate(90deg)">' + svg + '</div>' : svg;
+// ---- item pictures: each item's own 3D model, rendered from the side into a small picture (cached), and spun live as a 3D
+// model in place of the picture while the mouse is over it
+const ICON_R = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); ICON_R.setPixelRatio(1); ICON_R.setClearColor(0x000000, 0);
+const SPIN_R = new THREE.WebGLRenderer({ antialias: true, alpha: true }); SPIN_R.setPixelRatio(Math.min(2, devicePixelRatio || 1)); SPIN_R.setClearColor(0x000000, 0);
+SPIN_R.domElement.style.cssText = 'position:fixed;pointer-events:none;z-index:40;display:none';
+document.body.appendChild(SPIN_R.domElement);
+const ICON_S = new THREE.Scene();
+ICON_S.add(new THREE.HemisphereLight(0xe8eef5, 0x2a2f36, 1.25));
+{ const k = new THREE.DirectionalLight(0xffffff, 1.6); k.position.set(2, 3, 2.5); ICON_S.add(k); const r = new THREE.DirectionalLight(0x9fb4c8, 0.7); r.position.set(-2, 1, -3); ICON_S.add(r); }
+const ICON_C = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 20);
+const iconMeshes = new Map(), iconPics = new Map();
+const iconKey = it => it.kind + ':' + (it.w === undefined ? '' : it.w) + (it.kind === 'mag' && isShotgun(it.w) ? ':' + it.n : '');
+function iconMesh(it) {
+  const k = iconKey(it); let g = iconMeshes.get(k);
+  if (!g) {
+    g = new THREE.Group(); const m = itemMesh(it); g.add(m);
+    // stand the model so its long axis runs left-right in the picture and it sits centred on its own bounds
+    const bb = new THREE.Box3().setFromObject(m), sz = bb.getSize(new V3());
+    if (sz.z >= sz.x) m.rotation.y = -Math.PI / 2;                    // guns and mags are built along -z: muzzle to the right
+    m.updateMatrixWorld(true); const c = new THREE.Box3().setFromObject(m).getCenter(new V3()); m.position.sub(c);
+    g.userData.r = new THREE.Box3().setFromObject(g).getBoundingSphere(new THREE.Sphere()).radius;
+    iconMeshes.set(k, g);
+  }
+  return g;
 }
-const CS = 64;
+// frame the model in an orthographic side view (tight to its outline), or (spin) a frame that fits it at any turn
+function frameIcon(g, W, H, spin) {
+  g.updateMatrixWorld(true);
+  let hw, hh;
+  if (spin) { const r = g.userData.r * 1.04; hw = Math.max(r, r * W / H); hh = hw * H / W; if (hh < r * 0.62) { hh = r * 0.62; hw = hh * W / H; } }
+  else { const bb = new THREE.Box3().setFromObject(g), sz = bb.getSize(new V3()); hw = sz.x / 2 * 1.08; hh = sz.y / 2 * 1.08; if (hw / hh > W / H) hh = hw * H / W; else hw = hh * W / H; }
+  ICON_C.left = -hw; ICON_C.right = hw; ICON_C.top = hh; ICON_C.bottom = -hh; ICON_C.position.set(0, 0, 5); ICON_C.lookAt(0, 0, 0); ICON_C.updateProjectionMatrix();
+}
+function iconPic(it, W, H) {
+  W = Math.max(8, Math.round(W)); H = Math.max(8, Math.round(H));
+  const k = iconKey(it) + '@' + W + 'x' + H; let u = iconPics.get(k);
+  if (!u) {
+    const g = iconMesh(it); g.rotation.set(0, 0, 0); ICON_S.add(g); frameIcon(g, W, H, false);
+    ICON_R.setSize(W * 2, H * 2, false); ICON_R.render(ICON_S, ICON_C); u = ICON_R.domElement.toDataURL('image/png'); ICON_S.remove(g);
+    iconPics.set(k, u);
+  }
+  return u;
+}
+// picture box for an item of base size bw x bh cells (cs px per cell), optionally turned 90 degrees
+const iconItems = new Map(); let iconSeq = 0;
+function iconHtml(it, r, cs) {
+  const [bw, bh] = itemSize(it), W = bw * cs, H = bh * cs, id = 'ic' + (++iconSeq % 100000); iconItems.set(id, it);
+  if (iconItems.size > 400) iconItems.delete(iconItems.keys().next().value);
+  const img = '<img class="icimg" data-ic="' + id + '" src="' + iconPic(it, W, H) + '" width="' + W + '" height="' + H + '" draggable="false">';
+  return r ? '<div style="position:absolute;left:' + H + 'px;top:0;width:' + W + 'px;height:' + H + 'px;transform-origin:0 0;transform:rotate(90deg)">' + img + '</div>' : img;
+}
+// hover: the picture is replaced by the model turning on the spot
+let spinIt = null, spinEl = null, spinYaw = 0;
+function spinUpdate(dt) {
+  const c = SPIN_R.domElement;
+  if (!S.inv || drag || !spinEl || !spinEl.isConnected) { c.style.display = 'none'; spinIt = null; spinEl = null; return; }
+  const rc = spinEl.getBoundingClientRect(), box = spinEl.closest('.pit, .mini') || spinEl, rb = box.getBoundingClientRect();
+  const W = Math.round(rb.width), H = Math.round(rb.height); if (W < 4 || H < 4) return;
+  c.style.display = 'block'; c.style.left = rb.left + 'px'; c.style.top = rb.top + 'px'; c.style.width = W + 'px'; c.style.height = H + 'px';
+  SPIN_R.setSize(W, H, false);
+  spinYaw += dt * 1.8;
+  const g = iconMesh(spinIt); ICON_S.add(g); g.rotation.set(0.18 * Math.sin(spinYaw * 0.7), spinYaw, 0); frameIcon(g, W, H, true);
+  SPIN_R.render(ICON_S, ICON_C); ICON_S.remove(g); g.rotation.set(0, 0, 0);
+}
+document.addEventListener('mouseover', e => {
+  const im = e.target.closest && (e.target.closest('.pit, .mini') || null);
+  const pic = im ? im.querySelector('.icimg') : null;
+  if (pic && iconItems.has(pic.dataset.ic)) { if (spinEl !== pic) { spinEl = pic; spinIt = iconItems.get(pic.dataset.ic); spinYaw = 0; } pic.style.visibility = 'hidden'; }
+  else if (spinEl) { spinEl.style.visibility = ''; spinEl = null; spinIt = null; SPIN_R.domElement.style.display = 'none'; }
+});
+// backpack cell size: the panel is a quarter of the screen wide and the 6-column grid fills it
+let CS = 52;
+function invCell() { return Math.max(28, Math.floor((innerWidth * 0.25 - 34) / PACK_COLS)); }
 let invTimer = 0, invKey = '', drag = null;
 const DOLL_SVG = '<svg viewBox="0 0 160 300" class="dollsvg"><g fill="#2a3036" stroke="#4a545e" stroke-width="1.2">' +
   '<ellipse cx="80" cy="30" rx="19" ry="23"/><rect x="70" y="50" width="20" height="12" rx="4"/><path d="M46 62 Q80 54 114 62 L118 132 Q80 140 42 132 Z"/>' +
@@ -97,23 +163,27 @@ function condBar(v) { v = clamp(v, 0, 100); return '<i class="cb"><b style="widt
 const tipAttr = (name, desc) => ' data-tn="' + name.replace(/"/g, '') + '" data-td="' + desc.replace(/"/g, '') + '"';
 function renderInv() {
   if (!S.inv || drag) return;
+  if (spinEl && !spinEl.isConnected) spinEl = null;
+  CS = invCell();
   const an = P.anat, A = an.armor, lo = P.activeLo, L = packLayout(packItems());
-  const key = JSON.stringify([lo, L.list.map(i => [i.key, i.w, i.n, i.pos, i.r]), A, an.helmetOn, P.tools, P.invPlate && Math.round(P.invPlate.t * 10), lo.map(w => w != null && P.guns[w] ? [P.guns[w].next, attSummary(w)] : 0)]);
+  const key = JSON.stringify([CS, lo, L.list.map(i => [i.key, i.w, i.n, i.pos, i.r]), A, an.helmetOn, P.tools, P.invPlate && Math.round(P.invPlate.t * 10), lo.map(w => w != null && P.guns[w] ? [P.guns[w].next, attSummary(w)] : 0)]);
   if (key === invKey) return; invKey = key;
   const prog = P.invPlate ? '<span class="prog">installing ' + Math.round(P.invPlate.t / 2 * 100) + '%</span>' : '';
   const slot = (id, label, body, tip, extra) => '<div class="eq" id="eq_' + id + '" data-slot="' + id + '"' + (tip || '') + (extra || '') + '><label>' + label + '</label>' + body + '</div>';
-  const mini = (it, w) => '<div class="mini">' + iconHtml(it, 0, w / itemSize(it)[0]) + '</div>';
+  const mini = (it, w) => '<div class="mini">' + iconHtml(it, 0, Math.min(w / itemSize(it)[0], 62 / itemSize(it)[1])) + '</div>';
   const gunSlot = (i) => {
     const wi = lo[i], id = i ? 'sec' : 'pri', label = i ? 'SECONDARY' : 'PRIMARY';
     if (wi == null) return slot(id, label, '', tipAttr('Empty ' + label.toLowerCase() + ' slot', 'Drag a ' + (i ? 'pistol' : 'rifle') + ' here.'));
     const it = { kind: 'gun', w: wi, att: attOf(wi) };
-    return slot(id, label, mini(it, i ? 90 : 170) + '<button class="attb" data-wi="' + wi + '">Attachments</button>', tipAttr(WEAPONS[wi].name, (attSummary2(it.att) || 'No attachments') + '. Drag into the backpack to stow, or onto the ground.'), ' data-drag="1" data-kind="eqgun" data-s="' + id + '" data-w="' + wi + '"');
+    return slot(id, label, mini(it, i ? pw * 0.36 : pw * 0.62) + '<button class="attb" data-wi="' + wi + '">ATTACHMENTS</button>', tipAttr(WEAPONS[wi].name, (attSummary2(it.att) || 'No attachments') + '. Drag into the backpack to stow, or onto the ground.'), ' data-drag="1" data-kind="eqgun" data-s="' + id + '" data-w="' + wi + '"');
   };
   const tool = (i) => { const t = P.tools[i]; return slot('t' + i, 'TOOL ' + (i + 3), t ? mini({ kind: t }, 70) + '<b class="cnt">x' + toolCount(t) + '</b>' : '', tipAttr(t ? TOOL_NAME[t] : 'Empty tool slot', t ? 'Key ' + (i + 3) + ' uses this. Drag another tool here to change it.' : 'Drag a medkit or plate here.')); };
-  $('invL').innerHTML = '<div class="doll">' + DOLL_SVG +
-    slot('plateF', 'FRONT PLATE', mini({ kind: 'plate' }, 44) + condBar(A.plateF) + prog, tipAttr('Plate carrier', (A.plateF <= 0 ? 'Plate broken.' : 'Plate at ' + Math.round(A.plateF) + '%.') + ' Protects the front only. Drag a spare plate here to replace it.')) +
-    slot('pack', 'BACKPACK', '<div class="nm">' + L.used + ' / 30</div>' + condBar(100 - L.used / 30 * 100), tipAttr('Assault pack', '30 slots. Bigger items take more cells. Press R while dragging to turn an item.')) +
-    gunSlot(0) + gunSlot(1) + tool(0) + tool(1) + '</div>';
+  const pw = innerWidth * 0.25 - 34;
+  $('invL').innerHTML = '<div class="ihd"><b>INVENTORY</b><span>' + (S.names && S.myId && S.names[S.myId] || 'OPERATOR') + '</span></div>' +
+    '<div class="sec">LOADOUT</div><div class="eqg">' + gunSlot(0).replace('class="eq"', 'class="eq wide"') + gunSlot(1) +
+    slot('plateF', 'PLATE', mini({ kind: 'plate' }, 40) + condBar(A.plateF) + prog, tipAttr('Plate carrier', (A.plateF <= 0 ? 'Plate broken.' : 'Plate at ' + Math.round(A.plateF) + '%.') + ' Protects the front only. Drag a spare plate here to replace it.')) +
+    tool(0) + tool(1) +
+    slot('pack', 'PACK', '<div class="nm">' + L.used + ' / 30</div>' + condBar(100 - L.used / 30 * 100), tipAttr('Assault pack', '30 slots. Bigger items take more cells. Press R while dragging to turn an item.')) + '</div>';
   const cards = L.list.filter(it => it.pos).map(it => {
     const G = P.guns[it.w], nx = it.kind === 'mag' && it.k !== undefined && G && G.next === it.k;
     let data = 'data-drag="1" data-key="' + it.key + '" data-kind="' + it.kind + '" data-r="' + (it.r || 0) + '"';
@@ -123,8 +193,8 @@ function renderInv() {
     const full = it.kind === 'gun' ? Object.assign({ att: P.packGuns[it.ref].att }, it) : it;
     return '<div class="pit ' + it.kind + (nx ? ' next' : '') + '" ' + data + tipAttr(itemName(it) + (nx ? ' (loads next)' : ''), itemDesc(full)) + ' style="left:' + it.pos[0] * CS + 'px;top:' + it.pos[1] * CS + 'px;width:' + it.cw * CS + 'px;height:' + it.ch * CS + 'px">' + iconHtml(it, it.r, CS) + '</div>';
   }).join('');
-  $('invR').innerHTML = '<div class="ih">BACKPACK ' + L.used + ' / 30 <small>Drag items to arrange them. R turns the item you are dragging. Hover for details.</small></div>' +
-    '<div class="pack" data-slot="packgrid" style="width:' + PACK_COLS * CS + 'px;height:' + PACK_ROWS * CS + 'px">' + cards + '<div id="pghost"></div></div><div class="eq gdrop" data-slot="ground">DROP ON THE GROUND</div>';
+  $('invR').innerHTML = '<div class="sec">BACKPACK <i>' + L.used + ' / 30</i></div>' +
+    '<div class="pack" data-slot="packgrid" style="width:' + PACK_COLS * CS + 'px;height:' + PACK_ROWS * CS + 'px;background-size:' + CS + 'px ' + CS + 'px">' + cards + '<div id="pghost"></div></div><div class="eq gdrop" data-slot="ground">DROP ON GROUND</div><div class="ihint">Drag to move · R rotates while dragging · G closes</div>';
   $('inv').querySelectorAll('.attb').forEach(b => { b.addEventListener('mousedown', e => e.stopPropagation()); b.addEventListener('click', () => openAttMenu(+b.dataset.wi)); });
 }
 function setNextMag(wi, k) { const G = P.guns[wi]; if (!G) return; G.next = G.next === k ? null : k; blip(900, 0.03, 0.04); invKey = ''; renderInv(); }
@@ -294,7 +364,7 @@ function openInv() {
   if (document.pointerLockElement) document.exitPointerLock();
 }
 function closeInv() {
-  S.inv = false; drag = null; $('dragghost').style.display = 'none'; $('tip').style.display = 'none'; $('inv').style.display = 'none'; $('attm').style.display = 'none';
+  S.inv = false; drag = null; spinEl = null; SPIN_R.domElement.style.display = 'none'; $('dragghost').style.display = 'none'; $('tip').style.display = 'none'; $('inv').style.display = 'none'; $('attm').style.display = 'none';
   if (S.mode) renderer.domElement.requestPointerLock();
 }
 function updateInv(dt) {
@@ -304,6 +374,7 @@ function updateInv(dt) {
   }
   if (!S.inv) return;
   if (!P.alive) { closeInv(); return; }
+  spinUpdate(dt);
   invTimer += dt; if (invTimer > 0.2) { invTimer = 0; if (!document.querySelector('#inv .drag')) renderInv(); }
 }
 // attachments picker (also reachable from the menus)
