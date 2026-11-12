@@ -155,7 +155,7 @@ const ARM_SET = {
   grip: { pn: [-1, 0, 0], fwd: [0, 0.1, -1], mcp: [0.02, -0.004, -0.01], thumb: [-0.024, 0.045, -0.025] },
   // support hand on a rifle's handguard, in the left-hand target's frame: palm under and to the left, knuckles along the
   // bottom right edge, fingers up the right side, thumb along the left
-  fore: { pn: [0.2, 0.98, 0.0], fwd: [0.9, -0.1, -0.42], mcp: [0.012, -0.052, 0.0], thumb: [-0.04, 0.005, -0.05], shoulder: [-0.18, -0.17, 0.3], dev: 0.12, toward: 0.3, tuck: 2, squeeze: 0.3 },
+  fore: { pn: [0.2, 0.98, 0.0], fwd: [0.9, -0.1, -0.42], mcp: [0.012, -0.047, 0.0], wrap: { part: 'RailIntegrationSystem' }, thumb: [-0.04, 0.005, -0.05], shoulder: [-0.18, -0.17, 0.3], dev: 0.12, toward: 0.3, tuck: 2, squeeze: 0.3 },
   // support hand on a pistol: palm on the firing hand's fingers from the left, fingers wrapping over them
   // thumbs-forward support grip, in the gun's own frame. The heel of the support palm fills the bare left grip panel under the
   // firing thumb; the wrist is canted down and the fingers wrap the front of the firing
@@ -251,6 +251,21 @@ function setupArms(W, D, pistol) {
   const curlRest = graspSolve(L, cloudL, { thumb: { fixed: [0, 0, 0] } }); curlRest.thumb = thumbTo(L, cloudL, toG(SL.thumb, true));
   // a firm grip: the fingers close a little past first contact, pressing into the handguard instead of resting round it
   if (SL.squeeze) for (const f of ['index', 'middle', 'ring', 'pinky']) curlRest[f] = curlRest[f].map((v, k) => k < 3 ? v + SL.squeeze * (k === 0 ? 0.6 : 1) : v);
+  // rifle: a real hold on the handguard. Each finger is aimed (not just closed until it touches): from its knuckle under the
+  // right lower edge it runs up the right side and its tip hooks over the top right corner, fingers close together, so the
+  // hand clamps the handguard between palm and fingertips.
+  if (SL.wrap) {
+    const bb = new THREE.Box3(); g.traverse(o => { if (o.userData.part === SL.wrap.part) bb.union(new THREE.Box3().setFromObject(o)); });
+    if (!bb.isEmpty()) {
+      bb.applyMatrix4(new THREE.Matrix4().copy(g.matrixWorld).invert());
+      const kq = qL, kw = wL, top = bb.max.y, right = bb.max.x;
+      for (const f of ['index', 'middle', 'ring', 'pinky']) {
+        const mcp = L.fing[f].j[0].clone().sub(L.wrist0).applyQuaternion(kq).add(kw);
+        const tip = new V3(right - 0.017, top + 0.005, mcp.z + (f === 'index' ? -0.004 : f === 'pinky' ? 0.006 : 0));
+        const c = fingerTo(L, cloudL, f, tip); curlRest[f] = c;
+      }
+    }
+  }
   const H1 = W.poses.H1; L.setHand(H1.q.clone().multiply(W.armOffL.q), W.armOffL.p.clone().applyQuaternion(H1.q).add(H1.p));
   const mp = new V3(0, -0.03, 0); W.mag.localToWorld(mp); g.worldToLocal(mp);
   const curlMag = graspSolve(L, gun, { thumb: { fixed: [0, 0, 0] } }); curlMag.thumb = thumbTo(L, gun, mp.clone().add(new V3(-0.02, 0, 0)));
