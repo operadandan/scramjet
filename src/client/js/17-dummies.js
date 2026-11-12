@@ -53,6 +53,126 @@ function addTPSupp(hum) {
     t.g.add(m); t.sup = m;
   });
 }
+// ---------------------------------------------------------------- reacting to a wound (shared by AI and players)
+// Picked by stance and wound: standing, crouched and prone bodies each go down their own way, a neck wound brings both hands
+// to the throat. Every reaction is put together fresh from random choices (which variant, timing, step length, sway, twist,
+// which way it topples), so no two look the same. B is the body: { hum, anat, home (where it stood), baseYaw, stanceKind(),
+// dropGun(v), goLimp(soft), react, noBleed }. The same R played on any client gives the same motion.
+function reactStart(B, kind) {
+    const an = B.anat, d = an.lastDir.clone().setY(0); if (d.lengthSq() < 1e-4) d.set(0, 0, 1); d.normalize();
+    const R = { kind, stance: B.stanceKind(), t: 0, seed: Math.random() * 100, sd2: 0, dir: d, off: new V3(), v: Math.floor(Math.random() * 3),
+      T1: rnd(1.6, 3.6), T2d: rnd(1.0, 1.4), sway: rnd(0.08, 0.3), swayF: rnd(1.1, 2.5), twist: rnd(-0.7, 0.7), lean: rnd(-0.45, 0.45), step: rnd(0.3, 0.75), side: Math.random() < 0.5 ? -1 : 1, slump: rnd(0.4, 0.75), knee: Math.random() < 0.5 };
+    // sometimes the stumble goes back toward the shooter instead of with the hit, or off to the side
+    const r = Math.random(); if (r < 0.2) R.dir.negate(); else if (r < 0.4) R.dir.set(-d.z * R.side, 0, d.x * R.side);
+    if (kind === 'neck') { R.T1 = rnd(1.8, 3.4); R.step = rnd(0.15, 0.4); }
+    B.react = R; B.stag = 1; B.stagT = 0; R.home = B.hum.root.position.clone(); R.yaw0 = B.baseYaw;
+    if (B.dropGun) B.dropGun(d.clone().multiplyScalar(0.8).add(new V3(rnd(-0.4, 0.4), 0.6, rnd(-0.4, 0.4))));
+    // which wound to clutch, and with which hand: the free arm on the same side, the other one for a wound on an arm
+    const w = B.hum.wounds && B.hum.wounds.length ? B.hum.wounds[B.hum.wounds.length - 1] : null;
+    R.wound = w; R.wf = w ? w.frame : null; let side = 'R';
+    if (w) { if (/^(sh|el)L$/.test(w.frame)) side = 'R'; else if (/^(sh|el)R$/.test(w.frame)) side = 'L'; else { const lp = B.hum.spine.worldToLocal(w.m.getWorldPosition(new V3())); side = lp.x < 0 ? 'L' : 'R'; } }
+    if (an.armBroken(side) || an.lost['arm' + side]) side = side === 'L' ? 'R' : 'L';
+    R.hand = an.armBroken(side) || an.lost['arm' + side] ? null : side;
+  }
+function reactRun(B, dt) {
+    const R = B.react; R.t += dt; B.stagT = R.t;
+    const hum = B.hum, a = hum.anim, root = hum.root, an = B.anat, t = R.t, ph = t + R.seed;
+    const T1 = R.T1, T2 = T1 + R.T2d, T3 = T2 + 0.9;
+    const k = smooth(clamp(t / 0.45, 0, 1));
+    const base = { speed: 0, crouch: 0, pitch: 0, reload: 0, sprint: 0, air: 0, weapon: MEDKIT_W, ads: 0, prone: 0, limp: 0, lean: 0, unarmed: true };
+    const ST = R.stance, neck = R.kind === 'neck';
+    const finish = () => { B.react = undefined; B.stag = undefined; B.reactDone = true; if (B.goLimp) B.goLimp(true); };
+    let kn = 0, sl = 0;
+    if (ST === 'prone') {
+      // ---- on the ground: roll onto a side and curl up, writhe, or push up and fall flat again
+      const Tp = T1 + 1.2; if (t >= Tp) return finish();
+      const e = smooth(clamp(t / 0.8, 0, 1)), fade = 1 - smooth(clamp((t - T1) / 1.2, 0, 1));
+      Object.assign(a, base, { prone: 1, speed: R.v === 1 ? 0.6 * fade : 0 }); root.position.copy(R.home);
+      a.bb = an.brokenMask(); a.ah = an.armHangMask(); a.ls = an.lostMask(); hum.update(dt);
+      if (R.v === 0) { hum.pose.rotation.y = R.side * 1.25 * e; hum.pose.position.y += 0.12 * e; for (const s of ['L', 'R']) { hum['lg' + s].rotation.x += 0.9 * e; hum['kn' + s].rotation.x -= 1.3 * e; } hum.spine.rotation.x -= 0.4 * e; hum.neck.rotation.x -= 0.35 * e; }
+      else if (R.v === 1) { const w = Math.sin(ph * 4.2) * fade; hum.spine.rotation.x += 0.25 * e * fade + 0.1 * w; hum.neck.rotation.x += 0.4 * e * fade * (0.5 + 0.5 * Math.sin(ph * 2.7)); hum.pose.rotation.y = 0.35 * Math.sin(ph * 1.6) * fade; hum.lgL.rotation.x += 0.4 * Math.max(0, w); hum.lgR.rotation.x += 0.4 * Math.max(0, -w); }
+      else { const up = smooth(clamp(t / 0.7, 0, 1)) * (1 - smooth(clamp((t - T1 * 0.6) / 0.5, 0, 1))); hum.pose.rotation.x += 0.4 * up; hum.spine.rotation.x -= 0.2 * up; }
+      if (R.hand || neck) reactClutch(B, R, neck, e * fade + (1 - fade) * 0.4);
+      if (!B.noBleed) bleedDrips(B, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1));
+      return;
+    }
+    if (ST === 'crouch' && !neck) {
+      // ---- crouched: sit back onto the floor, fall forward onto the hands, or topple over sideways
+      const Tc = T1 + 0.9; if (t >= Tc) return finish();
+      const e = smooth(clamp(t / (T1 * 0.7), 0, 1));
+      Object.assign(a, base, { crouch: 1 }); root.position.copy(R.home); root.rotation.y = R.yaw0 + R.twist * 0.4 * e;
+      a.bb = an.brokenMask(); a.ah = an.armHangMask(); a.ls = an.lostMask(); hum.update(dt);
+      if (R.v === 0) { hum.hips.position.y = lerp(hum.hips.position.y, 0.2, e); for (const s of ['L', 'R']) { hum['lg' + s].rotation.x = lerp(hum['lg' + s].rotation.x, 1.45, e); hum['kn' + s].rotation.x = lerp(hum['kn' + s].rotation.x, -0.5 - (s === 'L' ? 0.3 : 0), e); } hum.spine.rotation.x += 0.35 * e; hum.neck.rotation.x -= 0.3 * e; }
+      else if (R.v === 1) { hum.spine.rotation.x -= 0.9 * e; hum.neck.rotation.x += 0.4 * e; hum.hips.position.y = lerp(hum.hips.position.y, 0.42, e); root.updateMatrixWorld(true); const fw = new V3(0, 0, -1).applyQuaternion(root.quaternion), rt = new V3(1, 0, 0).applyQuaternion(root.quaternion), pole = new V3(0, -1, 0); for (const s of ['L', 'R']) { if (R.hand === s && e < 0.5) continue; solveArm(hum['sh' + s], hum['el' + s], root.position.clone().addScaledVector(fw, 0.42).addScaledVector(rt, (s === 'L' ? -1 : 1) * 0.2).setY(0.08), pole, 0.3, 0.3); } }
+      else { hum.spine.rotation.z += R.side * 0.7 * e; hum.hips.position.x += R.side * 0.1 * e; hum.pose.rotation.z = R.side * 0.25 * e; }
+      if (R.hand && R.v !== 1) reactClutch(B, R, false, e);
+      if (!B.noBleed) bleedDrips(B, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1));
+      return;
+    }
+    // ---- standing (and the neck grab from standing or crouched)
+    if (R.v === 1 && !neck && t >= T1 * 0.75) return finish();      // the legs just go, mid-stumble, and momentum takes it
+    if (t >= T3) return finish();
+    kn = smooth(clamp((t - T1) / (T2 - T1), 0, 1)); sl = smooth(clamp((t - T2) / (T3 - T2), 0, 1));
+    const back = R.v === 2 && !neck, sp = (R.step * Math.exp(-t * 0.8) + 0.1) * (1 - kn);
+    R.off.addScaledVector(R.dir, sp * dt * (back ? -0.7 : 1)).add(new V3(-R.dir.z, 0, R.dir.x).multiplyScalar(Math.sin(ph * R.swayF) * R.sway * dt * (1 - kn)));
+    const np = R.home.clone().add(R.off); if (!blocked(np, 1.7, 0.3)) root.position.copy(np);
+    Object.assign(a, base, { speed: sp * 2.2, crouch: (ST === 'crouch' ? 0.8 : 0.2 + 0.12 * Math.sin(ph * 1.5) * k) * (1 - kn), pitch: (neck ? -0.2 : -0.45) * k, limp: 1 - kn, lean: (Math.sin(ph * 1.6) * 0.3 + R.lean) * (1 - kn) });
+    a.bb = an.brokenMask(); a.ah = an.armHangMask(); a.ls = an.lostMask();
+    root.rotation.y = R.yaw0 + (Math.sin(ph * 1.1) * 0.25 + R.twist * k) * (1 - kn);
+    hum.update(dt);
+    if (kn > 0) {
+      const lerpR = (g, x, z) => { g.rotation.x = lerp(g.rotation.x, x, kn); g.rotation.z = lerp(g.rotation.z, z, kn); };
+      if (back) {
+        // sits down hard and rocks back
+        lerpR(hum.lgL, 1.5, -0.12); lerpR(hum.lgR, 1.4, 0.12); lerpR(hum.knL, -0.6, 0); lerpR(hum.knR, -0.9, 0);
+        hum.hips.position.y = lerp(hum.hips.position.y, 0.16, kn); hum.spine.rotation.x += 0.45 * sl;
+      } else {
+        // knees on the floor with the shins flat behind; as it folds the hips sink back toward the heels
+        const first = R.knee ? 1 : 0, thL = 0.1 + R.slump * sl, thR = 0.06 + R.slump * sl;
+        lerpR(hum.lgL, thL, -0.1); lerpR(hum.lgR, thR, 0.1);
+        hum.knL.rotation.x = lerp(hum.knL.rotation.x, -Math.PI / 2 - thL, clamp(kn * (first ? 1.4 : 0.8), 0, 1)); hum.knR.rotation.x = lerp(hum.knR.rotation.x, -Math.PI / 2 - thR, clamp(kn * (first ? 0.8 : 1.4), 0, 1));
+        hum.hips.position.y = lerp(hum.hips.position.y, 0.08 + 0.44 * Math.cos((thL + thR) / 2), kn);
+      }
+    }
+    if (!back) hum.spine.rotation.x += -0.28 * k - 0.25 * kn - R.slump * sl;
+    hum.spine.rotation.z += R.lean * 0.3 * kn;
+    hum.neck.rotation.x = lerp(hum.neck.rotation.x, neck ? -0.2 + 0.25 * Math.sin(ph * 3) : -0.55, k);
+    if (R.hand || neck) reactClutch(B, R, neck, k * (1 - sl * 0.7));
+    if (!B.noBleed) bleedDrips(B, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1));
+  }
+function reactClutch(B, R, neck, hold) {
+    const hum = B.hum, root = hum.root; root.updateMatrixWorld(true);
+    const fw = new V3(0, 0, -1).applyQuaternion(root.quaternion), rt = new V3(1, 0, 0).applyQuaternion(root.quaternion), ph = R.t + R.seed;
+    const jitter = new V3(Math.sin(ph * 5) * 0.008, Math.sin(ph * 4) * 0.008, Math.sin(ph * 6) * 0.006);
+    const reach = (s, T) => {
+      const sh = hum['sh' + s], el = hum['el' + s], q0 = sh.quaternion.clone(), q1 = el.quaternion.clone();
+      const pole = rt.clone().multiplyScalar(s === 'L' ? -0.8 : 0.8).add(new V3(0, -0.6, 0)).addScaledVector(fw, -0.2);
+      solveArm(sh, el, T, pole, 0.3, 0.3);
+      sh.quaternion.copy(q0.slerp(sh.quaternion, hold)); el.quaternion.copy(q1.slerp(el.quaternion, hold)); sh.updateMatrixWorld(true);
+    };
+    if (neck) {
+      const T = hum.neck.getWorldPosition(new V3()).addScaledVector(fw, 0.06).add(new V3(0, 0.04, 0)).add(jitter);
+      for (const s of ['L', 'R']) if (!(B.anat.lost && B.anat.lost['arm' + s]) && !B.anat.armBroken(s)) reach(s, T.clone().addScaledVector(rt, (s === 'L' ? -1 : 1) * 0.035));
+      return;
+    }
+    const w = R.wound; if (!w || !w.m.parent || !R.hand) return;
+    const T = w.m.getWorldPosition(new V3()).addScaledVector(w.n.clone().transformDirection(w.m.parent.matrixWorld), 0.05).add(jitter);
+    reach(R.hand, T);
+  }
+// a reaction sent to other players: every choice that shapes it, so they play exactly the same motion
+function reactPack(R) {
+  const r3 = x => Math.round(x * 1000) / 1000;
+  return { k: R.kind, s: R.stance, sd: r3(R.seed), d: [r3(R.dir.x), r3(R.dir.z)], v: R.v, T1: r3(R.T1), T2: r3(R.T2d), sw: r3(R.sway), sf: r3(R.swayF), tw: r3(R.twist),
+    le: r3(R.lean), st: r3(R.step), si: R.side, sl: r3(R.slump), kn: R.knee ? 1 : 0, h: R.hand || 0, wf: R.wf || 0, y0: r3(R.yaw0), h0: [r3(R.home.x), r3(R.home.y), r3(R.home.z)], t: r3(R.t) };
+}
+function reactUnpack(x, hum) {
+  const n = v => Number.isFinite(+v) ? +v : 0, wf = typeof x.wf === 'string' ? x.wf : null;
+  const w = wf && hum.wounds ? hum.wounds.filter(w => w.frame === wf).pop() || null : null;
+  return { kind: x.k === 'neck' ? 'neck' : 'hit', stance: ['stand', 'crouch', 'prone'].includes(x.s) ? x.s : 'stand', t: clamp(n(x.t), 0, 20), seed: n(x.sd),
+    dir: new V3(n(x.d && x.d[0]), 0, n(x.d && x.d[1])), off: new V3(), v: clamp(n(x.v) | 0, 0, 2), T1: clamp(n(x.T1), 0.5, 5), T2d: clamp(n(x.T2), 0.5, 3),
+    sway: n(x.sw), swayF: n(x.sf), twist: n(x.tw), lean: n(x.le), step: clamp(n(x.st), 0, 1), side: n(x.si) < 0 ? -1 : 1, slump: n(x.sl), knee: !!x.kn,
+    hand: x.h === 'L' || x.h === 'R' ? x.h : null, wound: w, wf, yaw0: n(x.y0), home: new V3(n(x.h0 && x.h0[0]), n(x.h0 && x.h0[1]), n(x.h0 && x.h0[2])) };
+}
 class Remote {
   constructor(id, name) {
     this.id = id; this.name = name;
@@ -77,6 +197,21 @@ class Remote {
     if (m0 && this.rag) this.rag.applyLost(m0.ls || 0, null, m0.lc);
     if (m0 && (m0.ar & 1) && !this.hum.helmetOff) setHelmet(this.hum, false, new V3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).negate());
     const vis = !!this.st && this.alive && !this.rag; this.hum.root.visible = vis; if (!vis) return;
+    // reacting to a wound: play the owner's reaction, from the same choices, with the shared code
+    const rx = this.st.rx;
+    if (rx && typeof rx === 'object') {
+      if (!this.react || this.react.seed !== +rx.sd) { this.react = reactUnpack(rx, this.hum); this.reactDone = false; }
+      if (Math.abs(this.react.t - rx.t) > 0.3) this.react.t = Math.max(0, rx.t - dt);
+      const st = this.st, an = this.ranat || (this.ranat = { lastDir: new V3(), lost: {} });
+      an.brokenMask = () => st.bb || 0; an.armHangMask = () => st.ah || 0; an.lostMask = () => st.ls || 0; an.armBroken = s2 => !!((st.ah || 0) & (s2 === 'L' ? 1 : 2));
+      this.anat = an; this.noBleed = true;
+      if (this.react && !this.react.done) reactRun(this, dt);
+      if (!this.react) this.react = { seed: +rx.sd, t: 99, done: 1 };   // finished here first: hold until the owner goes down
+      bleedDrips(this, st.bl || 0, dt);
+      this.pos.copy(this.hum.root.position);
+      return;
+    }
+    this.react = null;
     this.pos.lerp(this.tpos, 1 - Math.exp(-14 * dt));
     this.yaw = angLerp(this.yaw, this.tyaw, 1 - Math.exp(-16 * dt));
     this.hum.root.position.copy(this.pos); this.hum.root.rotation.y = this.yaw;
@@ -107,6 +242,7 @@ function deathMasks(an) {
   };
 }
 class Dummy {
+  get baseYaw() { return Math.PI; }
   constructor(x, z, anim, label) {
     this.hum = new Humanoid({ shirt: 0xb8662a, vest: 0x5a5a56, vest2: 0x4e4e4a, helmet: 0x4a4a46, skin: SKINS[Math.floor(Math.random() * SKINS.length)] });
     this.hum.dummy = this; scene.add(this.hum.root);
@@ -202,22 +338,7 @@ class Dummy {
     const sp = { walk: 1.6, run: 4.3, sprint: 7.2, crouchwalk: 2, crawl: 0.8 }[this.anim] || 0;
     return new V3(0, 0, -1).applyQuaternion(this.hum.root.quaternion).multiplyScalar(sp);
   }
-  startReaction(kind) {
-    const an = this.anat, d = an.lastDir.clone().setY(0); if (d.lengthSq() < 1e-4) d.set(0, 0, 1); d.normalize();
-    const R = { kind, stance: this.stanceKind(), t: 0, seed: Math.random() * 100, dir: d, off: new V3(), v: Math.floor(Math.random() * 3),
-      T1: rnd(1.6, 3.6), T2d: rnd(1.0, 1.4), sway: rnd(0.08, 0.3), swayF: rnd(1.1, 2.5), twist: rnd(-0.7, 0.7), lean: rnd(-0.45, 0.45), step: rnd(0.3, 0.75), side: Math.random() < 0.5 ? -1 : 1, slump: rnd(0.4, 0.75), knee: Math.random() < 0.5 };
-    // sometimes the stumble goes back toward the shooter instead of with the hit, or off to the side
-    const r = Math.random(); if (r < 0.2) R.dir.negate(); else if (r < 0.4) R.dir.set(-d.z * R.side, 0, d.x * R.side);
-    if (kind === 'neck') { R.T1 = rnd(1.8, 3.4); R.step = rnd(0.15, 0.4); }
-    this.react = R; this.stag = 1; this.stagT = 0;
-    this.dropGun(d.clone().multiplyScalar(0.8).add(new V3(rnd(-0.4, 0.4), 0.6, rnd(-0.4, 0.4))));
-    // which wound to clutch, and with which hand: the free arm on the same side, the other one for a wound on an arm
-    const w = this.hum.wounds && this.hum.wounds.length ? this.hum.wounds[this.hum.wounds.length - 1] : null;
-    R.wound = w; let side = 'R';
-    if (w) { if (/^(sh|el)L$/.test(w.frame)) side = 'R'; else if (/^(sh|el)R$/.test(w.frame)) side = 'L'; else { const lp = this.hum.spine.worldToLocal(w.m.getWorldPosition(new V3())); side = lp.x < 0 ? 'L' : 'R'; } }
-    if (an.armBroken(side) || an.lost['arm' + side]) side = side === 'L' ? 'R' : 'L';
-    R.hand = an.armBroken(side) || an.lost['arm' + side] ? null : side;
-  }
+  startReaction(kind) { reactStart(this, kind); }
   // knocked straight over by a shotgun blast: back along the shot, or forward the way it was going if it was on the move
   blastFall(dir) {
     if (this.rag || this.dead) return;
@@ -229,92 +350,8 @@ class Dummy {
     this.rag = spawnRagdoll(this.hum, new V3(), d, PART_OF_REGION(an.lastRegion), false, { bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(), keep: true, soft: true, vTop, vLeg });
     this.rag.owner = { dummy: this }; this.hum.root.visible = false;
   }
-  reactStep(dt) {
-    const R = this.react; R.t += dt; this.stagT = R.t;
-    const hum = this.hum, a = hum.anim, root = hum.root, an = this.anat, t = R.t, ph = t + R.seed;
-    const T1 = R.T1, T2 = T1 + R.T2d, T3 = T2 + 0.9;
-    const k = smooth(clamp(t / 0.45, 0, 1));
-    const base = { speed: 0, crouch: 0, pitch: 0, reload: 0, sprint: 0, air: 0, weapon: MEDKIT_W, ads: 0, prone: 0, limp: 0, lean: 0, unarmed: true };
-    const ST = R.stance, neck = R.kind === 'neck';
-    const finish = () => { this.react = undefined; this.stag = undefined; this.reactDone = true; this.goLimp(true); };
-    let kn = 0, sl = 0;
-    if (ST === 'prone') {
-      // ---- on the ground: roll onto a side and curl up, writhe, or push up and fall flat again
-      const Tp = T1 + 1.2; if (t >= Tp) return finish();
-      const e = smooth(clamp(t / 0.8, 0, 1)), fade = 1 - smooth(clamp((t - T1) / 1.2, 0, 1));
-      Object.assign(a, base, { prone: 1, speed: R.v === 1 ? 0.6 * fade : 0 }); root.position.copy(this.home);
-      a.bb = an.brokenMask(); a.ah = an.armHangMask(); a.ls = an.lostMask(); hum.update(dt);
-      if (R.v === 0) { hum.pose.rotation.y = R.side * 1.25 * e; hum.pose.position.y += 0.12 * e; for (const s of ['L', 'R']) { hum['lg' + s].rotation.x += 0.9 * e; hum['kn' + s].rotation.x -= 1.3 * e; } hum.spine.rotation.x -= 0.4 * e; hum.neck.rotation.x -= 0.35 * e; }
-      else if (R.v === 1) { const w = Math.sin(ph * 4.2) * fade; hum.spine.rotation.x += 0.25 * e * fade + 0.1 * w; hum.neck.rotation.x += 0.4 * e * fade * (0.5 + 0.5 * Math.sin(ph * 2.7)); hum.pose.rotation.y = 0.35 * Math.sin(ph * 1.6) * fade; hum.lgL.rotation.x += 0.4 * Math.max(0, w); hum.lgR.rotation.x += 0.4 * Math.max(0, -w); }
-      else { const up = smooth(clamp(t / 0.7, 0, 1)) * (1 - smooth(clamp((t - T1 * 0.6) / 0.5, 0, 1))); hum.pose.rotation.x += 0.4 * up; hum.spine.rotation.x -= 0.2 * up; }
-      if (R.hand || neck) this.clutch(R, neck, e * fade + (1 - fade) * 0.4);
-      bleedDrips(this, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1));
-      return;
-    }
-    if (ST === 'crouch' && !neck) {
-      // ---- crouched: sit back onto the floor, fall forward onto the hands, or topple over sideways
-      const Tc = T1 + 0.9; if (t >= Tc) return finish();
-      const e = smooth(clamp(t / (T1 * 0.7), 0, 1));
-      Object.assign(a, base, { crouch: 1 }); root.position.copy(this.home); root.rotation.y = Math.PI + R.twist * 0.4 * e;
-      a.bb = an.brokenMask(); a.ah = an.armHangMask(); a.ls = an.lostMask(); hum.update(dt);
-      if (R.v === 0) { hum.hips.position.y = lerp(hum.hips.position.y, 0.2, e); for (const s of ['L', 'R']) { hum['lg' + s].rotation.x = lerp(hum['lg' + s].rotation.x, 1.45, e); hum['kn' + s].rotation.x = lerp(hum['kn' + s].rotation.x, -0.5 - (s === 'L' ? 0.3 : 0), e); } hum.spine.rotation.x += 0.35 * e; hum.neck.rotation.x -= 0.3 * e; }
-      else if (R.v === 1) { hum.spine.rotation.x -= 0.9 * e; hum.neck.rotation.x += 0.4 * e; hum.hips.position.y = lerp(hum.hips.position.y, 0.42, e); root.updateMatrixWorld(true); const fw = new V3(0, 0, -1).applyQuaternion(root.quaternion), rt = new V3(1, 0, 0).applyQuaternion(root.quaternion), pole = new V3(0, -1, 0); for (const s of ['L', 'R']) { if (R.hand === s && e < 0.5) continue; solveArm(hum['sh' + s], hum['el' + s], root.position.clone().addScaledVector(fw, 0.42).addScaledVector(rt, (s === 'L' ? -1 : 1) * 0.2).setY(0.08), pole, 0.3, 0.3); } }
-      else { hum.spine.rotation.z += R.side * 0.7 * e; hum.hips.position.x += R.side * 0.1 * e; hum.pose.rotation.z = R.side * 0.25 * e; }
-      if (R.hand && R.v !== 1) this.clutch(R, false, e);
-      bleedDrips(this, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1));
-      return;
-    }
-    // ---- standing (and the neck grab from standing or crouched)
-    if (R.v === 1 && !neck && t >= T1 * 0.75) return finish();      // the legs just go, mid-stumble, and momentum takes it
-    if (t >= T3) return finish();
-    kn = smooth(clamp((t - T1) / (T2 - T1), 0, 1)); sl = smooth(clamp((t - T2) / (T3 - T2), 0, 1));
-    const back = R.v === 2 && !neck, sp = (R.step * Math.exp(-t * 0.8) + 0.1) * (1 - kn);
-    R.off.addScaledVector(R.dir, sp * dt * (back ? -0.7 : 1)).add(new V3(-R.dir.z, 0, R.dir.x).multiplyScalar(Math.sin(ph * R.swayF) * R.sway * dt * (1 - kn)));
-    const np = this.home.clone().add(R.off); if (!blocked(np, 1.7, 0.3)) root.position.copy(np);
-    Object.assign(a, base, { speed: sp * 2.2, crouch: (ST === 'crouch' ? 0.8 : 0.2 + 0.12 * Math.sin(ph * 1.5) * k) * (1 - kn), pitch: (neck ? -0.2 : -0.45) * k, limp: 1 - kn, lean: (Math.sin(ph * 1.6) * 0.3 + R.lean) * (1 - kn) });
-    a.bb = an.brokenMask(); a.ah = an.armHangMask(); a.ls = an.lostMask();
-    root.rotation.y = Math.PI + (Math.sin(ph * 1.1) * 0.25 + R.twist * k) * (1 - kn);
-    hum.update(dt);
-    if (kn > 0) {
-      const lerpR = (g, x, z) => { g.rotation.x = lerp(g.rotation.x, x, kn); g.rotation.z = lerp(g.rotation.z, z, kn); };
-      if (back) {
-        // sits down hard and rocks back
-        lerpR(hum.lgL, 1.5, -0.12); lerpR(hum.lgR, 1.4, 0.12); lerpR(hum.knL, -0.6, 0); lerpR(hum.knR, -0.9, 0);
-        hum.hips.position.y = lerp(hum.hips.position.y, 0.16, kn); hum.spine.rotation.x += 0.45 * sl;
-      } else {
-        // knees on the floor with the shins flat behind; as it folds the hips sink back toward the heels
-        const first = R.knee ? 1 : 0, thL = 0.1 + R.slump * sl, thR = 0.06 + R.slump * sl;
-        lerpR(hum.lgL, thL, -0.1); lerpR(hum.lgR, thR, 0.1);
-        hum.knL.rotation.x = lerp(hum.knL.rotation.x, -Math.PI / 2 - thL, clamp(kn * (first ? 1.4 : 0.8), 0, 1)); hum.knR.rotation.x = lerp(hum.knR.rotation.x, -Math.PI / 2 - thR, clamp(kn * (first ? 0.8 : 1.4), 0, 1));
-        hum.hips.position.y = lerp(hum.hips.position.y, 0.08 + 0.44 * Math.cos((thL + thR) / 2), kn);
-      }
-    }
-    if (!back) hum.spine.rotation.x += -0.28 * k - 0.25 * kn - R.slump * sl;
-    hum.spine.rotation.z += R.lean * 0.3 * kn;
-    hum.neck.rotation.x = lerp(hum.neck.rotation.x, neck ? -0.2 + 0.25 * Math.sin(ph * 3) : -0.55, k);
-    if (R.hand || neck) this.clutch(R, neck, k * (1 - sl * 0.7));
-    bleedDrips(this, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1));
-  }
-  // hands to the wound: one hand pressed on it, or both hands at the throat for a neck wound
-  clutch(R, neck, hold) {
-    const hum = this.hum, root = hum.root; root.updateMatrixWorld(true);
-    const fw = new V3(0, 0, -1).applyQuaternion(root.quaternion), rt = new V3(1, 0, 0).applyQuaternion(root.quaternion), ph = R.t + R.seed;
-    const jitter = new V3(Math.sin(ph * 5) * 0.008, Math.sin(ph * 4) * 0.008, Math.sin(ph * 6) * 0.006);
-    const reach = (s, T) => {
-      const sh = hum['sh' + s], el = hum['el' + s], q0 = sh.quaternion.clone(), q1 = el.quaternion.clone();
-      const pole = rt.clone().multiplyScalar(s === 'L' ? -0.8 : 0.8).add(new V3(0, -0.6, 0)).addScaledVector(fw, -0.2);
-      solveArm(sh, el, T, pole, 0.3, 0.3);
-      sh.quaternion.copy(q0.slerp(sh.quaternion, hold)); el.quaternion.copy(q1.slerp(el.quaternion, hold)); sh.updateMatrixWorld(true);
-    };
-    if (neck) {
-      const T = hum.neck.getWorldPosition(new V3()).addScaledVector(fw, 0.06).add(new V3(0, 0.04, 0)).add(jitter);
-      for (const s of ['L', 'R']) if (!this.anat.lost['arm' + s] && !this.anat.armBroken(s)) reach(s, T.clone().addScaledVector(rt, (s === 'L' ? -1 : 1) * 0.035));
-      return;
-    }
-    const w = R.wound; if (!w || !w.m.parent || !R.hand) return;
-    const T = w.m.getWorldPosition(new V3()).addScaledVector(w.n.clone().transformDirection(w.m.parent.matrixWorld), 0.05).add(jitter);
-    reach(R.hand, T);
-  }
+  reactStep(dt) { reactRun(this, dt); }
+  clutch(R, neck, hold) { reactClutch(this, R, neck, hold); }
   dropGun(v) {
     const wi = this.hum.anim.weapon; if (this.unarmed || !WEAPONS[wi]) return;
     this.unarmed = true;

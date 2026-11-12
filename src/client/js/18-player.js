@@ -12,7 +12,7 @@ const PR = 0.35;
 const PITCH_MIN = -1.05;
 function enterDowned(extra) {
   const an = P.anat;
-  P.downed = true; P.adsOn = false; P.reloading = false; P.healing = false; P.inspecting = false; mouse.left = false; P.stag = null; P.stun = 0;
+  P.downed = true; P.adsOn = false; P.reloading = false; P.healing = false; P.inspecting = false; mouse.left = false; P.react = null; P.stun = 0;
   localBody.update(0);
   P.rag = spawnRagdoll(localBody, P.vel.clone(), an.lastDir.clone(), PART_OF_REGION(an.lastRegion), false, Object.assign({ bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(), keep: true }, extra || {}));
   P.rag.owner = { anat: an };
@@ -20,7 +20,7 @@ function enterDowned(extra) {
   $('downwhy').textContent = an.paralyzed ? 'Spinal cord injury. You will not get up.' : P.forceDown ? 'You went down and cannot get back up.' : 'You blacked out from the pain. You may come to if it eases.';
 }
 function wakeUp() {
-  const r = P.rag; P.downed = false;
+  const r = P.rag; P.downed = false; P.reactDone = false;
   if (r) { P.pos.set(r.p[2].x, P.pos.y, r.p[2].z); freeRag(r); }
   P.rag = null; P.stance = 2; P.prone = 1; P.crouch = 0; P.vel.set(0, 0, 0);
   $('downmsg').style.display = 'none';
@@ -57,6 +57,15 @@ function updateMantle(dt) {
   P.mantleK = Math.sin(t * Math.PI);
   if (M.t >= 1) { P.pos.copy(M.b); P.mantle = null; P.onGround = true; P.vel.set(0, 0, 0); P.jumpCD = 0.4; P.landKick = (P.landKick || 0) + 0.35; }
 }
+// you, as a body for the shared wound reactions (the same code and the same choices an AI body uses)
+const PB = {
+  get hum() { return localBody; }, get anat() { return P.anat; }, get baseYaw() { return P.yaw; },
+  get react() { return P.react; }, set react(v) { P.react = v || null; },
+  get reactDone() { return P.reactDone; }, set reactDone(v) { P.reactDone = v; },
+  stanceKind() { return P.prone > 0.5 ? 'prone' : P.crouch > 0.5 ? 'crouch' : 'stand'; },
+  dropGun() { if (P.slot < 2 && P.guns[P.weapon]) dropWeapon(); },
+  goLimp(soft) { P.react = null; enterDowned({ soft: !!soft }); }
+};
 function standHeight() { return 1.8 - 0.6 * P.crouch - 1.3 * P.prone; }
 function updatePlayer(dt) {
   if (!P.alive) { localBody.root.visible = false; fpBody.root.visible = false; return; }
@@ -64,22 +73,27 @@ function updatePlayer(dt) {
   an.update(dt);
   if (an.dead) { localDeath(); return; }
   P.supp = Math.max(0, (P.supp || 0) - dt * 0.2);
-  if ((an.isDowned() || P.forceDown) && !P.downed) enterDowned();
+  // going down: like an AI body, unless the spine or both legs are gone it reacts to the wound first (stumbles, clutches it,
+  // folds) and then collapses. No control until it is over.
+  if ((an.isDowned() || P.forceDown || P.react) && !P.downed) {
+    const canReact = !an.paralyzed && !an.bothLegs();
+    if (canReact && !P.react && !P.reactDone) { localBody.root.position.copy(P.pos); localBody.root.rotation.y = P.yaw; reactStart(PB, 'hit'); }
+    if (canReact && P.react) {
+      P.adsOn = false; P.reloading = false; P.inspecting = false; P.healing = false; mouse.left = false;
+      reactRun(PB, dt);
+      if (P.react) { P.pos.copy(localBody.root.position); P.vel.set(0, 0, 0); P.speed = 0; localBody.root.visible = true; fpBody.root.visible = false; if (!S.tp) { localBody.head.visible = false; localBody.neck.visible = false; } return; }
+      if (!P.downed) enterDowned({ soft: true });
+    } else { P.react = null; enterDowned(); }
+  }
   // a down only counts as a kill for the shooter if it isn't just pain (spine or both legs gone); pain knockouts wait for the death
   if (P.downed && !P.downSent && S.mode === 'online' && an.lastBy && (an.paralyzed || an.bothLegs())) { P.downSent = true; net.send({ t: 'down', by: an.lastBy }); }
   else if (P.downed && !an.isDowned() && !P.forceDown) wakeUp();
   if (P.downed) { bleedDrips(P, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1)); localBody.root.visible = false; fpBody.root.visible = false; if (P.rag) P.pos.set(P.rag.p[2].x, 0, P.rag.p[2].z); P.vel.set(0, 0, 0); P.speed = 0; return; }
   let fx_ = 0, fz = 0;
-  // staggered (neck) or rocked by a hit: no control. The body stumbles along the hit instead, then a neck stagger ends on the floor
+  // rocked by a hit: a moment with no control
   P.stun = Math.max(0, (P.stun || 0) - dt);
-  const dazed = !!P.stag || P.stun > 0;
-  if (P.stag) {
-    const R = P.stag; R.t += dt;
-    const k = R.t < 0.6 ? 1 : Math.max(0, 1 - (R.t - 0.6) / 1.2), sway = Math.sin(R.t * 2.2 + R.seed) * 0.35;
-    P.vel.x = damp(P.vel.x, (R.dir.x + R.dir.z * sway) * R.step * 3 * k, 6, dt); P.vel.z = damp(P.vel.z, (R.dir.z - R.dir.x * sway) * R.step * 3 * k, 6, dt);
-    if (R.t >= R.dur) { P.stag = null; P.forceDown = true; }
-  }
-  if (dazed) { P.adsOn = false; P.leanState = 0; P.inspecting = false; P.healing = false; mouse.left = false; if (P.reloading && P.stag) P.reloading = false; }
+  const dazed = P.stun > 0;
+  if (dazed) { P.adsOn = false; P.leanState = 0; P.inspecting = false; P.healing = false; mouse.left = false; }
   if (!dazed) {
   if (keys.KeyW) fz -= 1; if (keys.KeyS) fz += 1; if (keys.KeyA) fx_ -= 1; if (keys.KeyD) fx_ += 1;
   }
@@ -122,7 +136,7 @@ function updatePlayer(dt) {
   // speeding up is slow (slower still into a sprint), stopping is quicker but not instant; in the air almost no control
   const rate = !P.onGround ? 0.8 : speeding ? (P.sprinting ? 2.6 : 5) : 7.5;
   const k = 1 - Math.exp(-rate * dt);
-  if (!P.stag) { P.vel.x += (mx * spd - P.vel.x) * k; P.vel.z += (mz * spd - P.vel.z) * k; }
+  P.vel.x += (mx * spd - P.vel.x) * k; P.vel.z += (mz * spd - P.vel.z) * k;
   P.vel.y -= 22 * dt;
   P.jumpCD = Math.max(0, (P.jumpCD || 0) - dt); P.landK = Math.max(0, (P.landK || 0) - dt * 2.2);
   if (keys.Space && P.onGround && P.stance === 0 && !oneLeg && !P.jumpCD && !dazed) {
@@ -158,7 +172,7 @@ function updatePlayer(dt) {
   localBody.root.visible = true;
   localBody.root.position.copy(P.pos); localBody.root.rotation.y = P.yaw;
   Object.assign(a, { speed: P.speed, crouch: P.crouch, prone: P.prone, limp: downed ? 1 : oneLeg ? 0.5 : 0, lean: P.leanEff, pitch: P.pitch, sprint: P.sprintBlend, ads: P.ads, air: P.onGround ? 0 : 1, weapon: P.slot >= 2 ? MEDKIT_W : P.weapon, unarmed: P.slot === 4, bb: an.brokenMask(), ah: an.armHangMask(), ls: an.lostMask(), lc: an.cutArr(), reload: P.reloading ? Math.max(0.001, P.reloadT / P.reloadDur) : 0 });
-  a.stag = P.stag ? 1 : P.stun > 0 ? 0.5 : 0;
+  a.stag = P.stun > 0 ? 0.5 : 0;
   a.hurt = damp(a.hurt || 0, hurtLevel(an), 2, dt); a.downedPose = downed; reClutch(a, an, dt); updateBrace(localBody, dt);
   localBody.update(dt);
   // the visible first-person body follows the same pose, set back from the eye; hidden when prone (the eye is down among it)
@@ -181,7 +195,7 @@ P.hum = localBody;
 function flashMsg(html, ms) { const m = $('magcheck'); m.innerHTML = html; m.style.opacity = '1'; clearTimeout(flashMsg.t); flashMsg.t = setTimeout(() => { m.style.opacity = '0'; }, ms || 1600); }
 function startReload() {
   const w = WEAPONS[P.weapon], G = P.guns[P.weapon];
-  if (!P.alive || P.slot >= 2 || P.reloading || P.rack || P.switchT > 0 || P.sprinting || P.stag || P.stun > 0) return;
+  if (!P.alive || P.slot >= 2 || P.reloading || P.rack || P.switchT > 0 || P.sprinting || P.react || P.stun > 0) return;
   if (G.mag >= w.cap && G.chamber) return;
   if (w.pellets) return startShellLoad(w, G);
   if (S.mode === 'test' && !G.pouch.some(n => n > 0)) G.pouch = G.pouch.concat(Array(w.spare).fill(w.cap));
@@ -379,7 +393,7 @@ function updateWeapons(dt) {
 function tryFire() {
   const w = WEAPONS[P.weapon], G = P.guns[P.weapon], now = performance.now() / 1000;
   if (P.reloading && w.pellets && P.sgPhase === 'load' && P.semiReady) { P.sgStop = true; P.semiReady = false; }
-  if (P.reloading || P.inspecting || P.rack || G.held || P.switchT > 0 || P.sprintBlend > 0.3 || P.mantle || P.stag || P.stun > 0) return;
+  if (P.reloading || P.inspecting || P.rack || G.held || P.switchT > 0 || P.sprintBlend > 0.3 || P.mantle || P.react || P.stun > 0) return;
   if (!w.auto && !P.semiReady) return;
   if (now - P.lastShot < 60 / w.rpm) return;
   if (!G.chamber) { if (P.semiReady) { blip(1500, 0.02, 0.05); noiseHit(2200, 0.03, 0.04); P.semiReady = false; } return; }
@@ -506,12 +520,10 @@ function onSelfHurt(res) {
       P.forceDown = true; dropWeapon();
       const mv = P.vel.clone(), moving = mv.length() > 1;
       enterDowned({ soft: true, vTop: moving ? mv.clone().multiplyScalar(rnd(1.05, 1.35)).addScaledVector(d, rnd(0.4, 0.9)) : d.clone().multiplyScalar(rnd(1.8, 2.8)).add(new V3(rnd(-0.3, 0.3), rnd(0.1, 0.4), rnd(-0.3, 0.3))), vLeg: moving ? mv.clone().multiplyScalar(rnd(0.2, 0.45)) : d.clone().multiplyScalar(rnd(-0.2, 0.3)) });
-    } else if (P.stag && P.stag.t > 0.15 && P.stag.kind !== 'neck' || P.stag && P.stag.kind === 'neck' && P.stag.t > 0.15 && !res.stopped) {
-      P.forceDown = true; enterDowned({ soft: true });
-    } else if (res.region === 'neck' && !res.stopped && !an.paralyzed && !(P.stag && P.stag.kind === 'neck')) {
-      const sd = Math.random() < 0.2 ? d.clone().negate() : d;
-      P.stag = { kind: 'neck', t: 0, dur: rnd(1.8, 3.4), dir: sd, step: rnd(0.15, 0.4), seed: Math.random() * 50 };
-      dropWeapon(); hurtClutch(localBody.anim, 'neck', new V3(0, 0.04, -0.05), 10);
+    } else if (P.react && P.react.t > 0.15 && P.react.kind !== 'neck') {
+      P.react = null; P.reactDone = true; P.forceDown = true; enterDowned();     // hit again mid-stumble: the legs go
+    } else if (res.region === 'neck' && !res.stopped && !an.paralyzed && !(P.react && P.react.kind === 'neck')) {
+      P.forceDown = true; localBody.root.position.copy(P.pos); localBody.root.rotation.y = P.yaw; reactStart(PB, 'neck');
     } else if (!res.stopped && !res.missing) {
       const E = res.energy || (an.lastV ? 0.5 * WEAPONS[an.lastW || 0].mass * an.lastV * an.lastV : 1500); P.stun = Math.max(P.stun || 0, clamp(E / 6000, 0.12, 0.45)); P.stunDir = d;
     }
@@ -534,7 +546,7 @@ function testSelfHit() {
   onSelfHurt(res);
 }
 function respawnLocal(sp) {
-  P.forceDown = false; P.stag = null; P.stun = 0; P.deathM = null;
+  P.forceDown = false; P.react = null; P.reactDone = false; P.stun = 0; P.deathM = null;
   P.pos.copy(sp); P.vel.set(0, 0, 0); P.yaw = Math.atan2(sp.x, sp.z); P.pitch = 0;
   if (S.mode === 'test') P.yaw = 0;
   if (P.rag) { P.rag.keep = false; P.rag.headG.visible = true; }

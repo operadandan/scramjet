@@ -242,7 +242,7 @@ function netSend(dt) {
   net.send({
     t: 's', p: [r2(P.pos.x), r2(P.pos.y), r2(P.pos.z)], y: r2(P.yaw), pi: r2(P.pitch), l: r2(P.leanEff), c: r2(P.crouch),
     v: r2(P.speed), sp: P.sprinting ? 1 : 0, r: P.reloading ? Math.max(0.01, r2(P.reloadT / P.reloadDur)) : 0,
-    w: P.slot === 2 ? MEDKIT_W : P.slot === 3 ? PLATE_W : P.slot === 4 ? 7 : P.weapon, ar: P.anat.helmetOn ? 0 : 1, su: P.slot < 2 && VMW[P.weapon].supp ? 1 : 0, a: r2(P.ads), dn: P.downed ? 1 : 0, bb: P.anat.brokenMask(), ah: P.anat.armHangMask(), ls: P.anat.lostMask(), lc: P.anat.cutArr(), g: P.onGround ? 1 : 0, pr: r2(P.prone), lm: P.anat.bothLegs() ? 1 : (P.anat.legBroken('L') || P.anat.legBroken('R')) ? 0.5 : 0, bl: Math.round(P.anat.bleedRate()), hu: r2(localBody.anim.hurt || 0), sg: localBody.anim.stag || 0, cl: localBody.anim.clutchT > 0 && localBody.anim.clutchW > 0.2 ? [localBody.anim.clutchF].concat(localBody.anim.clutchP.map(r2)) : 0
+    w: P.slot === 2 ? MEDKIT_W : P.slot === 3 ? PLATE_W : P.slot === 4 ? 7 : P.weapon, ar: P.anat.helmetOn ? 0 : 1, su: P.slot < 2 && VMW[P.weapon].supp ? 1 : 0, a: r2(P.ads), dn: P.downed ? 1 : 0, bb: P.anat.brokenMask(), ah: P.anat.armHangMask(), ls: P.anat.lostMask(), lc: P.anat.cutArr(), g: P.onGround ? 1 : 0, pr: r2(P.prone), lm: P.anat.bothLegs() ? 1 : (P.anat.legBroken('L') || P.anat.legBroken('R')) ? 0.5 : 0, bl: Math.round(P.anat.bleedRate()), hu: r2(localBody.anim.hurt || 0), sg: localBody.anim.stag || 0, rx: P.react && !P.downed ? reactPack(P.react) : 0, cl: localBody.anim.clutchT > 0 && localBody.anim.clutchW > 0.2 ? [localBody.anim.clutchF].concat(localBody.anim.clutchP.map(r2)) : 0
   }, true);
 }
 

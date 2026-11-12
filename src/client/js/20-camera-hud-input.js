@@ -59,12 +59,18 @@ function updateCamera(dt) {
     camera.position.y += clamp(P.ld, -0.25, 0.1); }
   // climbing over something: the head pitches down at the edge and comes up as the body goes over
   // staggered: the view reels and sinks, the head lolling forward; rocked by a hit: a short jolt
-  P.stagV = damp(P.stagV || 0, P.stag ? 1 : 0, 4, dt); P.stunV = damp(P.stunV || 0, P.stun > 0 ? 1 : 0, 14, dt);
-  const sgv = P.stagV, stt = tt * 2.2;
-  camera.position.y -= 0.12 * sgv;
-  const reelP = sgv * (-0.18 + Math.sin(stt * 1.4) * 0.08) + P.stunV * 0.05 * Math.sin(tt * 31), reelR = sgv * Math.sin(stt) * 0.12 + P.stunV * 0.04 * Math.sin(tt * 23);
+  P.stunV = damp(P.stunV || 0, P.stun > 0 ? 1 : 0, 14, dt);
+  const reelP = P.stunV * 0.05 * Math.sin(tt * 31), reelR = P.stunV * 0.04 * Math.sin(tt * 23);
   const mk = P.mantleK || 0;
   camera.rotation.set(P.pitch + P.recoilPitch - rlB * 0.03 + Math.sin(tt * 3.1) * shake + br.p + clamp(P.jp || 0, -0.2, 0.08) - mk * 0.5 + reelP, P.yaw + Math.sin(tt * 2.3) * shake + br.y, -P.leanEff * 0.22 + br.r + P.mRoll + mk * 0.06 + reelR);
+  // reacting to a wound (the same motion an AI body plays): you see it from your own head, wherever the body takes it
+  P.reactV = damp(P.reactV || 0, P.react && !P.downed ? 1 : 0, 6, dt);
+  if (P.reactV > 0.001 && localBody) {
+    localBody.root.updateMatrixWorld(true);
+    const hp = localBody.headMark.getWorldPosition(_v0), hq = localBody.head.getWorldQuaternion(_q0);
+    hp.add(_v1.set(0, 0.02, -0.09).applyQuaternion(hq));
+    camera.position.lerp(hp, P.reactV); camera.quaternion.slerp(hq, P.reactV);
+  }
   const w = WEAPONS[P.weapon];
   const zW = VMW[P.weapon], mag = zW && zW.lens; camera.fov = lerp(75, mag ? (w.scope ? 52 : 60) : w.fovAds, P.ads) + P.sprintBlend * 4; camera.updateProjectionMatrix();
 }
@@ -74,7 +80,7 @@ function updateViewmodel(dt) {
   VMW.forEach((v, i) => { v.g.visible = P.slot < 2 && i === P.weapon; }); VMK.g.visible = P.slot === 2; VMP.g.visible = P.slot === 3;
   if (P.slot === 4) { $('scope').style.display = 'none'; $('acog').style.display = 'none'; $('vigads').style.opacity = '0'; return; }
   if (P.slot === 3) {
-    vm.visible = true; $('scope').style.display = 'none'; $('acog').style.display = 'none';
+    vm.visible = !(P.reactV > 0.3); $('scope').style.display = 'none'; $('acog').style.display = 'none';
     const k = P.plating ? P.plateT / PLATE_TIME : 0, out = ramp(k, 0.1, 0.45), back = ramp(k, 0.55, 0.95), s2 = P.sprintBlend;
     vm.position.set(VMP.hip.x + P.swayX + Math.sin(P.bobT * 0.5) * 0.008 * Math.min(1, P.speed / 4), VMP.hip.y + P.swayY - P.switchT * 0.7 - 0.25 * out + 0.25 * back - 0.05 * s2, VMP.hip.z + 0.1 * out - 0.1 * back);
     vm.rotation.set(-0.3 * s2 - P.aimOY * 0.5 + 0.9 * out - 0.9 * back, -P.aimOX * 0.5, 0);
@@ -86,7 +92,7 @@ function updateViewmodel(dt) {
     return;
   }
   if (P.slot === 2) {
-    vm.visible = true; $('scope').style.display = 'none'; $('acog').style.display = 'none';
+    vm.visible = !(P.reactV > 0.3); $('scope').style.display = 'none'; $('acog').style.display = 'none';
     const tt = performance.now() / 1000, hk = P.healing ? 1 : 0, s2 = P.sprintBlend;
     vm.position.set(VMK.hip.x + P.swayX + Math.sin(P.bobT * 0.5) * 0.008 * Math.min(1, P.speed / 4), VMK.hip.y + P.swayY - P.switchT * 0.7 - 0.06 * hk + Math.sin(tt * 9) * 0.006 * hk - 0.05 * s2, VMK.hip.z + 0.06 * hk);
     vm.rotation.set(0.35 * hk - 0.3 * s2 - P.aimOY * 0.5, -P.aimOX * 0.5 + Math.sin(tt * 6) * 0.05 * hk, Math.sin(tt * 4) * 0.04 * hk);
@@ -109,7 +115,7 @@ function updateViewmodel(dt) {
   const ao = 1 - a * 0.93;
   W.L.h.visible = W.L.fa.visible = !P.anat.lost.armL; if (W.rh) W.rh.visible = !P.anat.lost.armR;
   const scoped = (!!w.scope || W.zoom > 1) && a > 0.86;
-  vm.visible = true; $('scope').style.display = 'none'; $('acog').style.display = 'none';
+  vm.visible = !(P.reactV > 0.3); $('scope').style.display = 'none'; $('acog').style.display = 'none';
   // inspect and rack: the gun is brought in and turned over (ip = position offset, ir = rotation offset)
   const pis = w.kind === 'pistol', ip = _vi.set(0, 0, 0), ir = _vir.set(0, 0, 0);
   { // working the action: the gun comes in toward the chest and cants so the support hand can reach the handle or slide comfortably
