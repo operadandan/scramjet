@@ -171,6 +171,14 @@ function palmVerts(rig) {
   return rig._pv = out;
 }
 // back the hand off along its palm normal until no palm point is inside what it holds
+// the opposite of settling: push the hand along its palm normal until the palm actually bears on what it holds (the last
+// position before any palm point would go in), so there is no air between palm and handguard
+function pressHand(rig, cloud, q, wrist, pnW) {
+  const pv = palmVerts(rig), p = new V3(), w = wrist.clone(), n = pnW.clone().normalize();
+  const touching = at => { for (let i = 0; i < pv.length; i++) { p.copy(pv[i]).sub(rig.wrist0).applyQuaternion(q).add(at); if (cloud.hit(p, 0.0012)) return true; } return false; };
+  for (let it = 0; it < 40; it++) { const nx = w.clone().addScaledVector(n, 0.0008); if (touching(nx)) break; w.copy(nx); }
+  return w;
+}
 function settleHand(rig, cloud, q, wrist, pnW) {
   const pv = palmVerts(rig), p = new V3();
   for (let it = 0; it < 40; it++) {
@@ -243,7 +251,8 @@ function setupArms(W, D, pistol) {
   const toG = (v, pt) => SL.g ? v3a(v) : pt ? v3a(v).applyQuaternion(H0.q).add(H0.p) : v3a(v).applyQuaternion(H0.q);
   const pnL = toG(SL.pn).normalize(), fL = toG(SL.fwd).normalize(), qL = L.orient(fL, pnL);
   const cloudL = pistol ? new GraspCloud().addTree(g, skip).addPoints(postedVerts(R, 1)) : gun;
-  const wL = settleHand(L, cloudL, qL, L.wristForMcp(qL, toG(SL.mcp, true)), pnL);
+  let wL = settleHand(L, cloudL, qL, L.wristForMcp(qL, toG(SL.mcp, true)), pnL);
+  if (SL.wrap) wL = pressHand(L, cloudL, qL, wL, pnL);
   if (SL.shoulder) W.elbow.copy(solveElbow(wL, fL, pnL, v3a(SL.shoulder), SL.dev, SL.toward || 0, SL.tuck || 0));
   L.setHand(qL, wL);
   const iq = H0.q.clone().invert();
@@ -264,6 +273,9 @@ function setupArms(W, D, pistol) {
         const tip = new V3(right - 0.017, top + 0.005, mcp.z + (f === 'index' ? -0.004 : f === 'pinky' ? 0.006 : 0));
         const c = fingerTo(L, cloudL, f, tip); curlRest[f] = c;
       }
+      // the thumb wraps the other way: up the left side with its tip pressed on the top left edge, ahead of the index finger
+      const im = L.fing.index.j[0].clone().sub(L.wrist0).applyQuaternion(kq).add(kw);
+      curlRest.thumb = fingerTo(L, cloudL, 'thumb', new V3(bb.min.x + 0.006, top - 0.001, im.z - 0.022));
     }
   }
   const H1 = W.poses.H1; L.setHand(H1.q.clone().multiply(W.armOffL.q), W.armOffL.p.clone().applyQuaternion(H1.q).add(H1.p));
