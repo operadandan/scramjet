@@ -105,7 +105,7 @@ function updateViewmodel(dt) {
   let seq = null, st = 0;
   if (P.reloading) { seq = P.rlSeq || (P.reloadEmpty ? SEQ.empty : SEQ.tac); st = r; } else if (P.inspecting) { seq = SEQ.inspect; st = ik; }
   if (seq) poseAt(W, seq, st, L.h.position, L.h.quaternion);
-  else { L.h.position.copy(W.poses.H0.p); L.h.quaternion.copy(W.poses.H0.q); }
+  else { L.h.position.copy(W.poses.H0.p); L.h.quaternion.copy(W.poses.H0.q); if (W.curlL && W.poses.H0.c) lerpCurls(W.poses.H0.c, W.poses.H0.c, 0, W.curlL); }
   { const vfg = !!W.vfgHand && W.vfgOn && !seq && !P.anat.lost.armL; if (W.vfgHand) W.vfgHand.visible = vfg; if (vfg) L.h.visible = L.fa.visible = false; }
   P.rlJ = damp(P.rlJ || 0, 0, 9, dt);
   if (P.reloading) {
@@ -133,6 +133,7 @@ function updateViewmodel(dt) {
   L.fa.position.addVectors(_wr, W.elbow).multiplyScalar(0.5);
   L.fa.quaternion.setFromUnitVectors(_Y, _fd.multiplyScalar(1 / fl));
   L.fa.scale.set(1, fl, 1);
+  updateArms(W);
   if (W.chg) W.chg.position.z = (P.reloading && P.reloadEmpty) ? 0.0 : 0;
   if (W.slide) W.slide.position.z = P.slideBack;
   W.boltK = Math.max(0, W.boltK - dt / 0.075);

@@ -115,6 +115,7 @@ function buildVM(id) {
   W.poses = makePoses({ H0: D.H0, H1: [H1.toArray(), r0], H1d: [H1.clone().addScaledVector(magAxis, D.d[0]).toArray(), r0], H1dd: [H1.clone().addScaledVector(magAxis, D.d[1]).toArray(), r1],
     H1up: [H1.clone().addScaledVector(magAxis, -0.006).toArray(), r0], H1miss: [H1.clone().addScaledVector(magAxis, 0.022).add(new V3(0.009, 0, -0.012)).toArray(), [r0[0] + 0.12, r0[1], r0[2] - 0.1]],
     HP: D.HP, HB: D.HB, HBp: D.HBp, HV: D.HV });
+  setupArms(W, D, !!D.magRot);
   return W;
 }
 // third-person / ground versions: one cached vertex-coloured geometry per weapon (body and magazine)
@@ -144,6 +145,104 @@ function tpGun(id, shadow) {
 // a loose magazine or whole gun as a single mesh (ground items, magazines in hands)
 function gunMatOf(id) { return tpGunGeo(id).magMat || gunVcMat; }
 function gunItemMesh(id, magOnly) { const C = tpGunGeo(id), mt = C.mat || gunVcMat, mgt = C.magMat || gunVcMat; const m = new THREE.Mesh(magOnly ? C.mag : C.body, magOnly ? mgt : mt); m.castShadow = true; if (!magOnly) { const mg = new THREE.Mesh(C.mag, mgt); mg.position.copy(C.magPos); mg.rotation.copy(C.magRot); mg.castShadow = true; m.add(mg); } return m; }
+// ---------------------------------------------------------------- rigged arms on the viewmodel guns
+// The hand-built hands stay as invisible targets (their poses and reload choreography are already tuned); the skinned
+// arms follow them: the firing hand is set once on the grip, the support hand rides on the left-hand target, and the
+// fingers of both close on what they hold.
+const ARM_SET = {
+  // firing hand in the grip frame (y up the grip, z back): back of the hand to the right, middle knuckle at the front-right
+  // corner of the grip, fingers wrapping the front strap to the left side
+  grip: { pn: [-1, 0, 0], fwd: [0, 0.1, -1], mcp: [0.02, -0.004, -0.01], thumb: [-0.024, 0.045, -0.025] },
+  // support hand on a rifle's handguard, in the left-hand target's frame: palm under and to the left, knuckles along the
+  // bottom right edge, fingers up the right side, thumb along the left
+  fore: { pn: [0.2, 0.98, 0.0], fwd: [0.9, -0.1, -0.42], mcp: [0.012, -0.052, 0.0], thumb: [-0.04, 0.005, -0.05] },
+  // support hand on a pistol: palm on the firing hand's fingers from the left, fingers wrapping over them
+  pist: { pn: [1, 0.05, 0.1], fwd: [0.1, 0.25, -0.96], mcp: [-0.01, -0.01, -0.03], thumb: [-0.02, 0.03, -0.06] }
+};
+function palmVerts(rig) {
+  if (rig._pv) return rig._pv;
+  const g = rig.mesh.geometry, P = g.attributes.position, SI = g.attributes.skinIndex, SW = g.attributes.skinWeight, hb = rig.mesh.skeleton.bones.indexOf(rig.bones.hand), out = [];
+  for (let i = 0; i < P.count; i++) if (SI.getX(i) === hb && SW.getX(i) > 0.95) out.push(new V3().fromBufferAttribute(P, i));
+  return rig._pv = out;
+}
+// back the hand off along its palm normal until no palm point is inside what it holds
+function settleHand(rig, cloud, q, wrist, pnW) {
+  const pv = palmVerts(rig), p = new V3();
+  for (let it = 0; it < 40; it++) {
+    let hit = false;
+    for (let i = 0; i < pv.length && !hit; i += 2) { p.copy(pv[i]).sub(rig.wrist0).applyQuaternion(q).add(wrist); if (cloud.hit(p, 0.0012)) hit = true; }
+    // the knuckles too: a finger whose base is already inside what it holds can never close around it
+    for (const f of FINGERS) { if (f === 'thumb' || hit) continue; p.copy(rig.fing[f].j[0]).sub(rig.wrist0).applyQuaternion(q).add(wrist); if (cloud.hit(p, rig.fing[f].r[0] * 0.95)) hit = true; }
+    if (!hit) return wrist;
+    wrist.addScaledVector(pnW, -0.0012);
+  }
+  return wrist;
+}
+function postedVerts(rig, step) {
+  rig.apply(); rig.root.updateMatrixWorld(true); const out = [], v = new V3(), n = rig.mesh.geometry.attributes.position.count;
+  for (let i = 0; i < n; i += step || 1) out.push(rig.mesh.getVertexPosition(i, v).clone());
+  return out;
+}
+function setupArms(W, D, pistol) {
+  if (!ARM_DATA) return;
+  const g = W.g, R = new ArmRig('R'), L = new ArmRig('L');
+  g.add(R.root, L.root); g.updateMatrixWorld(true);
+  const skip = o => o.userData.armSkip, hide = o => { o.traverse(c => { if (c.isMesh) { c.visible = false; c.userData.armSkip = true; } }); };
+  hide(W.rh); hide(W.L.h); W.L.fa.material = new THREE.MeshBasicMaterial({ visible: false }); W.L.fa.userData.armSkip = true;
+  const gun = new GraspCloud().addTree(g, skip);
+  // firing hand: frame of the hand-built grip hand
+  const h = W.rh.children[0]; h.updateMatrix(); const hq = h.quaternion, S = ARM_SET.grip;
+  const pnR = v3a(S.pn).applyQuaternion(hq), fR = v3a(S.fwd).applyQuaternion(hq), qR = R.orient(fR, pnR);
+  const wR = settleHand(R, gun, qR, R.wristForMcp(qR, v3a(S.mcp).applyMatrix4(h.matrix)), pnR);
+  R.setHand(qR, wR); R.elbowT.fromArray(D.elbowR); R.shoulderT.copy(R.elbowT).add(new V3(0.07, -0.12, 0.26));
+  W.curlR = graspSolve(R, gun, { index: { fixed: [-0.05, 0.06, 0.05, 0.45] }, thumb: { fixed: [0, 0, 0] } });
+  W.curlR.thumb = thumbTo(R, gun, v3a(S.thumb).applyMatrix4(h.matrix));
+  // trigger finger: along the frame by default, into the guard on the trigger when shooting
+  W.curlRT = Object.assign({}, W.curlR, graspSolve(R, gun, { thumb: { fixed: [0, 0, 0] }, middle: { fixed: [0, 0, 0] }, ring: { fixed: [0, 0, 0] }, pinky: { fixed: [0, 0, 0] }, index: { start: [-0.05, 0.05, 0.05], lim: [0.75, 1.2, 0.9], rate: [1, 0.8, 0.6] } }));
+  W.curlRT.middle = W.curlR.middle; W.curlRT.ring = W.curlR.ring; W.curlRT.pinky = W.curlR.pinky; W.curlRT.thumb = W.curlR.thumb; W.curlRcur = lerpCurls(W.curlR, W.curlR, 0);
+  R.setCurls(W.curlR); R.apply();
+  // support hand, rigid on the left-hand target: solved at rest on the gun, and again holding the magazine
+  const H0 = W.poses.H0, SL = pistol ? ARM_SET.pist : ARM_SET.fore;
+  const pnL = v3a(SL.pn).normalize().applyQuaternion(H0.q), fL = v3a(SL.fwd).normalize().applyQuaternion(H0.q), qL = L.orient(fL, pnL);
+  const cloudL = pistol ? new GraspCloud().addTree(g, skip).addPoints(postedVerts(R, 1)) : gun;
+  const wL = settleHand(L, cloudL, qL, L.wristForMcp(qL, v3a(SL.mcp).applyQuaternion(H0.q).add(H0.p)), pnL);
+  L.setHand(qL, wL);
+  const iq = H0.q.clone().invert();
+  W.armOffL = { q: iq.clone().multiply(qL), p: wL.clone().sub(H0.p).applyQuaternion(iq) };
+  const curlRest = graspSolve(L, cloudL, { thumb: { fixed: [0, 0, 0] } }); curlRest.thumb = thumbTo(L, cloudL, v3a(SL.thumb).applyQuaternion(H0.q).add(H0.p));
+  const H1 = W.poses.H1; L.setHand(H1.q.clone().multiply(W.armOffL.q), W.armOffL.p.clone().applyQuaternion(H1.q).add(H1.p));
+  const mp = new V3(0, -0.03, 0); W.mag.localToWorld(mp); g.worldToLocal(mp);
+  const curlMag = graspSolve(L, gun, { thumb: { fixed: [0, 0, 0] } }); curlMag.thumb = thumbTo(L, gun, mp.clone().add(new V3(-0.02, 0, 0)));
+  const curlOpen = {}; for (const f of FINGERS) curlOpen[f] = f === 'thumb' ? [0.1, 0, 0, 0.2] : [0.25, 0.35, 0.25];
+  for (const k in W.poses) W.poses[k].c = k === 'H0' || k === 'HV' ? curlRest : k === 'HB' || k === 'HBp' ? curlOpen : curlMag;
+  L.setCurls(curlRest); L.elbowT.copy(W.elbow); L.shoulderT.copy(L.elbowT).add(new V3(-0.07, -0.12, 0.26)); L.apply();
+  W.armR = R; W.armL = L; W.curlL = lerpCurls(curlRest, curlRest, 0);
+}
+// per frame: the support arm follows its target, fingers blend between the poses' grips
+// support hand on a vertical foregrip: the firing hand's grip, mirrored
+function solveVfg(W) {
+  const vg = W.vfgHand, L = W.armL, g = W.g, under = MOUNTS[WEAPONS[VMW.indexOf(W)] ? WEAPONS[VMW.indexOf(W)].id : 'm4'].under;
+  vg.traverse(c => { if (c.isMesh) { c.visible = false; c.userData.armSkip = true; } });
+  const gq = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.06, 0, 0)), at = new V3(0, under[1] - 0.05, under[2] + 0.002), S = ARM_SET.grip;
+  const mir = v => new V3(-v[0], v[1], v[2]);
+  const pn = mir(S.pn).applyQuaternion(gq), fw = mir(S.fwd).applyQuaternion(gq), q = L.orient(fw, pn);
+  const cloud = new GraspCloud().addTree(g, o => o.userData.armSkip);
+  const w = settleHand(L, cloud, q, L.wristForMcp(q, mir(S.mcp).applyQuaternion(gq).add(at)), pn);
+  L.setHand(q, w);
+  const c = graspSolve(L, cloud, { thumb: { fixed: [0, 0, 0] } }); c.thumb = thumbTo(L, cloud, mir(S.thumb).applyQuaternion(gq).add(at));
+  return { q, w, c };
+}
+function updateArms(W) {
+  if (!W.armL) return;
+  const L = W.armL, h = W.L.h, vfg = !!(W.vfgHand && W.vfgHand.visible);
+  L.mesh.visible = h.visible || vfg; W.armR.mesh.visible = W.rh.visible;
+  if (vfg) { if (!W.armVfg) W.armVfg = solveVfg(W); L.setHand(W.armVfg.q, W.armVfg.w); L.setCurls(W.armVfg.c); }
+  else { L.setHand(h.quaternion.clone().multiply(W.armOffL.q), W.armOffL.p.clone().applyQuaternion(h.quaternion).add(h.position)); L.setCurls(W.curlL); }
+  L.apply();
+  const R = W.armR, k = mouse.left ? 1 : P.ads;
+  W.trigK = damp(W.trigK || 0, k > 0.5 ? 1 : 0, 14, 1 / 60);
+  R.setCurls(lerpCurls(W.curlR, W.curlRT, W.trigK, W.curlRcur)); R.apply();
+}
 const VMW = WEAPONS.map(w => buildVM(w.id));
 // left-hand choreography. Reloads include a fumbled first try at the magazine well, a slap to seat it and a tug to check it
 const SEQ = {
@@ -178,6 +277,7 @@ function poseAt(W, seq, t, outP, outQ) {
       // short moves snap and settle, long ones start slow and arrive fast
       const u = span < 0.055 ? 1 - Math.pow(1 - raw, 2.4) : span > 0.12 ? lerp(smooth(raw), raw * raw, 0.35) : smooth(raw);
       outP.copy(a.p).lerp(b.p, u); outQ.copy(a.q).slerp(b.q, u);
+      if (W.curlL && a.c && b.c) lerpCurls(a.c, b.c, u, W.curlL);
       if (k[i][2]) outP.addScaledVector(k[i][2], 1 - u); if (k[i + 1][2]) outP.addScaledVector(k[i + 1][2], u);
       return;
     }
