@@ -108,7 +108,7 @@ function buildVM(id) {
   const rh = buildGripHand(g, D.hand[0], D.hand[1], D.elbowR, D.hand[2]);
   const L = buildLeftHand(g); vm.add(g);
   const magAxis = D.magRot ? new V3(0, -1, 0).applyEuler(M.mag.rotation) : new V3().fromArray(D.magAxis).normalize();
-  const W = { imported: !!M.imported, ironsY: M.ironsY, boltIn: M.boltIn || null, bolt: M.bolt || null, boltMode: M.boltMode, boltTravel: M.travel || 0, boltK: 0, heat: 0, id, rh, g, mag: M.mag, magBase: M.mag.position.clone(), magQBase: M.mag.quaternion.clone(), magAxis, muzzle, flash, port, chg: M.chg, ret: null, slide: M.slide, brass, L, scope: !!D.scope,
+  const W = { dust: M.dust || null, imported: !!M.imported, ironsY: M.ironsY, boltIn: M.boltIn || null, bolt: M.bolt || null, boltMode: M.boltMode, boltTravel: M.travel || 0, boltK: 0, heat: 0, id, rh, g, mag: M.mag, magBase: M.mag.position.clone(), magQBase: M.mag.quaternion.clone(), magAxis, muzzle, flash, port, chg: M.chg, ret: null, slide: M.slide, brass, L, scope: !!D.scope,
     elbow: new V3().fromArray(D.elbow), hip: new V3().fromArray(D.hip), ads: new V3().fromArray(D.ads), sightH: D.sightH };
   if (M.eye) W.lens = W.scopeLens = makeScopeLens(g, M.eye, M.eyeR, 6, 'mildot');
   const H1 = new V3().fromArray(D.H1), r0 = D.rot, r1 = [r0[0] + (D.magRot ? 0.06 : 0.1), r0[1], r0[2]];
@@ -199,6 +199,14 @@ function setupArms(W, D, pistol) {
   W.curlR.thumb = thumbTo(R, gun, v3a(S.thumb).applyMatrix4(h.matrix));
   // trigger finger: along the frame by default, into the guard on the trigger when shooting
   W.curlRT = Object.assign({}, W.curlR, graspSolve(R, gun, { thumb: { fixed: [0, 0, 0] }, middle: { fixed: [0, 0, 0] }, ring: { fixed: [0, 0, 0] }, pinky: { fixed: [0, 0, 0] }, index: { start: [-0.05, 0.05, 0.05], lim: [0.75, 1.2, 0.9], rate: [1, 0.8, 0.6] } }));
+  // magazine release: the trigger finger (rifles) or the thumb (pistols) reaches the button while the magazine drops
+  let rel = null; g.traverse(o => { if (o.userData.part === 'MagazineRelease' || o.userData.part === 'MagRelease') rel = o; });
+  if (rel) {
+    rel.geometry.computeBoundingBox(); const bb = rel.geometry.boundingBox, mid = bb.getCenter(new V3()), f = pistol ? 'thumb' : 'index';
+    const tip = new V3(pistol ? bb.min.x - 0.004 : bb.max.x + 0.004, mid.y, mid.z);
+    W.curlRM = Object.assign({}, W.curlR); W.curlRM[f] = fingerTo(R, new GraspCloud(), f, tip);
+    W.magRel = { m: rel, x0: rel.position.x, dx: pistol ? 0.0025 : -0.0025 };
+  }
   W.curlRT.middle = W.curlR.middle; W.curlRT.ring = W.curlR.ring; W.curlRT.pinky = W.curlR.pinky; W.curlRT.thumb = W.curlR.thumb; W.curlRcur = lerpCurls(W.curlR, W.curlR, 0);
   R.setCurls(W.curlR); R.apply();
   // support hand, rigid on the left-hand target: solved at rest on the gun, and again holding the magazine
@@ -279,8 +287,13 @@ function updateArms(W) {
   else { L.setHand(h.quaternion.clone().multiply(W.armOffL.q), W.armOffL.p.clone().applyQuaternion(h.quaternion).add(h.position)); L.setCurls(W.curlL); }
   L.apply();
   const R = W.armR, k = mouse.left ? 1 : P.ads;
-  W.trigK = damp(W.trigK || 0, k > 0.5 ? 1 : 0, 14, 1 / 60);
-  R.setCurls(lerpCurls(W.curlR, W.curlRT, W.trigK, W.curlRcur)); R.apply();
+  W.trigK = damp(W.trigK || 0, k > 0.5 && !P.reloading ? 1 : 0, 14, 1 / 60);
+  lerpCurls(W.curlR, W.curlRT, W.trigK, W.curlRcur);
+  // magazine out: press the release just as it drops
+  const rr = P.reloading && VMW[P.weapon] === W ? P.reloadT / P.reloadDur : -1, pr = W.curlRM ? ramp(rr, 0.05, 0.1) * (1 - ramp(rr, 0.16, 0.22)) : 0;
+  if (pr > 0) lerpCurls(W.curlRcur, W.curlRM, pr, W.curlRcur);
+  if (W.magRel) W.magRel.m.position.x = W.magRel.x0 + W.magRel.dx * ramp(pr, 0.6, 1);
+  R.setCurls(W.curlRcur); R.apply();
 }
 const VMW = WEAPONS.map(w => buildVM(w.id));
 // left-hand choreography. Reloads include a fumbled first try at the magazine well, a slap to seat it and a tug to check it

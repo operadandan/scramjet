@@ -176,12 +176,14 @@ function graspSolve(rig, cloud, o) {
   return out;
 }
 // thumb by aim: opposition and the three bends searched so its tip lands near a target point without going through anything
-function thumbTo(rig, cloud, target, lim) {
-  lim = lim || [[-0.2, 1.2], [-0.4, 1.0], [-0.3, 1.0], [-0.3, 1.1]];
+function thumbTo(rig, cloud, target, lim) { return fingerTo(rig, cloud, 'thumb', target, lim); }
+// any finger by aim (for a finger, the fourth value is its sideways spread)
+function fingerTo(rig, cloud, f, target, lim) {
+  lim = lim || (f === 'thumb' ? [[-0.2, 1.2], [-0.4, 1.0], [-0.3, 1.0], [-0.3, 1.1]] : [[-0.4, 0.4], [-0.3, 1.5], [-0.2, 1.8], [-0.2, 1.3]]);
   const x = [0.2, 0.1, 0.1, 0.1], J = [new V3(), new V3(), new V3(), new V3()];
   const cost = v => {
-    rig.fingerFK('thumb', [v[1], v[2], v[3]], v[0], J); let c = J[3].distanceToSquared(target) * 1e4;
-    const R = rig.fing.thumb.r;
+    rig.fingerFK(f, [v[1], v[2], v[3]], v[0], J); let c = J[3].distanceToSquared(target) * 1e4;
+    const R = rig.fing[f].r;
     for (let i = 0; i < 3; i++) for (let s = 1; s <= 3; s++) { _gpt.copy(J[i]).lerp(J[i + 1], s / 3); if (cloud.hit(_gpt, R[i] * 0.9)) c += 4; }
     return c;
   };

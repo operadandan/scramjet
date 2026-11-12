@@ -140,6 +140,8 @@ function updateViewmodel(dt) {
   const rk = W.rack ? rackK(G0) : 0;
   if (W.chg) W.chg.position.z = W.rack && W.rack.kind === 'chg' ? rk * W.rack.travel : 0;
   if (W.slide) W.slide.position.z = P.slideBack;
+  // dust cover: snaps open at the first shot or when the bolt is worked, and stays open
+  if (W.dust) { if (W.boltK > 0.5 || rk > 0.2 || (G0 && G0.lockBack)) W.dustOpen = true; W.dust.rotation.z = damp(W.dust.rotation.z, W.dustOpen ? -1.75 : 0, 30, dt); }
   W.boltK = Math.max(0, W.boltK - dt / 0.075);
   if (W.bolt) {
     const G = P.guns[P.weapon], rr = P.reloading ? P.reloadT / P.reloadDur : 0;

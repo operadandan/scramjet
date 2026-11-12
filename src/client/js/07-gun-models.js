@@ -170,12 +170,15 @@ function gunM4(K) {
 function gunM4Imported(K) {
   const I = IMPORTED.m4, g = new THREE.Group(), MAG = new V3(0, -0.075, -0.034), own = ['Magazine', 'MagazineCartridges', 'ChargingHandle', 'BoltCarrier'];
   const mesh = (name, P, off) => { const p = I.parts[name]; if (!p) return null; const m = new THREE.Mesh(p.geo, I.mats[p.mat]); m.userData.keep = true; m.userData.part = name; m.castShadow = true; if (off) m.position.copy(off).negate(); P.add(m); return m; };
-  for (const n in I.parts) if (!own.includes(n)) mesh(n, g);
+  for (const n in I.parts) if (!own.includes(n) && n !== 'DustCover') mesh(n, g);
+  // the ejection port cover swings open on its hinge (bottom edge, along the receiver) at the first shot
+  let dust = null; const dc = I.parts.DustCover;
+  if (dc) { const hinge = new V3(dc.max[0] - 0.012, dc.min[1] + 0.0015, 0); dust = K.grp(g, hinge.x, hinge.y, hinge.z); mesh('DustCover', dust, hinge); }
   const mag = K.grp(g, MAG.x, MAG.y, MAG.z); mesh('Magazine', mag, MAG);
   const cart = K.grp(mag); cart.userData.keep = true; mesh('MagazineCartridges', cart, MAG);
   const chg = K.grp(g); mesh('ChargingHandle', chg);
   const bolt = K.grp(g); mesh('BoltCarrier', bolt);
-  return { g, mag, chg, slide: null, bolt, boltMode: 'slide', travel: 0.07, cart, imported: true, textured: true, muzzle: [0, -0.0067, -0.473], port: [0.022, -0.006, -0.02], brass: [0, '556'], ironsY: 0.0556 };
+  return { g, mag, chg, slide: null, bolt, boltMode: 'slide', travel: 0.07, cart, dust, imported: true, textured: true, muzzle: [0, -0.0067, -0.473], port: [0.022, -0.006, -0.02], brass: [0, '556'], ironsY: 0.0556 };
 }
 // the Studio-built G17: the slide is the moving part, the magazine swings out at the grip's angle with its top round
 function gunG17Imported(K) {
