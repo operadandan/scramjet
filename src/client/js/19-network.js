@@ -224,7 +224,7 @@ function onNet(m) {
     }
     case 'spawn':
       if (m.id === S.myId) respawnLocal(spawns[m.sp % spawns.length]);
-      else { const r = S.remotes.get(m.id); if (r) { r.alive = true; r.snap = true; r.rag = null; r.st = null; clearWounds(r.hum); r.hum.setLost(0); setHelmet(r.hum, true); } }
+      else { const r = S.remotes.get(m.id); if (r) { r.alive = true; r.snap = true; r.rag = null; r.st = null; r.react = null; clearWounds(r.hum); r.hum.setLost(0); setHelmet(r.hum, true); r.hum.fl = null; Object.assign(r.hum.anim, { hurt: 0, clutchT: 0, clutchW: 0, clutchF: null, braceP: null, braceW: 0, stag: 0, stagW: 0 }); } }
       break;
     case 'full': S.closeReason = 'Room is full (12 players max).'; break;
   }

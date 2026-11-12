@@ -250,6 +250,7 @@ function cutHole(mesh, p, d, len, r0, r1, inner) {
 }
 const FLESH_IN = 0x4a0306, FABRIC_IN = 0x22211b, _hm = new THREE.Matrix4(), _hp = new V3();
 // a hole through every mesh of one body segment (segment-local coordinates)
+const _tubeR = new THREE.Raycaster();
 function holeInGroup(group, p, d, len, r0, r1, sk) {
   let slot = -1;
   for (const c of group.children) {
@@ -265,7 +266,21 @@ function holeInGroup(group, p, d, len, r0, r1, sk) {
   if (slot >= 0 && sk) {
     // the whole wound track is walled with torn muscle (and closed off at the bottom when the round stopped inside), so looking
     // into a hole shows meat all the way down instead of the hollow inside of the body
-    const mk = (a, b, cap) => { const t = new THREE.Mesh(holeTube(slot, p, d, len, r0, r1, a / len, b / len, cap, 0x9c2a2a, 0x3a0204), TUBE_FLESH); t.userData.tube = true; t.userData.keep = true; group.add(t); };
+    // the tube never leaves the body: its ends are clipped to where the track actually crosses this segment's skin (a track
+    // running past the far side drew a red cylinder sticking out of the body)
+    const skin = group.children.filter(c => c.isMesh && c.userData.frame && !c.userData.keep && !c.userData.organ && !c.userData.tube && !c.userData.inner);
+    let tIn = -Infinity, tOut = Infinity;
+    if (skin.length) {
+      group.updateMatrixWorld(true);
+      const wq = group.getWorldQuaternion(new THREE.Quaternion()), wd = d.clone().applyQuaternion(wq).normalize(), far = len + 0.6;
+      _tubeR.set(group.localToWorld(p.clone().addScaledVector(d, -0.6)), wd); _tubeR.far = far + 0.6;
+      const h0 = _tubeR.intersectObjects(skin, false)[0]; if (h0) tIn = h0.distance - 0.6;
+      _tubeR.set(group.localToWorld(p.clone().addScaledVector(d, far)), wd.clone().negate()); _tubeR.far = far + 0.6;
+      const h1 = _tubeR.intersectObjects(skin, false)[0]; if (h1) tOut = far - h1.distance;
+    }
+    const mk = (a, b, cap) => {
+      a = Math.max(a, tIn); if (b > tOut) { b = tOut; cap = false; } if (b - a < 0.004) return;
+      const t = new THREE.Mesh(holeTube(slot, p, d, len, r0, r1, a / len, b / len, cap, 0x9c2a2a, 0x3a0204), TUBE_FLESH); t.userData.tube = true; t.userData.keep = true; group.add(t); };
     if (sk[1]) mk(sk[0], sk[1], false); else mk(sk[0], len * 0.97, true);
   }
 }

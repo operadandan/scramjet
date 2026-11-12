@@ -155,7 +155,7 @@ const ARM_SET = {
   grip: { pn: [-1, 0, 0], fwd: [0, 0.1, -1], mcp: [0.02, -0.004, -0.01], thumb: [-0.024, 0.045, -0.025] },
   // support hand on a rifle's handguard, in the left-hand target's frame: palm under and to the left, knuckles along the
   // bottom right edge, fingers up the right side, thumb along the left
-  fore: { pn: [0.2, 0.98, 0.0], fwd: [0.9, -0.1, -0.42], mcp: [0.012, -0.052, 0.0], thumb: [-0.04, 0.005, -0.05], shoulder: [-0.3, -0.12, 0.32], dev: 0.12, squeeze: 0.3 },
+  fore: { pn: [0.2, 0.98, 0.0], fwd: [0.9, -0.1, -0.42], mcp: [0.012, -0.052, 0.0], thumb: [-0.04, 0.005, -0.05], shoulder: [-0.18, -0.17, 0.3], dev: 0.12, toward: 0.3, tuck: 2, squeeze: 0.3 },
   // support hand on a pistol: palm on the firing hand's fingers from the left, fingers wrapping over them
   // thumbs-forward support grip, in the gun's own frame. The heel of the support palm fills the bare left grip panel under the
   // firing thumb; the wrist is canted down and the fingers wrap the front of the firing
@@ -193,18 +193,19 @@ function postedVerts(rig, step) {
 // the shoulder. Of all points on that circle, take the one whose forearm direction is closest to the hand's own axis bent by the
 // wrist's natural deviation (rotating -f about the palm normal by dev, the way that brings the forearm down), with a slight
 // preference for the elbow hanging down rather than winging out.
-function solveElbow(W, f, n, S, dev, Lf, Lu) {
+function solveElbow(W, f, n, S, dev, toward, tuck, Lf, Lu) {
   Lf = Lf || 0.254; Lu = Lu || 0.3;
   const back = f.clone().negate(), q = new THREE.Quaternion();
   const cand = [dev || 0, -(dev || 0)].map(a => back.clone().applyQuaternion(q.setFromAxisAngle(n, a)));
   const sc = c => c.z * 0.5 - c.y, nat = sc(cand[0]) > sc(cand[1]) ? cand[0] : cand[1];   // the one that brings the forearm down and back toward the body
   const d = S.clone().sub(W), D = Math.min(d.length(), Lf + Lu - 1e-4), u = d.clone().normalize();
+  if (toward) nat.lerp(u, toward).normalize();   // pull the forearm partway toward the shoulder (straighter arm, more under the gun)
   const a = (Lf * Lf - Lu * Lu + D * D) / (2 * D), h = Math.sqrt(Math.max(0, Lf * Lf - a * a));   // circle centre distance from W, radius
   const C = W.clone().addScaledVector(u, a), e1 = new V3(0, 1, 0).cross(u); if (e1.lengthSq() < 1e-6) e1.set(1, 0, 0); e1.normalize(); const e2 = u.clone().cross(e1);
   let best = null, bs = Infinity;
   for (let i = 0; i < 180; i++) {
     const t = i / 180 * Math.PI * 2, E = C.clone().addScaledVector(e1, Math.cos(t) * h).addScaledVector(e2, Math.sin(t) * h);
-    const fd = E.clone().sub(W).normalize(), cost = Math.acos(clamp(fd.dot(nat), -1, 1)) + 0.25 * Math.max(0, E.y - W.y) / Lf;
+    const fd = E.clone().sub(W).normalize(), cost = Math.acos(clamp(fd.dot(nat), -1, 1)) + (tuck ? 2.5 : 0.25) * Math.max(0, E.y - W.y + (tuck ? 0.08 : 0)) / Lf + (tuck || 0) * Math.abs(E.x - S.x) / Lf;   // tuck: keep the elbow in under the shoulder, not winged out
     if (cost < bs) { bs = cost; best = E; }
   }
   return best;
@@ -243,7 +244,7 @@ function setupArms(W, D, pistol) {
   const pnL = toG(SL.pn).normalize(), fL = toG(SL.fwd).normalize(), qL = L.orient(fL, pnL);
   const cloudL = pistol ? new GraspCloud().addTree(g, skip).addPoints(postedVerts(R, 1)) : gun;
   const wL = settleHand(L, cloudL, qL, L.wristForMcp(qL, toG(SL.mcp, true)), pnL);
-  if (SL.shoulder) W.elbow.copy(solveElbow(wL, fL, pnL, v3a(SL.shoulder), SL.dev));
+  if (SL.shoulder) W.elbow.copy(solveElbow(wL, fL, pnL, v3a(SL.shoulder), SL.dev, SL.toward || 0, SL.tuck || 0));
   L.setHand(qL, wL);
   const iq = H0.q.clone().invert();
   W.armOffL = { q: iq.clone().multiply(qL), p: wL.clone().sub(H0.p).applyQuaternion(iq) };

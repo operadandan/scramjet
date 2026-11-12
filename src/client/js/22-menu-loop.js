@@ -121,9 +121,18 @@ function retroTarget() {
   }
   return RETRO.rt;
 }
-function loop(now) {
-  requestAnimationFrame(loop);
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+// The game keeps running when its tab is in the background: browsers stop animation frames there (and slow timers to once a
+// second), so a worker, which is not throttled, ticks the simulation and the network about 20 times a second instead. Without
+// it a player whose tab was not focused froze for everyone else (hits, reactions, falls all waited for the tab to come back).
+let rafPending = false;
+function schedule() { if (!rafPending) { rafPending = true; requestAnimationFrame(loop); } }
+function loop(now) { rafPending = false; schedule(); frame(now, false); }
+try {
+  const tk = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 50);'], { type: 'text/javascript' })));
+  tk.onmessage = () => { if (document.hidden) frame(performance.now(), true); };
+} catch (e) {}
+function frame(now, hidden) {
+  const dt = Math.min(0.05, Math.max(0, now - last) / 1000); last = now;
   S.ts = damp(S.ts === undefined ? 1 : S.ts, S.slow && S.mode ? 0.08 : 1, 6, dt);
   const wdt = dt * S.ts;
   if (S.mode) {
@@ -143,6 +152,7 @@ function loop(now) {
   focus.copy(S.mode && P.alive ? P.pos : (P.rag ? P.rag.p[2] : new V3()));
   focus.x = Math.round(focus.x * 4) / 4; focus.z = Math.round(focus.z * 4) / 4; focus.y = 0;
   sun.position.copy(focus).addScaledVector(sunDir, 100); sun.target.position.copy(focus);
+  if (hidden) return;   // nobody is looking: simulate, don't draw
   renderer.clear();
   renderScope();
   const rt = retroTarget();
@@ -151,4 +161,4 @@ function loop(now) {
   if (S.mode && P.alive && !P.downed && !S.tp) { renderer.clearDepth(); renderer.render(vmScene, vmCamera); }
   if (rt) { renderer.setRenderTarget(null); renderer.render(RETRO.scene, RETRO.cam); }
 }
-requestAnimationFrame(loop);
+schedule();
