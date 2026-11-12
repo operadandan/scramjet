@@ -172,9 +172,23 @@ function gunM4Imported(K) {
   const cart = K.grp(mag); cart.userData.keep = true; mesh('MagazineCartridges', cart, MAG);
   const chg = K.grp(g); mesh('ChargingHandle', chg);
   const bolt = K.grp(g); mesh('BoltCarrier', bolt);
-  return { g, mag, chg, slide: null, bolt, boltMode: 'slide', travel: 0.07, cart, imported: true, muzzle: [0, -0.0067, -0.473], port: [0.022, -0.006, -0.02], brass: [0, '556'], ironsY: 0.0556 };
+  return { g, mag, chg, slide: null, bolt, boltMode: 'slide', travel: 0.07, cart, imported: true, textured: true, muzzle: [0, -0.0067, -0.473], port: [0.022, -0.006, -0.02], brass: [0, '556'], ironsY: 0.0556 };
+}
+// the Studio-built G17: slide (with its top plate) is the moving part, the magazine swings out at the grip's angle
+function gunG17Imported(K) {
+  const I = IMPORTED.g17, g = new THREE.Group(), slide = K.grp(g);
+  const FIN = { Slide: 'anod', Union: 'anod', SlideStop: 'anod', Barrel: 'worn', Mag: 'anod', Frame: 'poly', FramePart2: 'poly', Trigger: 'poly', MagRelease: 'poly' };
+  const mesh = (name, P) => { const p = I.parts[name]; if (!p) return null; const m = K.add(p.geo, FIN[name] || 'poly', P); m.userData.part = name; m.castShadow = true; return m; };
+  for (const n in I.parts) if (n !== 'Mag' && n !== 'Slide' && n !== 'Union') mesh(n, g);
+  mesh('Slide', slide); mesh('Union', slide);
+  const mag = K.grp(g, 0, -0.07, 0.064); mag.rotation.x = -0.36; mag.updateMatrix();
+  const inv = mag.matrix.clone().invert(), mm = mesh('Mag', mag); if (mm) mm.applyMatrix4(inv);
+  // the top round sits at the magazine's lips
+  const lips = new V3(0, 0.011, 0.047).applyMatrix4(inv);
+  return { g, mag, chg: null, slide, imported: true, textured: false, muzzle: [0, 0.014, -0.095], port: [0.012, 0.03, -0.02], brass: [lips.y, '9mm'] };
 }
 function gunG17(K) {
+  if (IMPORTED.g17) return gunG17Imported(K);
   const g = new THREE.Group(), by = 0.014, slide = K.grp(g);
   K.ez([[-0.0127, -0.004], [0.0127, -0.004], [0.0127, 0.021], [0.0098, 0.0285], [-0.0098, 0.0285], [-0.0127, 0.021]], -0.093, 0.093, 'anod', slide, { r: 0.0012, bev: 0.0015 });
   for (let i = 0; i < 9; i++) K.b(0.0258, 0.019, 0.0016, 'dark', slide, 0, 0.0095, 0.05 + i * 0.0042);

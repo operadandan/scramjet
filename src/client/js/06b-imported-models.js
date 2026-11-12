@@ -23,7 +23,10 @@ async function loadTexSet(base) {
   // ORM: green is roughness, blue is metalness (Studio's spec map had metalness in red, roughness in green)
   return new THREE.MeshStandardMaterial({ map: c, normalMap: n, roughnessMap: orm, metalnessMap: orm });
 }
-try {
-  const [parts, body, cart] = await Promise.all([loadModelBin('/models/m4/m4.bin'), loadTexSet('/models/m4/m4'), loadTexSet('/models/m4/cart')]);
-  IMPORTED.m4 = { parts, mats: [body, cart] };
-} catch (e) { console.warn('imported M4 not loaded, using the built-in model', e); }
+// each model loads on its own, so one missing file only costs that gun its new model
+await Promise.all([
+  Promise.all([loadModelBin('/models/m4/m4.bin'), loadTexSet('/models/m4/m4'), loadTexSet('/models/m4/cart')])
+    .then(([parts, body, cart]) => { IMPORTED.m4 = { parts, mats: [body, cart] }; }).catch(e => console.warn('imported M4 not loaded, using the built-in model', e)),
+  // the G17 came out of Studio without usable textures: it is painted with the game's own polymer and slide finishes
+  loadModelBin('/models/g17/g17.bin').then(parts => { IMPORTED.g17 = { parts }; }).catch(e => console.warn('imported G17 not loaded, using the built-in model', e))
+]);

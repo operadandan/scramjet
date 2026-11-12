@@ -85,6 +85,7 @@ const VM_DEF = {
     imp: { H0: [[0, -0.006, -0.19], [0, 0, 0]] },   // the Studio M4's quad rail is shorter and sits lower: the support hand goes on it, not on the barrel
     H0: [[0, 0.002, -0.3], [0, 0, 0]], H1: [0, -0.112, -0.03], rot: [0, 0, 0], d: [0.07, 0.11], HP: [[-0.15, -0.42, 0.1], [0.6, 0, 0.4]], HB: [[-0.006, -0.02, 0.004], [0, 0, 0.2]], HBp: [[0.0, -0.022, 0.006], [0, 0, 0.2]], HV: [[-0.13, 0.15, 0.04], [1.0, -0.55, 0.35]] },
   g17: { hand: [[0, -0.07, 0.068], -0.36, { idx: 0.5, w: 0.013 }], elbowR: [0.08, -0.23, 0.32], elbow: [-0.13, -0.3, 0.28], hip: [0.12, -0.125, -0.36], ads: [0, -0.0352, -0.4], sightH: 0.0212, magRot: true,
+    imp: { ads: [0, -0.0294, -0.4] },   // the Studio G17 sits a little lower in the hands
     H0: [[0.0, -0.056, 0.064], [-0.36, 0, 0]], H1: [0.0, -0.118, 0.082], rot: [-0.36, 0, 0], d: [0.06, 0.08], HP: [[-0.12, -0.4, 0.16], [0.4, 0, 0.4]], HB: [[-0.012, -0.03, 0.014], [0, 0, 0.2]], HBp: [[-0.008, -0.028, 0.016], [0, 0, 0.2]], HV: [[-0.11, 0.05, 0.07], [0.7, -0.55, 0.35]], flash: 0.7 },
   m107: { hand: [[0, -0.135, 0.185], -0.3], elbowR: [0.1, -0.3, 0.46], elbow: [-0.2, -0.32, 0.1], hip: [0.15, -0.17, -0.42], ads: [0, -0.106, -0.33], sightH: 0.106, magAxis: [0, -1, 0], scope: true,
     H0: [[0, -0.06, -0.22], [0, 0, 0]], H1: [0, -0.15, 0.0], rot: [0, 0, 0], d: [0.08, 0.12], HP: [[-0.15, -0.45, 0.12], [0.6, 0, 0.4]], HB: [[0.034, 0.02, 0.0], [0, 0, -0.4]], HBp: [[0.034, 0.02, 0.06], [0, 0, -0.4]], HV: [[-0.16, 0.16, 0.08], [1.0, -0.55, 0.35]], flash: 1.8 },
@@ -127,8 +128,8 @@ function tpGunGeo(id) {
   if (tpCache[id]) return tpCache[id];
   const M = GUN_MODEL[id](TP_KIT), D = VM_DEF[id]; M.g.updateMatrixWorld(true);
   // an imported model keeps its UVs and textures; the cartridges stay out (hidden in the magazine at that distance)
-  const body = M.imported ? bakeTextured(M.g, [M.mag]) : bakeColored(M.g, [M.mag]), mag = M.imported ? bakeTextured(M.mag, [M.cart]) : bakeColored(M.mag);
-  return tpCache[id] = { body, mag, mat: M.imported ? IMPORTED[id].mats[0] : null, magPos: M.mag.position.clone(), magRot: M.mag.rotation.clone(), grip: D.hand[0], H0: D.H0[0], muzzle: M.muzzle };
+  const body = M.textured ? bakeTextured(M.g, [M.mag]) : bakeColored(M.g, [M.mag]), mag = M.textured ? bakeTextured(M.mag, [M.cart]) : bakeColored(M.mag);
+  return tpCache[id] = { body, mag, mat: M.textured ? IMPORTED[id].mats[0] : null, magPos: M.mag.position.clone(), magRot: M.mag.rotation.clone(), grip: D.hand[0], H0: D.H0[0], muzzle: M.muzzle };
 }
 function tpGun(id, shadow) {
   const C = tpGunGeo(id), off = TP_OFF[id], pistol = id === 'g17' || id === 'm9', mt = shadow ? shadowMat : (C.mat || gunVcMat);

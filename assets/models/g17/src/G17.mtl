@@ -1,0 +1,42 @@
+newmtl Mag1Mtl
+Material Color
+Ka 0.022013 0.022013 0.022013
+Kd 0.022013 0.022013 0.022013
+Ks 0.00871887 0.00871887 0.00871887 
+
+d 1
+
+Ns 0
+
+map_Ka Mag1_diff.png
+map_Kd Mag1_diff.png
+map_d Mag1_diff.png
+
+map_Bump Mag1_nmap.png
+
+newmtl MagRelease1Mtl
+Material Color
+Ka 0.022013 0.022013 0.022013
+Kd 0.022013 0.022013 0.022013
+Ks 0.00138121 0.00138121 0.00138121 
+
+d 1
+
+Ns 0
+
+map_Ka Mag1_diff.png
+map_Kd Mag1_diff.png
+map_d Mag1_diff.png
+
+map_Bump Mag1_nmap.png
+
+newmtl Union1Mtl
+Material Color
+Ka 0.476177 1 0.453456
+Kd 0.476177 1 0.453456
+Ks 0.0429493 0.0901961 0.0409 
+
+d 1
+
+Ns 0
+
