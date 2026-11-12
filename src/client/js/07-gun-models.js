@@ -80,13 +80,16 @@ function compact(group) {
 }
 // bake an imported tree into one geometry in the root's frame, keeping UVs for its texture (all its parts share one material)
 function bakeTextured(root, skip) {
-  root.updateMatrixWorld(true); const inv = root.matrixWorld.clone().invert(), gs = [];
+  root.updateMatrixWorld(true); const inv = root.matrixWorld.clone().invert(), by = new Map();
   const walk = o => {
     if (skip && skip.includes(o)) return;
-    if (o.isMesh) { const g = o.geometry.clone(); g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld)); gs.push(g); }
+    if (o.isMesh) { const g = o.geometry.clone(); g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld)); if (!by.has(o.material)) by.set(o.material, []); by.get(o.material).push(g); }
     for (const c of o.children) walk(c);
   };
-  walk(root); return gs.length > 1 ? mergeGeometries(gs) : gs[0];
+  walk(root);
+  // one geometry, one draw group per material; the materials ride along in userData
+  const mats = [...by.keys()], gs = mats.map(m => { const l = by.get(m); return l.length > 1 ? mergeGeometries(l) : l[0]; });
+  const geo = gs.length > 1 ? mergeGeometries(gs, true) : gs[0]; geo.userData.mats = mats.length > 1 ? mats : mats[0]; return geo;
 }
 // bake a whole tree into one vertex-coloured geometry in the root's frame, skipping the listed sub-groups
 function bakeColored(root, skip) {
@@ -174,18 +177,17 @@ function gunM4Imported(K) {
   const bolt = K.grp(g); mesh('BoltCarrier', bolt);
   return { g, mag, chg, slide: null, bolt, boltMode: 'slide', travel: 0.07, cart, imported: true, textured: true, muzzle: [0, -0.0067, -0.473], port: [0.022, -0.006, -0.02], brass: [0, '556'], ironsY: 0.0556 };
 }
-// the Studio-built G17: slide (with its top plate) is the moving part, the magazine swings out at the grip's angle
+// the Studio-built G17: the slide is the moving part, the magazine swings out at the grip's angle with its top round
 function gunG17Imported(K) {
   const I = IMPORTED.g17, g = new THREE.Group(), slide = K.grp(g);
-  const FIN = { Slide: 'anod', Union: 'anod', SlideStop: 'anod', Barrel: 'worn', Mag: 'anod', Frame: 'poly', FramePart2: 'poly', Trigger: 'poly', MagRelease: 'poly' };
-  const mesh = (name, P) => { const p = I.parts[name]; if (!p) return null; const m = K.add(p.geo, FIN[name] || 'poly', P); m.userData.part = name; m.castShadow = true; return m; };
-  for (const n in I.parts) if (n !== 'Mag' && n !== 'Slide' && n !== 'Union') mesh(n, g);
-  mesh('Slide', slide); mesh('Union', slide);
+  if (!I.mats[4]) { I.mats[4] = new THREE.MeshStandardMaterial({ color: 0x1e1f21, roughness: 0.45, metalness: 0.8 }); I.mats[5] = brassMatVM; }
+  const mesh = (name, P) => { const p = I.parts[name]; if (!p) return null; const m = new THREE.Mesh(p.geo, I.mats[p.mat]); m.userData.keep = true; m.userData.part = name; m.castShadow = true; P.add(m); return m; };
+  for (const n in I.parts) if (!['Magazine', 'Cartridge', 'Slide', 'RearSight', 'FrontSight'].includes(n)) mesh(n, g);
+  for (const n of ['Slide', 'RearSight', 'FrontSight']) mesh(n, slide);
   const mag = K.grp(g, 0, -0.07, 0.064); mag.rotation.x = -0.36; mag.updateMatrix();
-  const inv = mag.matrix.clone().invert(), mm = mesh('Mag', mag); if (mm) mm.applyMatrix4(inv);
-  // the top round sits at the magazine's lips
-  const lips = new V3(0, 0.011, 0.047).applyMatrix4(inv);
-  return { g, mag, chg: null, slide, imported: true, textured: false, muzzle: [0, 0.014, -0.095], port: [0.012, 0.03, -0.02], brass: [lips.y, '9mm'] };
+  const inv = mag.matrix.clone().invert(), mm = mesh('Magazine', mag); if (mm) mm.applyMatrix4(inv);
+  const cart = K.grp(mag); cart.userData.keep = true; const cm = mesh('Cartridge', cart); if (cm) cm.applyMatrix4(inv);
+  return { g, mag, chg: null, slide, cart, imported: true, textured: true, muzzle: [0, 0.014, -0.093], port: [0.012, 0.022, -0.01], brass: [0, '9mm'] };
 }
 function gunG17(K) {
   if (IMPORTED.g17) return gunG17Imported(K);

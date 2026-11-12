@@ -27,6 +27,7 @@ async function loadTexSet(base) {
 await Promise.all([
   Promise.all([loadModelBin('/models/m4/m4.bin'), loadTexSet('/models/m4/m4'), loadTexSet('/models/m4/cart')])
     .then(([parts, body, cart]) => { IMPORTED.m4 = { parts, mats: [body, cart] }; }).catch(e => console.warn('imported M4 not loaded, using the built-in model', e)),
-  // the G17 came out of Studio without usable textures: it is painted with the game's own polymer and slide finishes
-  loadModelBin('/models/g17/g17.bin').then(parts => { IMPORTED.g17 = { parts }; }).catch(e => console.warn('imported G17 not loaded, using the built-in model', e))
+  // G17: frame, slide, magazine and barrel each have their own maps (brightened to the M4's tone); sights and the top round are painted in code
+  Promise.all([loadModelBin('/models/g17/g17.bin'), ...['frame', 'slide', 'mag', 'barrel'].map(t => loadTexSet('/models/g17/' + t))])
+    .then(([parts, ...mats]) => { IMPORTED.g17 = { parts, mats }; }).catch(e => console.warn('imported G17 not loaded, using the built-in model', e))
 ]);

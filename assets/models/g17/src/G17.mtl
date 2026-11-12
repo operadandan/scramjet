@@ -1,42 +1,299 @@
-newmtl Mag1Mtl
+newmtl Trigger1Mtl
 Material Color
-Ka 0.022013 0.022013 0.022013
-Kd 0.022013 0.022013 0.022013
-Ks 0.00871887 0.00871887 0.00871887 
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
 
 d 1
 
-Ns 0
+Ns 255
 
-map_Ka Mag1_diff.png
-map_Kd Mag1_diff.png
-map_d Mag1_diff.png
+map_Ka SlideRelease1_diff.png
+map_Kd SlideRelease1_diff.png
+map_d SlideRelease1_diff.png
 
-map_Bump Mag1_nmap.png
+map_Bump SlideRelease1_nmap.png
+
+map_Ns SlideRelease1_spec.png
+
+map_Ke Trigger1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Safety1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka SlideRelease1_diff.png
+map_Kd SlideRelease1_diff.png
+map_d SlideRelease1_diff.png
+
+map_Bump SlideRelease1_nmap.png
+
+map_Ns SlideRelease1_spec.png
+
+map_Ke Safety1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Magazine1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka Magazine1_diff.png
+map_Kd Magazine1_diff.png
+map_d Magazine1_diff.png
+
+map_Bump Magazine1_nmap.png
+
+map_Ns Magazine1_spec.png
+
+map_Ke Magazine1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Slide1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka Slide1_diff.png
+map_Kd Slide1_diff.png
+map_d Slide1_diff.png
+
+map_Bump Slide1_nmap.png
+
+map_Ns Slide1_spec.png
+
+map_Ke Slide1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Bullet1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka Shell1_diff.png
+map_Kd Shell1_diff.png
+map_d Shell1_diff.png
+
+map_Bump Shell1_nmap.png
+
+map_Ns Shell1_spec.png
+
+map_Ke Bullet1_emap.png
+
+rbx_alphamode overlay
+
+newmtl FrontSight1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka FrontSight1_diff.png
+map_Kd FrontSight1_diff.png
+map_d FrontSight1_diff.png
+
+map_Bump FrontSight1_nmap.png
+
+map_Ns FrontSight1_spec.png
+
+map_Ke FrontSight1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Cartridge1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka Shell1_diff.png
+map_Kd Shell1_diff.png
+map_d Shell1_diff.png
+
+map_Bump Shell1_nmap.png
+
+map_Ns Shell1_spec.png
+
+map_Ke Cartridge1_emap.png
+
+rbx_alphamode overlay
+
+newmtl RearSight1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka RearSight1_diff.png
+map_Kd RearSight1_diff.png
+map_d RearSight1_diff.png
+
+map_Bump RearSight1_nmap.png
+
+map_Ns RearSight1_spec.png
+
+map_Ke RearSight1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Frame1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka SlideRelease1_diff.png
+map_Kd SlideRelease1_diff.png
+map_d SlideRelease1_diff.png
+
+map_Bump SlideRelease1_nmap.png
+
+map_Ns SlideRelease1_spec.png
+
+map_Ke Frame1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Barrel1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka Barrel1_diff.png
+map_Kd Barrel1_diff.png
+map_d Barrel1_diff.png
+
+map_Bump Barrel1_nmap.png
+
+map_Ns Barrel1_spec.png
+
+map_Ke Barrel1_emap.png
+
+rbx_alphamode overlay
 
 newmtl MagRelease1Mtl
 Material Color
-Ka 0.022013 0.022013 0.022013
-Kd 0.022013 0.022013 0.022013
-Ks 0.00138121 0.00138121 0.00138121 
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
 
 d 1
 
-Ns 0
+Ns 255
 
-map_Ka Mag1_diff.png
-map_Kd Mag1_diff.png
-map_d Mag1_diff.png
+map_Ka SlideRelease1_diff.png
+map_Kd SlideRelease1_diff.png
+map_d SlideRelease1_diff.png
 
-map_Bump Mag1_nmap.png
+map_Bump SlideRelease1_nmap.png
 
-newmtl Union1Mtl
+map_Ns SlideRelease1_spec.png
+
+map_Ke MagRelease1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Shell1Mtl
 Material Color
-Ka 0.476177 1 0.453456
-Kd 0.476177 1 0.453456
-Ks 0.0429493 0.0901961 0.0409 
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
 
 d 1
 
-Ns 0
+Ns 255
+
+map_Ka Shell1_diff.png
+map_Kd Shell1_diff.png
+map_d Shell1_diff.png
+
+map_Bump Shell1_nmap.png
+
+map_Ns Shell1_spec.png
+
+map_Ke Shell1_emap.png
+
+rbx_alphamode overlay
+
+newmtl SlideRelease1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka SlideRelease1_diff.png
+map_Kd SlideRelease1_diff.png
+map_d SlideRelease1_diff.png
+
+map_Bump SlideRelease1_nmap.png
+
+map_Ns SlideRelease1_spec.png
+
+map_Ke SlideRelease1_emap.png
+
+rbx_alphamode overlay
 

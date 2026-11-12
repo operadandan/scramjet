@@ -67,7 +67,7 @@ class Humanoid {
     this.medkit = buildTPMedkit(M); this.medkit.g.position.set(0, -0.12, -0.32); this.pPiv.add(this.medkit.g);
     const hmt = this.shadowOnly ? shadowMat : gunVcMat;
     this.handMagR = new THREE.Mesh(tpGunGeo('m4').mag, this.shadowOnly ? shadowMat : gunMatOf('m4')); this.handMagR.position.set(0, 0.02, 0); this.hdL.add(this.handMagR);
-    this.handMagP = new THREE.Mesh(tpGunGeo('g17').mag, hmt); this.hdL.add(this.handMagP);
+    this.handMagP = new THREE.Mesh(tpGunGeo('g17').mag, this.shadowOnly ? shadowMat : gunMatOf('g17')); this.hdL.add(this.handMagP);
     this.handMagR.visible = this.handMagP.visible = false;
     this.handMagR.userData.keep = this.handMagP.userData.keep = true;
     mergeTree(this.root, this.shadowOnly ? shadowMat : vcMat);
