@@ -24,13 +24,14 @@ function buildTPMedkit(M) {
   return { g, mag: new THREE.Object3D(), grip: mark(g, 0.085, -0.01, 0.0), fore: mark(g, -0.085, -0.01, 0.0), well: mark(g, 0, -0.05, 0) };
 }
 const RPIV_WORLD = new V3(0.15, 0.53, -0.05);
-// wounded behaviour shared by AI and players. A hit makes the free (left) hand go to the wound and press on it for a few
-// seconds; parts it can't reach (its own arm, the back, below the knee) are left alone
-const CLUTCH_OK = { head: 1, neck: 1, spine: 1, hips: 1, shR: 1, elR: 1, lgL: 1, lgR: 1 };
+// wounded behaviour shared by AI and players. A hit to the head, neck or a shoulder makes the free (left) hand go to the
+// wound and press on it for a few seconds; wounds anywhere else are left alone
+// only the head, the neck and the shoulders: a hand goes up to those, nowhere else
+const CLUTCH_OK = { head: 1, neck: 1, shL: 1, shR: 1 };
 // while a wound is still bleeding hard the hand keeps going back to it
 function reClutch(a, an, dt) { if (a.woundF && !(a.clutchT > 0) && an.bleedRate() > 25 && Math.random() < dt * 0.3) { a.clutchF = a.woundF; a.clutchP = a.woundP; a.clutchT = rnd(1.8, 3.5); } }
 function hurtClutch(a, frame, e, secs) {
-  if (!CLUTCH_OK[frame] || !e) return;
+  if (!CLUTCH_OK[frame] || !e || frame === 'shL') return;   // (the free hand is the left one: it can't hold its own shoulder)
   if ((frame === 'spine' || frame === 'hips') && e.z > 0.05) return;
   a.clutchF = frame; a.clutchP = [e.x * 1.12, e.y, e.z * 1.12 - 0.012]; a.clutchT = Math.max(a.clutchT || 0, secs || rnd(2.2, 3.8));
   a.woundF = a.clutchF; a.woundP = a.clutchP;

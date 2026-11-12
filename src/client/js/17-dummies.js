@@ -73,6 +73,7 @@ function reactStart(B, kind) {
     if (w) { if (/^(sh|el)L$/.test(w.frame)) side = 'R'; else if (/^(sh|el)R$/.test(w.frame)) side = 'L'; else { const lp = B.hum.spine.worldToLocal(w.m.getWorldPosition(new V3())); side = lp.x < 0 ? 'L' : 'R'; } }
     if (an.armBroken(side) || an.lost['arm' + side]) side = side === 'L' ? 'R' : 'L';
     R.hand = an.armBroken(side) || an.lost['arm' + side] ? null : side;
+    if (!w || !CLUTCH_OK[w.frame]) R.hand = null;   // a hand only goes to a head, neck or shoulder wound
   }
 function reactRun(B, dt) {
     const R = B.react; R.t += dt; B.stagT = R.t;
