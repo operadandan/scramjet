@@ -8,6 +8,8 @@ function pointBlocked(p, r) {
   return false;
 }
 const PR = 0.35;
+// how far down the player can look: about 60 degrees, the boots and the front of the rig at the bottom of the view
+const PITCH_MIN = -1.05;
 function enterDowned() {
   const an = P.anat;
   P.downed = true; P.adsOn = false; P.reloading = false; P.healing = false; P.inspecting = false; mouse.left = false;
@@ -35,7 +37,8 @@ function tryMantle() {
     for (const ex of [0.35, 0.5, 0.65]) {
       const L = P.pos.clone().addScaledVector(fwd, d + ex); L.y = top + 0.005;
       if (!blocked(L, 1.8, PR - 0.03) && !blocked(new V3(P.pos.x, top + 0.05, P.pos.z), 1.8 - up * 0.3, PR - 0.1)) {
-        P.mantle = { t: 0, dur: 0.55 + up * 0.45, a: P.pos.clone(), b: L, up }; P.adsOn = false; P.leanState = 0; P.inspecting = false; P.sprinting = false;
+        const edge = P.pos.clone().addScaledVector(fwd, d + 0.03); edge.y = top;
+        P.mantle = { t: 0, dur: 0.75 + up * 0.45, a: P.pos.clone(), a2: P.pos.clone().addScaledVector(fwd, Math.max(0, d - 0.3)), b: L, up, edge: edge.toArray() }; P.adsOn = false; P.leanState = 0; P.inspecting = false; P.sprinting = false;
         return true;
       }
     }
@@ -45,8 +48,10 @@ function tryMantle() {
 }
 function updateMantle(dt) {
   const M = P.mantle; M.t += dt / M.dur; const t = Math.min(1, M.t);
-  const rise = clamp(t / 0.62, 0, 1), over = clamp((t - 0.38) / 0.62, 0, 1), e = x => x * x * (3 - 2 * x);
-  P.pos.x = lerp(M.a.x, M.b.x, e(over)); P.pos.z = lerp(M.a.z, M.b.z, e(over));
+  // step in to the edge and get the hand on it (body still on its feet), push up, then swing over
+  const step = clamp(t / 0.18, 0, 1), rise = clamp((t - 0.14) / 0.52, 0, 1), over = clamp((t - 0.45) / 0.55, 0, 1), e = x => x * x * (3 - 2 * x);
+  const ax = lerp(M.a.x, M.a2.x, e(step)), az = lerp(M.a.z, M.a2.z, e(step));
+  P.pos.x = lerp(ax, M.b.x, e(over)); P.pos.z = lerp(az, M.b.z, e(over));
   P.pos.y = M.a.y + (M.b.y - M.a.y) * (1 - Math.pow(1 - rise, 2.2)) + Math.sin(rise * Math.PI) * 0.04;
   P.mantleK = Math.sin(t * Math.PI);
   if (M.t >= 1) { P.pos.copy(M.b); P.mantle = null; P.onGround = true; P.vel.set(0, 0, 0); P.jumpCD = 0.4; P.landKick = (P.landKick || 0) + 0.35; }
@@ -420,7 +425,7 @@ function fire(w) {
   if (w.pellets) { P.pumpStage = 0; P.pumpEject = { o: origin.clone(), right: right.clone(), up: up.clone(), f: gF.clone() }; V.boltK = 0; }
   else ejectShell(V.port.getWorldPosition(new V3()), right, up, gF, P.vel, w.shell);
   const rc = w.recoil * (V.mods ? V.mods.recoil : 1) * lerp(1, 0.6, P.ads) * lerp(1, 0.75, P.crouch) * lerp(1, 0.45, P.prone) * (P.anat.anyArm() ? 1.8 : 1);
-  P.pitch = clamp(P.pitch + rc * 0.7, -1.5, 1.5); P.recoilPitch += rc * 0.6; P.yaw += (Math.random() - 0.45) * rc * 0.6;
+  P.pitch = clamp(P.pitch + rc * 0.7, PITCH_MIN, 1.5); P.recoilPitch += rc * 0.6; P.yaw += (Math.random() - 0.45) * rc * 0.6;
   if (S.mode === 'online' && net.ready()) {
     const r4 = v => Math.round(v * 10000) / 10000;
     net.send({ t: 'shot', o: [r4(origin.x), r4(origin.y), r4(origin.z)], d: [r4(dir.x), r4(dir.y), r4(dir.z)], w: P.weapon, tr: tracer ? 1 : 0, sp: V.supp ? 1 : 0, sd: seed });
@@ -469,7 +474,7 @@ function onSelfHurt(res) {
   hurtFlash();
   syncLost(localBody, P.anat.lostMask(), P.anat.lastDir, P.anat.cutArr()); fpBody.setLost(P.anat.lostMask(), P.anat.cutArr());
   if (res && res.severed) flashMsg(LIMB_NAME[res.severed].toUpperCase() + ' SEVERED', 2500);
-  P.pitch = clamp(P.pitch + rnd(0.02, 0.06), -1.5, 1.5); P.yaw += rnd(-0.04, 0.04); P.kick += 0.6;
+  P.pitch = clamp(P.pitch + rnd(0.02, 0.06), PITCH_MIN, 1.5); P.yaw += rnd(-0.04, 0.04); P.kick += 0.6;
   if (res && res.stopped) noiseHit(300, 0.15, 0.12);
   if (res && (res.region === 'handL' || res.region === 'handR') && !res.missing && !res.stopped && !P.anat.dead && dropWeapon()) flashMsg('HIT IN THE HAND<small>You dropped your weapon. Press F to pick it up.</small>', 2600);
   if (res && res.helmetOff) { setHelmet(localBody, false, P.anat.lastDir); flashMsg('HELMET KNOCKED OFF', 2000); }

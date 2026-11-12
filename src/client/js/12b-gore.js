@@ -48,10 +48,11 @@ function skullPiece(skin) {
 // kinds: flesh, brain, bone, gut, liver, lung, skull. size is the rough radius in metres
 function spawnGore(p, dir, kind, n, speed, spread, size, skin) {
   for (let i = 0; i < n; i++) {
-    let m; const s = size * rnd(0.45, 1.25);
+    // sizes spread log-normally (lots of small crumbs, now and then a big piece), and no two the same shape
+    let m; const g = (Math.random() + Math.random() + Math.random() - 1.5) * 1.15, s = size * clamp(Math.exp(g * 0.6), 0.25, 2.8);
     if (kind === 'skull') m = skullPiece(skin);
     else { m = new THREE.Mesh(pick(GORE_GEO[kind]), kind === 'bone' ? goreDry : goreWet); m.castShadow = s > 0.01; }
-    m.scale.setScalar(s); if (kind === 'bone') m.scale.y *= rnd(1.5, 2.6);
+    m.scale.set(s * rnd(0.6, 1.4), s * rnd(0.55, 1.35), s * rnd(0.6, 1.4)); if (kind === 'bone') m.scale.y *= rnd(1.5, 2.6);
     m.position.copy(p).add(new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(0.02)); m.rotation.set(rnd(0, 6), rnd(0, 6), rnd(0, 6)); scene.add(m);
     const v = dir.clone().multiplyScalar(speed * rnd(0.3, 1.1)).add(new V3(rnd(-1, 1), rnd(-0.3, 1.2), rnd(-1, 1)).multiplyScalar(spread * speed));
     // brain and gut stick and slump, bone and skull bounce a little

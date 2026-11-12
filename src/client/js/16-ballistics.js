@@ -185,6 +185,23 @@ function blastVisual(shot, hit, dir, info, key, hum) {
   blowSpatter(c.clone().addScaledVector(dir, 0.1), dir, rnd(0.6, 0.95) * (0.6 + k * 0.5), true);
   noiseHit(320, 0.12, 0.1);
 }
+// bits torn out by a single round: every calibre throws some, a pistol round a couple of crumbs out of the exit, a rifle round a
+// spray of small pieces, a .50 a heap of big ones. Stopped inside, only a little comes back out of the entry.
+function woundBits(frame, p, dir, E, through, hum) {
+  const e = E / 1000, k = through ? 1 : 0.3, head = frame === 'head' || frame === 'neck';
+  let n = Math.round(clamp((0.8 + e * 1.5 + rnd(-1, 1.5)) * k, 0, 26)); if (n < 1 && Math.random() < 0.6) n = 1; if (n < 1) return;
+  const sz = 0.006 + 0.0042 * Math.sqrt(e), v = (through ? 1.4 : 0.8) + Math.min(5, e * 0.3), d = through ? dir : dir.clone().negate();
+  if (head) {
+    spawnGore(p, d, 'flesh', Math.ceil(n * 0.4), v, 0.5, sz);
+    spawnGore(p, d, 'brain', Math.ceil(n * 0.35), v * 0.9, 0.5, sz * 1.1);
+    if (e > 0.8 || Math.random() < 0.4) spawnGore(p, d, 'skull', Math.max(1, Math.round(n * 0.2)), v, 0.5, sz * 1.6, hum && hum.pal && hum.pal.skin);
+    if (Math.random() < 0.5) spawnGore(p, d, 'bone', Math.ceil(n * 0.15), v * 1.2, 0.55, sz * 0.7);
+  } else {
+    spawnGore(p, d, 'flesh', n, v, 0.45, sz);
+    if (Math.random() < 0.25 + e * 0.05) spawnGore(p, d, 'bone', Math.ceil(n * 0.25), v * 1.2, 0.5, sz * 0.7);
+    if (e > 8 && frame === 'spine') spawnGore(p, d, Math.random() < 0.5 ? 'lung' : 'gut', Math.round(1 + e / 8), v * 0.6, 0.5, sz * 1.4);
+  }
+}
 // what a round does when it reaches something. Returns where and how fast it carries on, or null if it stopped.
 function onBulletHit(b, hit, dir, dist) {
   const ud = hit.object.userData, v = b.vel.length(), Eh = 0.5 * WEAPONS[b.w].mass * v * v, r4 = x => Math.round(x * 10000) / 10000;
@@ -245,6 +262,7 @@ function onBulletHit(b, hit, dir, dist) {
       bloodFx(hit.point, dir, false, pen.v > 0 && ex ? 1 : 0.4);
       if (pen.v > 0 && ex) { bloodFx(ex.point, dir, true); cont = { point: ex.point, dir, v: pen.v }; if (info.frame === 'head' || info.frame === 'neck') wallSpatter(ex.point, dir, rnd(0.6, 0.9), true); }
       else if (info.frame === 'head' || info.frame === 'neck') { bloodFx(hit.point, dir, false, 2); blowSpatter(hit.point, dir, rnd(0.35, 0.55)); }
+      if (!b.shot && !info.armor) woundBits(info.frame, ex && pen.v > 0 ? ex.point : hit.point, dir, Eh, !!(ex && pen.v > 0), ud.hum);
       if (ud.hum.flinch && ud.hum.root.visible) ud.hum.flinch(info.frame, info.d, clamp(Eh / 1700, 0.3, 2.2) * (b.shot ? 0.45 : 1));
       if (b.shot) blastVisual(b.shot, hit, dir, info, ud.hum, ud.hum);
       if (b.w === 2 && !b.shot && b.local) erode(ud.hum, hit.object.parent, info.frame, hit.object.parent.worldToLocal(hit.point.clone()), 0.045, info, dir);

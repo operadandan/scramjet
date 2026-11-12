@@ -59,7 +59,7 @@ function updateCamera(dt) {
     camera.position.y += clamp(P.ld, -0.25, 0.1); }
   // climbing over something: the head pitches down at the edge and comes up as the body goes over
   const mk = P.mantleK || 0;
-  camera.rotation.set(P.pitch + P.recoilPitch - rlB * 0.03 + Math.sin(tt * 3.1) * shake + br.p + clamp(P.jp || 0, -0.2, 0.08) - mk * 0.22, P.yaw + Math.sin(tt * 2.3) * shake + br.y, -P.leanEff * 0.22 + br.r + P.mRoll + mk * 0.06);
+  camera.rotation.set(P.pitch + P.recoilPitch - rlB * 0.03 + Math.sin(tt * 3.1) * shake + br.p + clamp(P.jp || 0, -0.2, 0.08) - mk * 0.5, P.yaw + Math.sin(tt * 2.3) * shake + br.y, -P.leanEff * 0.22 + br.r + P.mRoll + mk * 0.06);
   const w = WEAPONS[P.weapon];
   const zW = VMW[P.weapon], mag = zW && zW.lens; camera.fov = lerp(75, mag ? (w.scope ? 52 : 60) : w.fovAds, P.ads) + P.sprintBlend * 4; camera.updateProjectionMatrix();
 }
@@ -149,6 +149,20 @@ function updateViewmodel(dt) {
   else if (!seq && G0 && G0.held && W.poses.HCb) { seq = HOLD_SEQ; st = 0; }
   if (seq) poseAt(W, seq, st, L.h.position, L.h.quaternion);
   else { L.h.position.copy(W.poses.H0.p); L.h.quaternion.copy(W.poses.H0.q); if (W.curlL && W.poses.H0.c) lerpCurls(W.poses.H0.c, W.poses.H0.c, 0, W.curlL); }
+  // climbing: the support hand lets go of the gun, goes onto the top of the ledge, flat, and pushes the body up past it
+  // (the gun stays in the firing hand); it is fixed in the world, so it sinks in the view as the body rises over it
+  if (P.mantle && P.mantle.edge && W.armL && W.armOffL && !P.anat.lost.armL) {
+    const mt = P.mantle.t, wgt = clamp(mt / 0.12, 0, 1) * clamp((0.9 - mt) / 0.14, 0, 1);
+    if (wgt > 0.001) {
+      const g = W.g, Lr = W.armL; vm.updateMatrixWorld(true);
+      const iq = g.getWorldQuaternion(_q0).invert(), fw = _v0.set(-Math.sin(P.yaw), 0, -Math.cos(P.yaw)), rt = _v1.set(Math.cos(P.yaw), 0, -Math.sin(P.yaw));
+      const palm = g.worldToLocal(_v2.fromArray(P.mantle.edge).addScaledVector(rt, -0.13).addScaledVector(fw, 0.02));
+      const fL = fw.clone().addScaledVector(rt, 0.25).normalize().applyQuaternion(iq), pnL = _v3.set(0, -1, 0).applyQuaternion(iq);
+      const q = Lr.orient(fL, pnL), pose = poseForRig(W, q, Lr.wristForPalm(q, palm));
+      L.h.position.lerp(pose.p, wgt); L.h.quaternion.slerp(pose.q, wgt); L.h.visible = true;
+      if (W.curlL && W.curlOpenL) lerpCurls(W.curlL, W.curlOpenL, wgt, W.curlL);
+    }
+  }
   { const vfg = !!W.vfgHand && W.vfgOn && !seq && !P.anat.lost.armL; if (W.vfgHand) W.vfgHand.visible = vfg; if (vfg) L.h.visible = L.fa.visible = false; }
   P.rlJ = damp(P.rlJ || 0, 0, 9, dt);
   if (P.reloading) {
@@ -277,7 +291,7 @@ addEventListener('mousemove', e => {
   if (!S.locked) return;
   if (!P.alive || P.downed) { P.lookX = clamp(P.lookX - e.movementX * 0.0012, -0.55, 0.55); P.lookY = clamp(P.lookY - e.movementY * 0.0012, -0.4, 0.4); return; }
   const zl = P.slot < 2 && VMW[P.weapon] && VMW[P.weapon].lens; const sens = 0.0022 * (camera.fov / 75) * lerp(1, 0.85, P.ads) * (zl ? lerp(1, 1.5 / zl.userData.zoom, P.ads) : 1);
-  P.yaw -= e.movementX * sens; P.pitch = clamp(P.pitch - e.movementY * sens, -1.5, 1.5);
+  P.yaw -= e.movementX * sens; P.pitch = clamp(P.pitch - e.movementY * sens, PITCH_MIN, 1.5);
   P.mdx = (P.mdx || 0) + e.movementX; P.mdy = (P.mdy || 0) + e.movementY;
   P.swayX = clamp(P.swayX - e.movementX * 0.00003, -0.02, 0.02); P.swayY = clamp(P.swayY + e.movementY * 0.00003, -0.02, 0.02);
   P.aimOX = clamp(P.aimOX + e.movementX * 0.0012, -0.08, 0.08); P.aimOY = clamp(P.aimOY + e.movementY * 0.0012, -0.06, 0.06);

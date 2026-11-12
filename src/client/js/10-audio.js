@@ -40,7 +40,7 @@ function suppress(k, speed) {
   const g = a.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5 + 0.5 * k, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0008, t + 0.34);
   src.connect(f).connect(g).connect(aMaster); src.start(t, Math.random() * 0.5, 0.4);
   // flinch
-  P.pitch = clamp(P.pitch + rnd(-0.02, 0.035) * (0.5 + k), -1.5, 1.5); P.yaw += rnd(-0.03, 0.03) * (0.5 + k); P.kick += 0.4 * k;
+  P.pitch = clamp(P.pitch + rnd(-0.02, 0.035) * (0.5 + k), PITCH_MIN, 1.5); P.yaw += rnd(-0.03, 0.03) * (0.5 + k); P.kick += 0.4 * k;
 }
 function noiseHit(freq, dur, vol) {
   if (vol < 0.002) return;

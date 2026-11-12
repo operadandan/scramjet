@@ -155,14 +155,14 @@ const ARM_SET = {
   grip: { pn: [-1, 0, 0], fwd: [0, 0.1, -1], mcp: [0.02, -0.004, -0.01], thumb: [-0.024, 0.045, -0.025] },
   // support hand on a rifle's handguard, in the left-hand target's frame: palm under and to the left, knuckles along the
   // bottom right edge, fingers up the right side, thumb along the left
-  fore: { pn: [0.2, 0.98, 0.0], fwd: [0.9, -0.1, -0.42], mcp: [0.012, -0.052, 0.0], thumb: [-0.04, 0.005, -0.05] },
+  fore: { pn: [0.2, 0.98, 0.0], fwd: [0.9, -0.1, -0.42], mcp: [0.012, -0.052, 0.0], thumb: [-0.04, 0.005, -0.05], shoulder: [-0.3, -0.12, 0.32], dev: 0.12, squeeze: 0.3 },
   // support hand on a pistol: palm on the firing hand's fingers from the left, fingers wrapping over them
   // thumbs-forward support grip, in the gun's own frame. The heel of the support palm fills the bare left grip panel under the
   // firing thumb; the wrist is canted down and the fingers wrap the front of the firing
   // hand's fingers, the index tight under the trigger guard (the knuckles run forward, the fingers fold down round the front); the support thumb lies along the frame under the slide, pointing
   // at the target. The forearm continues the hand with the wrist bent toward the little finger (ulnar deviation, dev radians),
   // and the elbow sits where that forearm meets an upper arm hanging from the left shoulder.
-  pist: { g: 1, pn: [0.95, 0.28, 0.0], fwd: [0.16, -0.22, -0.96], mcp: [-0.036, -0.06, 0.026], thumb: [-0.019, -0.013, -0.028], shoulder: [-0.15, -0.34, 0.6], dev: 0.42 }
+  pist: { g: 1, pn: [0.95, 0.28, 0.0], fwd: [0.16, -0.22, -0.96], mcp: [-0.036, -0.066, 0.05], thumb: [-0.019, -0.013, -0.006], shoulder: [-0.15, -0.34, 0.6], dev: 0.42 }
 };
 function palmVerts(rig) {
   if (rig._pv) return rig._pv;
@@ -197,7 +197,7 @@ function solveElbow(W, f, n, S, dev, Lf, Lu) {
   Lf = Lf || 0.254; Lu = Lu || 0.3;
   const back = f.clone().negate(), q = new THREE.Quaternion();
   const cand = [dev || 0, -(dev || 0)].map(a => back.clone().applyQuaternion(q.setFromAxisAngle(n, a)));
-  const nat = cand[0].y < cand[1].y ? cand[0] : cand[1];   // the one that brings the forearm down under the gun
+  const sc = c => c.z * 0.5 - c.y, nat = sc(cand[0]) > sc(cand[1]) ? cand[0] : cand[1];   // the one that brings the forearm down and back toward the body
   const d = S.clone().sub(W), D = Math.min(d.length(), Lf + Lu - 1e-4), u = d.clone().normalize();
   const a = (Lf * Lf - Lu * Lu + D * D) / (2 * D), h = Math.sqrt(Math.max(0, Lf * Lf - a * a));   // circle centre distance from W, radius
   const C = W.clone().addScaledVector(u, a), e1 = new V3(0, 1, 0).cross(u); if (e1.lengthSq() < 1e-6) e1.set(1, 0, 0); e1.normalize(); const e2 = u.clone().cross(e1);
@@ -248,6 +248,8 @@ function setupArms(W, D, pistol) {
   const iq = H0.q.clone().invert();
   W.armOffL = { q: iq.clone().multiply(qL), p: wL.clone().sub(H0.p).applyQuaternion(iq) };
   const curlRest = graspSolve(L, cloudL, { thumb: { fixed: [0, 0, 0] } }); curlRest.thumb = thumbTo(L, cloudL, toG(SL.thumb, true));
+  // a firm grip: the fingers close a little past first contact, pressing into the handguard instead of resting round it
+  if (SL.squeeze) for (const f of ['index', 'middle', 'ring', 'pinky']) curlRest[f] = curlRest[f].map((v, k) => k < 3 ? v + SL.squeeze * (k === 0 ? 0.6 : 1) : v);
   const H1 = W.poses.H1; L.setHand(H1.q.clone().multiply(W.armOffL.q), W.armOffL.p.clone().applyQuaternion(H1.q).add(H1.p));
   const mp = new V3(0, -0.03, 0); W.mag.localToWorld(mp); g.worldToLocal(mp);
   const curlMag = graspSolve(L, gun, { thumb: { fixed: [0, 0, 0] } }); curlMag.thumb = thumbTo(L, gun, mp.clone().add(new V3(-0.02, 0, 0)));
@@ -255,6 +257,7 @@ function setupArms(W, D, pistol) {
   for (const k in W.poses) W.poses[k].c = k === 'H0' || k === 'HV' ? curlRest : k === 'HB' || k === 'HBp' ? curlOpen : curlMag;
   L.setCurls(curlRest); L.elbowT.copy(W.elbow); if (SL.shoulder) L.shoulderT.fromArray(SL.shoulder); else L.shoulderT.copy(L.elbowT).add(new V3(-0.07, -0.12, 0.26)); L.apply();
   W.armR = R; W.armL = L; W.curlL = lerpCurls(curlRest, curlRest, 0);
+  W.curlOpenL = {}; for (const f of FINGERS) W.curlOpenL[f] = f === 'thumb' ? [0.25, 0.1, 0.1, 0.35] : [0.06, 0.1, 0.06, 0];   // flat hand, for pushing on things
   rackPoses(W, D, L, gun, skip);
   L.setHand(qL, wL); L.setCurls(curlRest); L.apply();
 }
