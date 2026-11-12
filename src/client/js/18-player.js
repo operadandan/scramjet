@@ -96,10 +96,11 @@ function updatePlayer(dt) {
   // the visible first-person body follows the same pose, set back from the eye; hidden when prone (the eye is down among it)
   fpBody.root.visible = !S.tp && P.prone < 0.3;
   if (fpBody.root.visible) {
-    fpBody.root.position.copy(P.pos).add(_fpo.set(Math.sin(P.yaw), 0, Math.cos(P.yaw)).multiplyScalar(0.3 + 0.08 * P.crouch));
+    fpBody.root.position.copy(P.pos).add(_fpo.set(Math.sin(P.yaw), 0, Math.cos(P.yaw)).multiplyScalar(0.2 + 0.2 * P.crouch));
     fpBody.root.rotation.y = P.yaw; Object.assign(fpBody.anim, a); fpBody.update(dt);
-    for (const k of ['head', 'neck', 'shL', 'shR', 'spine']) if (fpBody[k]) fpBody[k].visible = false;
-    { const f = _fpo.set(-Math.sin(P.yaw), 0, -Math.cos(P.yaw)).multiplyScalar(4); f.y = -1; f.normalize(); fpClip.setFromNormalAndCoplanarPoint(f, camera.position); }
+    for (const k of ['head', 'neck', 'shL', 'shR']) if (fpBody[k]) fpBody[k].visible = false;
+    { // nothing of the body above eye level is drawn (the neck and collar would be around the camera)
+      fpClip.setFromNormalAndCoplanarPoint(_fpo.set(0, -1, 0), camera.position.clone().setY(camera.position.y - 0.06 - 0.08 * P.crouch)); }
   }
   bleedDrips(P, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1));
 }
@@ -235,8 +236,10 @@ function finishReload() {
   const nm = G.pouch.splice(best, 1)[0];
   G.pouch.push(G.mag);   // the old magazine goes back in the pouch, even when it is empty
   G.mag = nm;
-  // the new magazine is in; chambering a round is the shooter's job (F)
   P.reloading = false;
+  // bolt or slide locked back on the empty mag: the hand goes straight to the bolt catch / slide stop and sends it home
+  const V = VMW[P.weapon];
+  if (G.lockBack && G.mag > 0 && V && V.rack && (V.rack.slap || V.rack.stop) && canRack()) workAction();
 }
 function startInspect() {
   if (!P.alive || P.slot >= 2 || P.reloading || P.inspecting || P.sprinting) return;

@@ -94,6 +94,18 @@ class Humanoid {
       if (st && !this.shadowOnly) this.stumps[nm] = addStump(st[0], st[1], st[2], st[3]);
     });
   }
+  // a round lands: dl is the bullet's direction in the body's own frame, k how hard (about 1 for a rifle round)
+  flinch(frame, dl, k) {
+    const F = this.fl || (this.fl = { x: { sx: 0, sy: 0, sz: 0, nx: 0, ny: 0, nz: 0, dip: 0, hz: 0, kl: 0, kr: 0 }, v: { sx: 0, sy: 0, sz: 0, nx: 0, ny: 0, nz: 0, dip: 0, hz: 0, kl: 0, kr: 0 } });
+    const V = F.v, r = () => rnd(0.7, 1.3) * k;
+    if (frame === 'head' || frame === 'neck') { V.nx += -dl.z * 9 * r(); V.nz += -dl.x * 9 * r(); V.ny += rnd(-4, 4) * k; V.sx += -dl.z * 2 * r(); }
+    else if (frame === 'spine') { V.sx += -dl.z * 5 * r(); V.sz += -dl.x * 5 * r(); V.sy += rnd(-5, 5) * k; V.nx += -dl.z * 3 * r(); V.dip += 1.5 * k; }
+    else if (frame === 'hips') { V.dip += 4 * r(); V.hz += -dl.x * 3 * r(); V.sx += 3 * r(); V.kl += 2 * k; V.kr += 2 * k; }
+    else if (/^(lg|kn)L/.test(frame)) { V.kl += 8 * r(); V.dip += 3 * r(); V.hz += 2 * k; V.sx += 2 * k; }
+    else if (/^(lg|kn)R/.test(frame)) { V.kr += 8 * r(); V.dip += 3 * r(); V.hz -= 2 * k; V.sx += 2 * k; }
+    else if (/L$/.test(frame)) { V.sy += 4 * r(); V.sz += 2 * k; V.nx += 1.5 * k; }
+    else if (/R$/.test(frame)) { V.sy -= 4 * r(); V.sz -= 2 * k; V.nx += 1.5 * k; }
+  }
   update(dt) {
     const a = this.anim, pr = a.prone, c = a.crouch * (1 - pr), s = a.sprint * (1 - pr), air = a.air;
     const med = a.weapon === MEDKIT_W, pistol = !med && isPistol(a.weapon), rifleish = !med && !pistol;
@@ -121,6 +133,16 @@ class Humanoid {
     const sx = (-0.12 * c - 0.25 * s + a.pitch * 0.25 * (1 - s)) * (1 - pr);
     this.spine.rotation.set(sx, stance - sw * amp * 0.08, -a.lean * 0.42 * (1 - pr));
     this.neck.rotation.set(clamp(a.pitch * (1 - s) - sx, -0.8, 0.8) * 0.75 * (1 - pr) - 0.12 * a.ads * rifleK + pr * (1.25 + a.pitch * 0.5), -stance, a.lean * 0.15 * (1 - pr));
+    // hit flinch: each round gives the part it hits a shove (springs that settle in a fraction of a second)
+    if (this.fl) {
+      const F = this.fl, h = Math.min(dt || 0, 0.05);
+      for (const k in F.x) { F.v[k] += (-170 * F.x[k] - 15 * F.v[k]) * h; F.x[k] += F.v[k] * h; }
+      const x = F.x;
+      this.spine.rotation.x += x.sx; this.spine.rotation.y += x.sy; this.spine.rotation.z += x.sz;
+      this.neck.rotation.x += x.nx; this.neck.rotation.y += x.ny; this.neck.rotation.z += x.nz;
+      this.hips.position.y -= Math.max(0, x.dip) * 0.12; this.hips.rotation.z += x.hz;
+      this.knL.rotation.x -= Math.max(0, x.kl); this.knR.rotation.x -= Math.max(0, x.kr); this.lgL.rotation.x += Math.max(0, x.kl) * 0.5; this.lgR.rotation.x += Math.max(0, x.kr) * 0.5;
+    }
     const P = a.pitch - sx + pr * Math.PI / 2;
     const r = a.reload;
     this.rPiv.position.copy(RPIV_WORLD).applyAxisAngle(_YAX, -stance);

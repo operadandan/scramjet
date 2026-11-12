@@ -263,9 +263,10 @@ function holeInGroup(group, p, d, len, r0, r1, sk) {
   for (const c of group.children) if (c.userData.organ) c.visible = true;
   // the channel through skin and muscle at each opening, so the wound has walls instead of a paper-thin edge
   if (slot >= 0 && sk) {
-    const mk = (a, b) => { const t = new THREE.Mesh(holeTube(slot, p, d, len, r0, r1, a / len, b / len, false, 0x9c2a2a, 0x3a0204), TUBE_FLESH); t.userData.tube = true; t.userData.keep = true; group.add(t); };
-    mk(sk[0], sk[0] + 0.03);
-    if (sk[1]) mk(sk[1] - 0.03, sk[1]);
+    // the whole wound track is walled with torn muscle (and closed off at the bottom when the round stopped inside), so looking
+    // into a hole shows meat all the way down instead of the hollow inside of the body
+    const mk = (a, b, cap) => { const t = new THREE.Mesh(holeTube(slot, p, d, len, r0, r1, a / len, b / len, cap, 0x9c2a2a, 0x3a0204), TUBE_FLESH); t.userData.tube = true; t.userData.keep = true; group.add(t); };
+    if (sk[1]) mk(sk[0], sk[1], false); else mk(sk[0], len * 0.97, true);
   }
 }
 // wound size by calibre: entry and exit hole radius in metres. Rifle exits are wider (the round yaws), .50 BMG is huge.
@@ -289,8 +290,9 @@ function addStump(parent, pos, dir, r) {
 // Not a flat picture: glossy beads of blood placed by casting rays onto the body's own surface around the wound, so they sit on
 // whatever shape is there and move with it. A big wound gets a wide wet patch and runs heading downhill.
 const LIQ_GEO = new THREE.SphereGeometry(1, 10, 6);
-const LIQ_MAT = [0x6e070b, 0x52040a, 0x3a0206].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.07, metalness: 0.12 }));
+const LIQ_MAT = [0x6e070b, 0x52040a, 0x3a0206].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.18, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
 const _lray = new THREE.Raycaster(), _lqL = new THREE.Quaternion(), _lqG = new THREE.Quaternion();
+const _lqM = new THREE.Matrix4();
 function liquidBlood(group, p, n, R, count, runs, hr) {
   hr = hr || 0;
   group.updateMatrixWorld(true);
@@ -300,14 +302,34 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
   const wp = group.localToWorld(p.clone()), wn = n.clone().transformDirection(group.matrixWorld).normalize();
   const t1 = new V3().crossVectors(wn, Math.abs(wn.y) < 0.9 ? _Y : _Z).normalize(), t2 = new V3().crossVectors(wn, t1);
   const gq = group.getWorldQuaternion(_lqG).invert();
+  // the triangles near the wound, gathered once in world space: every drop is then a ray test against a few dozen of them
+  // instead of a full raycast through the whole body mesh (dozens of those per wound was the hitch when shooting bodies)
+  const tris = [], rr2 = Math.pow(R * 2.6 + 0.12, 2), _ta = new V3(), _tb = new V3(), _tc = new V3();
+  for (const m of targets) {
+    const P = m.geometry.attributes.position, I = m.geometry.index, mw = m.matrixWorld, nT = I ? I.count / 3 : P.count / 3;
+    const ctr = _ta.copy(wp).applyMatrix4(_lqM.copy(mw).invert()); if (m.geometry.boundingSphere === null) m.geometry.computeBoundingSphere();
+    const sc = mw.getMaxScaleOnAxis(); if (m.geometry.boundingSphere.distanceToPoint(ctr) > Math.sqrt(rr2) / sc) continue;
+    for (let t = 0; t < nT; t++) {
+      const i0 = I ? I.getX(t * 3) : t * 3, i1 = I ? I.getX(t * 3 + 1) : t * 3 + 1, i2 = I ? I.getX(t * 3 + 2) : t * 3 + 2;
+      _ta.fromBufferAttribute(P, i0).applyMatrix4(mw); if (_ta.distanceToSquared(wp) > rr2) { _tb.fromBufferAttribute(P, i1).applyMatrix4(mw); if (_tb.distanceToSquared(wp) > rr2) continue; }
+      const a = _ta.clone(), b = new V3().fromBufferAttribute(P, i1).applyMatrix4(mw), c = new V3().fromBufferAttribute(P, i2).applyMatrix4(mw);
+      tris.push(a, b, c);
+    }
+  }
+  const _hp2 = new V3(), _tn = new V3(), _e1 = new V3(), _e2 = new V3();
   const drop = (o, r, stretch, along) => {
-    _lray.set(o.clone().addScaledVector(wn, 0.12), wn.clone().negate()); _lray.far = 0.26;
-    const h = _lray.intersectObjects(targets, false)[0]; if (!h || !h.face) return null;
-    const hn = h.face.normal.clone().transformDirection(h.object.matrixWorld);
+    _lray.ray.set(o.clone().addScaledVector(wn, 0.12), wn.clone().negate());
+    let best = 0.26, hp = null, hn = null;
+    for (let t = 0; t < tris.length; t += 3) {
+      const q = _lray.ray.intersectTriangle(tris[t], tris[t + 1], tris[t + 2], false, _hp2); if (!q) continue;
+      const d = q.distanceTo(_lray.ray.origin); if (d < best) { best = d; hp = q.clone(); hn = _tn.crossVectors(_e1.subVectors(tris[t + 1], tris[t]), _e2.subVectors(tris[t + 2], tris[t])).normalize().clone(); }
+    }
+    if (!hp) return null; if (hn.dot(wn) < 0) hn.negate();
+    const h = { point: hp };
     const b = new THREE.Mesh(LIQ_GEO, LIQ_MAT[Math.floor(Math.random() * LIQ_MAT.length)]); b.userData.keep = true; b.userData.liquid = true;
     _lqL.setFromUnitVectors(_Y, hn); if (along) { const a = along.clone().addScaledVector(hn, -along.dot(hn)).normalize(), x0 = new V3(0, 0, 1).applyQuaternion(_lqL); _lqL.premultiply(new THREE.Quaternion().setFromUnitVectors(x0, a)); } else _lqL.multiply(new THREE.Quaternion().setFromAxisAngle(_Y, Math.random() * 6.28));
     b.quaternion.copy(gq).multiply(_lqL); b.position.copy(out.worldToLocal(h.point.clone().addScaledVector(hn, r * 0.08)));
-    b.scale.set(r, r * rnd(0.1, 0.16), r * stretch); out.add(b); return h.point;
+    b.scale.set(r, r * rnd(0.045, 0.075), r * stretch); out.add(b); return h.point;
   };
   const k = clamp(R / 0.05, 0.6, 1.8);
   // a wet patch: many flat, overlapping drops that run together, biggest in the middle
@@ -315,7 +337,7 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
   // runs: blood heading downhill across the surface from the wound
   const down = new V3(0, -1, 0).addScaledVector(wn, wn.y); if (runs && down.length() > 0.25) {
     down.normalize();
-    for (let j = 0; j < runs; j++) { const side = t1.clone().multiplyScalar(rnd(-0.6, 0.6) * R); let o = wp.clone().add(side).addScaledVector(down, hr); for (let s = 0; s < 4; s++) { o = o.addScaledVector(down, R * rnd(0.35, 0.6)); if (!drop(o, rnd(0.004, 0.008) * k * (1 - s * 0.18), rnd(2, 3.2), down)) break; } }
+    for (let j = 0; j < runs; j++) { const side = t1.clone().multiplyScalar(rnd(-0.6, 0.6) * R); let o = wp.clone().add(side).addScaledVector(down, hr); const w0 = rnd(0.0035, 0.006) * k, nS = 6 + Math.floor(Math.random() * 4); for (let s = 0; s < nS; s++) { o = o.addScaledVector(down, w0 * rnd(1.6, 2.2)); if (!drop(o, w0 * (1 - s / nS * 0.6), rnd(2.4, 3), down)) break; } }
   }
   return out;
 }
@@ -344,23 +366,30 @@ function addWound(hum, frame, group, p, n, kind, size) {
   if (!hum || !frame) return;
   hum.wounds = hum.wounds || [];
   hum.wounds.push({ frame, p: p.clone(), n: n.clone(), kind, m, st, size, grow: clamp(size * 4, 0.12, kind === 'blast' ? 0.45 : 0.3), tear: tr ? size : 0, tr });
-  while (hum.wounds.length > 16) { const w = hum.wounds.shift(); w.m.removeFromParent(); w.st.removeFromParent(); if (w.tr) w.tr.removeFromParent(); }
+  while (hum.wounds.length > 16) { const w = hum.wounds.shift(); w.m.removeFromParent(); w.st.removeFromParent(); if (w.tr) w.tr.removeFromParent(); if (w.more) for (const x of w.more) x.removeFromParent(); }
 }
 const wray = new THREE.Raycaster();
 // blood soaking out through the clothes below a wound: starts small, spreads down over the next seconds
 function soakMesh(group, p, n, size, hr) {
-  const m = new THREE.Mesh(splatGeo, BLOOD_MAT.soak); m.userData.keep = true; m.userData.soak = { p: p.clone(), n: n.clone(), hr: hr || 0 };
-  m.quaternion.setFromUnitVectors(_Z, n);
-  // texture "down" (its -y) follows the body's own down along the surface
-  const dn = new V3(0, -1, 0).addScaledVector(n, n.y); if (dn.lengthSq() < 1e-4) dn.set(0, 0, 1); dn.normalize();
-  const vl = dn.clone().applyQuaternion(m.quaternion.clone().invert()); m.rotateZ(Math.atan2(vl.x, -vl.y));
-  m.userData.soak.dn = dn; m.renderOrder = 2; group.add(m); setSoak(m, size); return m;
+  // no flat decal any more (a plane can't follow the body's curve); the soak is built from liquid drops that sit on the surface
+  const m = new THREE.Object3D(); m.userData.keep = true; group.add(m); return m;
 }
 // the soak hangs below the wound: its top edge starts at the hole's rim, so the hole stays open to see
 function setSoak(m, size) { const u = m.userData.soak; m.scale.setScalar(size); m.position.copy(u.p).addScaledVector(u.n, 0.005).addScaledVector(u.dn, size * 0.42 + (u.hr || 0)); }
-function updateWounds(hum, dt) { if (hum.wounds) for (const w of hum.wounds) if (w.st && w.st.isMesh && w.st.scale.x < w.grow) setSoak(w.st, Math.min(w.grow, w.st.scale.x + dt * 0.03)); }
+// a wound keeps bleeding: more blood wells up round it and runs down the body over the next seconds
+function updateWounds(hum, dt) {
+  if (!hum.wounds || !hum.root.visible) return;
+  let budget = 1;
+  for (const w of hum.wounds) {
+    w.bt = (w.bt || 0) + dt; w.stage = w.stage || 0;
+    if (budget > 0 && w.stage < 3 && w.bt > [1.2, 3.5, 7][w.stage] && w.m.parent) {
+      const g = w.m.parent, hr = w.kind === 'blast' ? w.size / 7.5 : w.size / 5.2, tr = liquidBlood(g, w.p, w.n, clamp(w.size * (1.1 + w.stage * 0.5), 0.016, 0.07) + hr, 3, 2 + w.stage, hr);
+      if (tr) { w.more = w.more || []; w.more.push(tr); } w.stage++; budget--;
+    }
+  }
+}
 function clearWounds(hum) {
-  if (hum.wounds) for (const w of hum.wounds) { w.m.removeFromParent(); w.st.removeFromParent(); if (w.tr) w.tr.removeFromParent(); } hum.wounds = []; hum.holes = [];
+  if (hum.wounds) for (const w of hum.wounds) { w.m.removeFromParent(); w.st.removeFromParent(); if (w.tr) w.tr.removeFromParent(); if (w.more) for (const x of w.more) x.removeFromParent(); } hum.wounds = []; hum.holes = [];
   const tubes = [];
   hum.root.traverse(o => { if (o.isMesh && o.userData.holeN) { for (const v of o.material.userData.hA.value) v.w = 0; o.userData.holeN = 0; } if (o.userData.tube) tubes.push(o); if (o.userData.organ || o.userData.inner) o.visible = false; });
   for (const t of tubes) { t.removeFromParent(); t.geometry.dispose(); }
@@ -406,7 +435,7 @@ function bodyWound(hit, dir, w, pen, ex, hum) {
   if (!armor) addWound(hum, frame, g, pL, nL, 'rim', cal[0] * (pellet ? 3.5 : 5.2));
   if (!through || pellet) return;
   const g2 = ex.object.parent, p2 = g2.worldToLocal(ex.point.clone()), d2 = dir.clone().applyQuaternion(g2.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
-  if (g2 !== g) { holeInGroup(g2, p2.clone().addScaledVector(d2, -0.08), d2, 0.12, r1 * 0.8, r1, [0.05, 0]); const f2 = ex.object.userData.frame; if (hum && f2) { hum.holes.push({ frame: f2, p: p2.clone().addScaledVector(d2, -0.08), d: d2, len: 0.12, r0: r1 * 0.8, r1, sk: [0.05, 0] }); if (hum.holes.length > 30) hum.holes.shift(); } }
+  if (g2 !== g) { holeInGroup(g2, p2.clone().addScaledVector(d2, -0.08), d2, 0.12, r1 * 0.8, r1, [0.0, 0.11]); const f2 = ex.object.userData.frame; if (hum && f2) { hum.holes.push({ frame: f2, p: p2.clone().addScaledVector(d2, -0.08), d: d2, len: 0.12, r0: r1 * 0.8, r1, sk: [0.0, 0.11] }); if (hum.holes.length > 30) hum.holes.shift(); } }
   if (!ex.object.userData.armor) addWound(hum, ex.object.userData.frame, g2, p2, d2, 'rimX', r1 * 6.5);
 }
 // walls and props. [energy per metre for a rifle round, hollow shell thickness or 0 for solid, colour of the inside]

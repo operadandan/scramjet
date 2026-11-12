@@ -106,8 +106,7 @@ $('leave').onclick = () => leave();
 buildArena(); setTimeout(warmShaders, 300);
 let last = performance.now();
 const focus = new V3();
-function loop(now) {
-  // ---------------------------------------------------------------- retro pixelation: the frame is drawn at a fixed number of lines and
+// ---------------------------------------------------------------- retro pixelation: the frame is drawn at a fixed number of lines and
 // blown up with hard pixel edges, so every pixel is the same size on screen whatever the distance, window size or display
 const RETRO = { rt: null, scene: new THREE.Scene(), cam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1) };
 RETRO.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false })); RETRO.scene.add(RETRO.quad);
@@ -122,7 +121,8 @@ function retroTarget() {
   }
   return RETRO.rt;
 }
-requestAnimationFrame(loop);
+function loop(now) {
+  requestAnimationFrame(loop);
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   S.ts = damp(S.ts === undefined ? 1 : S.ts, S.slow && S.mode ? 0.08 : 1, 6, dt);
   const wdt = dt * S.ts;

@@ -3,10 +3,16 @@
 // rate = bleed ml/s when severed/destroyed. Damage comes only from bullet velocity, mass and what the path passes through.
 const STRUCTS = [];
 function S_(id, name, type, frame, region, a, b, r, opt) { STRUCTS.push(Object.assign({ id, name, type, frame, region, a: new V3().fromArray(a), b: b ? new V3().fromArray(b) : null, r }, opt || {})); }
-S_('brain', 'Brain', 'organ', 'head', 'head', [0, 0.12, 0.0], null, 0.062, { lethal: 20 });
+S_('brain', 'Brain', 'organ', 'head', 'head', [0, 0.118, 0.004], null, 0.07, { lethal: 20 });
+// low in the back of the skull: the cerebellum, and the brainstem running down into the neck. Any real hit to the stem is instant.
+S_('cerebellum', 'Cerebellum', 'organ', 'head', 'head', [0, 0.06, 0.048], null, 0.032, { lethal: 15 });
+S_('brainstem', 'Brainstem', 'organ', 'head', 'head', [0, 0.085, 0.022], [0, 0.015, 0.035], 0.02, { lethal: 4 });
 S_('skull', 'Skull', 'bone', 'head', 'head', [0, 0.1, 0], null, 0.1, { shell: 1 });
 S_('jaw', 'Jaw', 'bone', 'head', 'head', [0, 0.05, -0.035], null, 0.035);
-S_('cspine', 'Cervical spine', 'spine', 'neck', 'neck', [0, -0.01, 0.022], [0, 0.07, 0.022], 0.018, { cervical: 1 });
+// the spine by level: high neck (C1-C4) stops breathing, low neck (C5-C7) takes arms and legs, upper back (T1-T6) the legs and
+// some breathing, lower back (T7-T12) and lumbar (L1-L5) the legs. All of them put a body down.
+S_('cspineHi', 'Upper cervical spine (C1-C4)', 'spine', 'neck', 'neck', [0, 0.035, 0.022], [0, 0.08, 0.022], 0.019, { level: 'c1' });
+S_('cspineLo', 'Lower cervical spine (C5-C7)', 'spine', 'neck', 'neck', [0, -0.015, 0.022], [0, 0.035, 0.022], 0.019, { level: 'c5' });
 S_('carotidL', 'Left carotid artery', 'artery', 'neck', 'neck', [-0.026, -0.01, -0.012], [-0.026, 0.07, -0.014], 0.011, { rate: 60 });
 S_('carotidR', 'Right carotid artery', 'artery', 'neck', 'neck', [0.026, -0.01, -0.012], [0.026, 0.07, -0.014], 0.011, { rate: 60 });
 S_('trachea', 'Trachea', 'organ', 'neck', 'neck', [0, -0.01, -0.03], [0, 0.07, -0.032], 0.012, { breath: 0.5, rate: 3 });
@@ -16,8 +22,9 @@ S_('lungR', 'Right lung', 'organ', 'spine', 'chest', [0.085, 0.34, 0.0], null, 0
 S_('aorta', 'Aorta', 'artery', 'spine', 'chest', [-0.01, 0.43, 0.01], [-0.005, 0.06, 0.06], 0.014, { rate: 130 });
 S_('subclL', 'Left subclavian artery', 'artery', 'spine', 'chest', [-0.05, 0.47, -0.03], [-0.17, 0.48, -0.02], 0.01, { rate: 40 });
 S_('subclR', 'Right subclavian artery', 'artery', 'spine', 'chest', [0.05, 0.47, -0.03], [0.17, 0.48, -0.02], 0.01, { rate: 40 });
-S_('tspine', 'Thoracic spine', 'spine', 'spine', 'chest', [0, 0.22, 0.095], [0, 0.52, 0.09], 0.02);
-S_('lspine', 'Lumbar spine', 'spine', 'spine', 'abdomen', [0, -0.02, 0.085], [0, 0.22, 0.095], 0.022);
+S_('tspineHi', 'Upper thoracic spine (T1-T6)', 'spine', 'spine', 'chest', [0, 0.38, 0.093], [0, 0.53, 0.09], 0.021, { level: 't1' });
+S_('tspineLo', 'Lower thoracic spine (T7-T12)', 'spine', 'spine', 'chest', [0, 0.22, 0.095], [0, 0.38, 0.093], 0.021, { level: 't7' });
+S_('lspine', 'Lumbar spine (L1-L5)', 'spine', 'spine', 'abdomen', [0, -0.02, 0.085], [0, 0.22, 0.095], 0.024, { level: 'l1' });
 S_('ribs', 'Ribs', 'bone', 'spine', 'chest', [0, 0.34, 0], null, 0.2, { shell: 1, minY: 0.2 });
 S_('sternum', 'Sternum', 'bone', 'spine', 'chest', [0, 0.24, -0.1], [0, 0.43, -0.1], 0.02);
 S_('clavL', 'Left clavicle', 'bone', 'spine', 'chest', [-0.03, 0.5, -0.06], [-0.17, 0.52, -0.03], 0.012);
@@ -30,7 +37,12 @@ S_('spleen', 'Spleen', 'organ', 'spine', 'abdomen', [-0.1, 0.16, 0.04], null, 0.
 S_('kidneyL', 'Left kidney', 'organ', 'spine', 'abdomen', [-0.065, 0.08, 0.06], null, 0.03, { rate: 16 });
 S_('kidneyR', 'Right kidney', 'organ', 'spine', 'abdomen', [0.065, 0.08, 0.06], null, 0.03, { rate: 16 });
 S_('bowel', 'Intestines', 'organ', 'spine', 'abdomen', [0, 0.04, -0.04], null, 0.075, { rate: 3 });
-S_('pelvisB', 'Pelvis', 'bone', 'hips', 'pelvis', [0, -0.02, 0], null, 0.15, { shell: 1, legs: 1 });
+// the pelvis as its real pieces: a round has to actually pass through bone to break it, and a broken side only takes
+// that side's leg (a shell around the whole hips used to fracture on every hit and drop the body on the spot)
+S_('iliumL', 'Left ilium', 'bone', 'hips', 'pelvis', [-0.1, 0.06, 0.0], [-0.085, -0.03, 0.02], 0.042, { leg: 'L' });
+S_('iliumR', 'Right ilium', 'bone', 'hips', 'pelvis', [0.1, 0.06, 0.0], [0.085, -0.03, 0.02], 0.042, { leg: 'R' });
+S_('sacrum', 'Sacrum', 'bone', 'hips', 'pelvis', [0, 0.05, 0.075], [0, -0.05, 0.06], 0.032);
+S_('pubis', 'Pubic bone', 'bone', 'hips', 'pelvis', [-0.05, -0.07, -0.055], [0.05, -0.07, -0.055], 0.018, { minor: 1 });
 S_('iliacL', 'Left iliac artery', 'artery', 'hips', 'pelvis', [-0.03, 0.06, -0.02], [-0.085, -0.08, -0.04], 0.012, { rate: 45 });
 S_('iliacR', 'Right iliac artery', 'artery', 'hips', 'pelvis', [0.03, 0.06, -0.02], [0.085, -0.08, -0.04], 0.012, { rate: 45 });
 S_('bladder', 'Bladder', 'organ', 'hips', 'pelvis', [0, -0.03, -0.05], null, 0.04, { rate: 3 });
@@ -141,8 +153,11 @@ class Anatomy {
       const [dist, t] = pathDist(P0, P1, st);
       // a round that stopped inside never reaches what lies beyond where it stopped
       if (pd !== undefined && pd !== null && t * 0.5 > pd + 0.015) continue;
-      if (dist < st.r + woundR) hits.push([st, t]);
+      if (dist < st.r + woundR) hits.push([st, t, dist - st.r]);
     }
+    // the column takes one level per round: the vertebra the path passes closest to
+    const sp = hits.filter(h => h[0].type === 'spine').sort((x, y) => x[2] - y[2]).slice(1);
+    for (const h of sp) hits.splice(hits.indexOf(h), 1);
     hits.sort((x, y) => x[1] - y[1]);
     const E0 = 0.5 * m * vel * vel;
     const out = { region, structures: [] };
@@ -243,10 +258,17 @@ class Anatomy {
       if (st.breath) this.breath = Math.max(0.15, this.breath - st.breath * Math.min(1, dmg / 70));
       if (st.lethal && 100 - s.hp >= st.lethal) this.kill('brain');
     } else if (st.type === 'spine') {
-      if (dmg >= 30) {
-        if (st.cervical) this.kill('spinal');
-        else if (!this.paralyzed) { this.paralyzed = true; this.wounds.push({ region, name: 'Spinal cord trauma', rate: 12, treated: false, spinal: 1 }); }
-        s.broken = true;
+      // any round that reaches the column is critical: bone fragments and the shock wave take the cord even without a direct cut
+      if (dmg >= 8) {
+        s.broken = true; this.shock += 40; this.spinalLvl = this.spinalLvl || st.level;
+        const L = st.level, name = { c1: 'High cervical cord injury', c5: 'Cervical cord injury: arms and legs paralyzed', t1: 'Upper thoracic cord injury: legs paralyzed, breathing weak', t7: 'Thoracic cord injury: legs paralyzed', l1: 'Lumbar injury: legs paralyzed' }[L];
+        if (L === 'c1') { this.breathCut = 1; this.kill('spinal'); }
+        else {
+          this.paralyzed = true;
+          if (L === 'c5') { this.quad = true; this.breathCut = Math.max(this.breathCut || 0, 0.45); }
+          if (L === 't1') this.breathCut = Math.max(this.breathCut || 0, 0.25);
+          if (!this.wounds.some(w => w.spinal)) this.wounds.push({ region, name, rate: L === 'l1' ? 14 : 10, treated: false, spinal: 1 });
+        }
       }
     }
   }
@@ -267,6 +289,7 @@ class Anatomy {
     const S = this.s, heart = S.heart.hp / 100, lungs = (S.lungL.hp + S.lungR.hp) / 200, trach = S.trachea.hp / 100;
     this.circ = heart < 0.3 ? 0 : heart;
     this.breath = (trach < 0.25 ? 0 : Math.min(1, trach * 1.2)) * Math.min(1, lungs * 1.25);
+    if (this.breathCut) this.breath *= 1 - this.breathCut;
     const bloodK = clamp((this.blood - 2300) / 2200, 0, 1);
     const supply = this.circ * this.breath * bloodK;
     if (supply < 0.45) this.o2 -= (0.45 - supply) / 0.45 * 0.3 * dt; else this.o2 = Math.min(1, this.o2 + 0.05 * dt);
@@ -277,9 +300,9 @@ class Anatomy {
     if (this.o2 <= 0) this.kill(this.circ < 0.3 ? 'cardiac' : this.breath < 0.3 ? 'asphyx' : 'bleed');
     if (this.blood < 2300) this.kill('bleed');
   }
-  armBroken(s) { if (this.lost['arm' + s]) return true; for (const st of STRUCTS) if (st.arm === s && this.s[st.id].broken) return true; return false; }
+  armBroken(s) { if (this.lost['arm' + s] || this.quad) return true; for (const st of STRUCTS) if (st.arm === s && this.s[st.id].broken) return true; return false; }
   handBroken(s) { return !!this.lost['arm' + s] || this.s['hand' + s].broken; }
-  legBroken(s) { if (this.lost['leg' + s]) return true; for (const st of STRUCTS) if (st.leg === s && !st.minor && this.s[st.id].broken) return true; return this.s.pelvisB.broken; }
+  legBroken(s) { if (this.lost['leg' + s]) return true; for (const st of STRUCTS) if (st.leg === s && !st.minor && this.s[st.id].broken) return true; return false; }
   // pain: destroyed and damaged organs, untreated fractures, spine, amputations, open wounds and fresh shock from hits
   painLevel() {
     let p = this.shock;
@@ -320,7 +343,7 @@ class Anatomy {
     const list = [];
     if (this.o2 < 0.98) list.push([100, 'Oxygen ' + Math.round(this.o2 * 100) + '%' + (this.circ < 0.3 ? ': heart failing' : this.breath < 0.45 ? ': suffocating' : ''), '#ff3b30']);
     for (const limb in this.lost) list.push([96, LIMB_NAME[limb] + ' lost' + (this.lost[limb] === 1 ? (limb.startsWith('arm') ? ' at shoulder' : ' at hip') : (limb.startsWith('arm') ? ' at elbow' : ' at knee')), '#ff3b30']);
-    if (this.paralyzed) list.push([95, 'Spinal cord injury: paralyzed', '#ff3b30']);
+    if (this.paralyzed) list.push([95, this.quad ? 'Spinal cord injury: arms and legs paralyzed' : 'Spinal cord injury: legs paralyzed', '#ff3b30']);
     if (this.painDown) list.push([94, 'Unconscious from pain', '#ff3b30']);
     for (const st of STRUCTS) {
       const s = this.s[st.id];

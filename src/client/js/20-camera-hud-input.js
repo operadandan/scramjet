@@ -92,15 +92,6 @@ function updateViewmodel(dt) {
   vm.visible = true; $('scope').style.display = 'none'; $('acog').style.display = 'none';
   // inspect and rack: the gun is brought in and turned over (ip = position offset, ir = rotation offset)
   const pis = w.kind === 'pistol', ip = _vi.set(0, 0, 0), ir = _vir.set(0, 0, 0);
-  if (P.inspecting) {
-    const ss = (e0, e1, x) => { const u = clamp((x - e0) / (e1 - e0), 0, 1); return u * u * (3 - 2 * u); };
-    const wA = ss(0.04, 0.22, ik) * (1 - ss(0.42, 0.56, ik)), wB = ss(0.48, 0.62, ik) * (1 - ss(0.84, 0.98, ik)), tw = Math.sin(ik * 19) * 0.012 * (wA + wB);
-    if (pis) { // wrist rolled out to show the right side, then back over to show the left
-      ip.set(-0.035 * wA - 0.06 * wB, 0.05 * wA + 0.045 * wB, 0.09 * wA + 0.08 * wB); ir.set(0.22 * wA + 0.18 * wB + tw, -0.55 * wA + 0.5 * wB, -1.05 * wA + 1.15 * wB);
-    } else { // muzzle swung left to show the ejection side, then canted over to the right to look down the top and left side
-      ip.set(-0.07 * wA - 0.03 * wB, 0.035 * wA + 0.05 * wB, 0.07 * wA + 0.05 * wB); ir.set(0.14 * wA + 0.26 * wB + tw, 0.78 * wA - 0.32 * wB, 0.3 * wA - 0.72 * wB);
-    }
-  }
   { // working the action: the gun comes in toward the chest and cants so the support hand can reach the handle or slide comfortably
     const rkOn = W.rack && P.rack && !P.rack.done ? 1 : 0, G1 = P.guns[P.weapon]; P.rackW = damp(P.rackW || 0, Math.max(rkOn, G1 && G1.held ? 1 : 0), 9, dt);
     const k = P.rackW * (1 - a), side = W.rack && W.rack.kind === 'side';
@@ -110,16 +101,21 @@ function updateViewmodel(dt) {
       else { ip.x -= 0.04 * k; ip.y += 0.15 * k; ip.z -= 0.16 * k; ir.x += 0.3 * k; ir.y += 0.12 * k; ir.z += 0.35 * k; } // butt off the shoulder, muzzle up, gun canted in front of the chest so the handle is in reach and in view
     }
   }
-  // at the hip a long gun rides with the muzzle tipped up toward the middle of the view
-  const hipK = pis ? 0 : 1 - a;
+  // at the hip a long gun rides with the muzzle tipped up toward the middle of the view; a pistol sits low with the wrists relaxed,
+  // the muzzle a touch down and canted in. Either way the hands are never still: breathing and a slow drift
+  const hipK = pis ? 0 : 1 - a, pk = pis ? 1 - a : 0, tb = performance.now() / 1000, still = (1 - a * 0.75) * (1 - s);
+  ir.x += -0.05 * pk + Math.sin(tb * 1.55) * 0.007 * still + Math.sin(tb * 0.43 + 1) * 0.006 * still;
+  ir.y += 0.05 * pk + Math.sin(tb * 0.61 + 2) * 0.007 * still;
+  ir.z += 0.07 * pk + Math.sin(tb * 0.37) * 0.012 * still * (pis ? 1.4 : 1);
+  ip.y += Math.sin(tb * 1.55 + 0.6) * 0.0022 * still; ip.x += Math.sin(tb * 0.53) * 0.0018 * still;
   vm.position.set(
-    t.x + bx + P.swayX - 0.05 * s + P.aimOX * 0.06 * ao + ip.x,
-    t.y + by + P.swayY - 0.05 * s - 0.03 * b - P.switchT * 0.7 + air - P.aimOY * 0.04 * ao + ip.y,
-    t.z + P.kick * 0.05 * (1 - a * 0.4) + 0.03 * s + ip.z);
+    t.x + bx + P.swayX - 0.05 * s + P.aimOX * 0.06 * ao - 0.02 * ib + ip.x,
+    t.y + by + P.swayY - 0.05 * s - 0.03 * b - P.switchT * 0.7 + air - P.aimOY * 0.04 * ao + 0.02 * ib + ip.y,
+    t.z + P.kick * 0.05 * (1 - a * 0.4) + 0.03 * s + 0.03 * ib + ip.z);
   vm.rotation.set(
-    P.kick * 0.09 * (1 - a * 0.6) - 0.35 * s - 0.12 * b + P.swayY * 2 * ao - P.aimOY * ao + 0.07 * hipK + ir.x,
-    0.6 * s + P.swayX * 2 * ao - P.aimOX * ao + 0.12 * b + 0.035 * hipK + ir.y,
-    0.35 * b + P.leanEff * 0.04 * (1 - a) + ir.z);
+    P.kick * 0.09 * (1 - a * 0.6) - 0.35 * s - 0.12 * b + P.swayY * 2 * ao - P.aimOY * ao + 0.07 * hipK + 0.06 * ib + ir.x,
+    0.6 * s + P.swayX * 2 * ao - P.aimOX * ao + 0.12 * b + 0.035 * hipK + 0.08 * ib + ir.y,
+    0.35 * b + P.leanEff * 0.04 * (1 - a) + 0.18 * ib + ir.z);
   // the turn happens at the wrist/grip, and the elbows stay where they were in the view, so the forearms twist instead of swinging with the gun
   { const g = W.g; g.updateMatrix(); _m0.compose(_v0.copy(vm.position).sub(ip), _q0.setFromEuler(_e0.set(vm.rotation.x - ir.x, vm.rotation.y - ir.y, vm.rotation.z - ir.z)), _V1);
     vm.updateMatrix(); const pv = _v1.set(0, pis ? -0.07 : -0.06, pis ? 0.06 : -0.08).applyMatrix4(g.matrix);
@@ -131,16 +127,12 @@ function updateViewmodel(dt) {
   // left hand + magazine choreography
   const L = W.L;
   let seq = null, st = 0;
-  if (P.reloading) { seq = P.rlSeq || (P.reloadEmpty ? SEQ.empty : SEQ.tac); st = r; } else if (P.inspecting) { seq = w.kind === 'pistol' ? SEQ.inspectP : SEQ.inspectR; st = ik; }
+  if (P.reloading) { seq = P.rlSeq || (P.reloadEmpty ? SEQ.empty : SEQ.tac); st = r; } else if (P.inspecting) { seq = SEQ.inspect; st = ik; }
   const G0 = P.guns[P.weapon];
   if (!seq && P.rack && W.rack) { seq = P.rack.seq; st = Math.min(1, P.rack.t); }
   else if (!seq && G0 && G0.held && W.poses.HCb) { seq = HOLD_SEQ; st = 0; }
   if (seq) poseAt(W, seq, st, L.h.position, L.h.quaternion);
   else { L.h.position.copy(W.poses.H0.p); L.h.quaternion.copy(W.poses.H0.q); if (W.curlL && W.poses.H0.c) lerpCurls(W.poses.H0.c, W.poses.H0.c, 0, W.curlL); }
-  { // pistol at the hip is held one-handed: the support hand drops away and comes up to the grip as the sights come up
-    const low = w.kind === 'pistol' && !P.reloading && !P.rack && !(G0 && G0.held) ? 1 - a : 0; P.pLow = damp(P.pLow || 0, low, 9, dt);
-    if (P.pLow > 0.001 && W.poses.HP) { L.h.position.lerp(W.poses.HP.p, P.pLow); L.h.quaternion.slerp(W.poses.HP.q, P.pLow); if (P.pLow > 0.85) L.h.visible = L.fa.visible = false; }
-  }
   { const vfg = !!W.vfgHand && W.vfgOn && !seq && !P.anat.lost.armL; if (W.vfgHand) W.vfgHand.visible = vfg; if (vfg) L.h.visible = L.fa.visible = false; }
   P.rlJ = damp(P.rlJ || 0, 0, 9, dt);
   if (P.reloading) {

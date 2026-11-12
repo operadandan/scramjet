@@ -206,7 +206,6 @@ class Body {
     const c = this.c; f = f && 'spine';
     this.guts('chest', p, y);
     this.add(latheG('torso', TORSO_PTS), c.shirt, p, 0, y, 0, f, [1, 1, 0.6]);
-    if (c.noRig) return;   // the first-person body: shirt only, no plate carrier or pack
     // plate carrier: the front plate bag is the only armour; soft back panel, cummerbund, shoulder straps
     this.add(GC('plate', plateGeo), c.vest, p, 0, y + 0.19, -0.15, f, null, [0.05, 0, 0], 'plateF');
     this.add(rbox(0.29, 0.31, 0.03, 0.014), c.vest, p, 0, y + 0.345, 0.122, f, null, [-0.04, 0, 0]);

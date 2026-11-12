@@ -150,7 +150,7 @@ function erode(key, seg, frame, cl, r, info, dir, depth) {
   // how far in it has chewed: a shallow blast strips the surface, a limb only comes off once the damage reaches through it
   h.dep = (h.dep || 0) + (depth || 0.3);
   // a wider channel where it grew
-  if (h.n > 1) { const dL = dir.clone().applyQuaternion(seg.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize(); holeInGroup(seg, h.p.clone().addScaledVector(dL, depth ? -0.03 : -0.06), dL, depth || 0.32, h.r, depth ? h.r * 0.45 : h.r * 1.3, null); spawnGore(seg.localToWorld(h.p.clone()), dir, 'flesh', 2 + h.n, 2.5, 0.4, 0.012); }
+  if (h.n > 1) { const dL = dir.clone().applyQuaternion(seg.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize(); holeInGroup(seg, h.p.clone().addScaledVector(dL, depth ? -0.03 : -0.06), dL, depth || 0.32, h.r, depth ? h.r * 0.45 : h.r * 1.3, depth ? [0.03, 0] : [0.06, 0.3]); spawnGore(seg.localToWorld(h.p.clone()), dir, 'flesh', 2 + h.n, 2.5, 0.4, 0.012); }
   const lr = LIMB_R[frame];
   if (lr && h.r >= lr * 0.75 && h.dep >= lr * 1.8 && !h.cut) {
     h.cut = true;
@@ -245,6 +245,7 @@ function onBulletHit(b, hit, dir, dist) {
       bloodFx(hit.point, dir, false, pen.v > 0 && ex ? 1 : 0.4);
       if (pen.v > 0 && ex) { bloodFx(ex.point, dir, true); cont = { point: ex.point, dir, v: pen.v }; if (info.frame === 'head' || info.frame === 'neck') wallSpatter(ex.point, dir, rnd(0.6, 0.9), true); }
       else if (info.frame === 'head' || info.frame === 'neck') { bloodFx(hit.point, dir, false, 2); blowSpatter(hit.point, dir, rnd(0.35, 0.55)); }
+      if (ud.hum.flinch && ud.hum.root.visible) ud.hum.flinch(info.frame, info.d, clamp(Eh / 1700, 0.3, 2.2) * (b.shot ? 0.45 : 1));
       if (b.shot) blastVisual(b.shot, hit, dir, info, ud.hum, ud.hum);
       if (b.w === 2 && !b.shot && b.local) erode(ud.hum, hit.object.parent, info.frame, hit.object.parent.worldToLocal(hit.point.clone()), 0.045, info, dir);
     }
