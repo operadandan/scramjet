@@ -23,6 +23,34 @@ function wakeUp() {
   $('downmsg').style.display = 'none';
   flashMsg('YOU CAME TO<small>The pain eased enough to move.</small>', 2500);
 }
+// climbing over: something ahead whose top is between knee and chest-plus height, with room to stand on it. The body goes up
+// first (hands on the edge, gun pulled in), then over, slower the higher it is
+function tryMantle() {
+  const fwd = new V3(-Math.sin(P.yaw), 0, -Math.cos(P.yaw));
+  for (let d = 0.2; d <= 0.75; d += 0.08) {
+    const p = P.pos.clone().addScaledVector(fwd, d); p.y += 0.25;
+    const c = blocked(p, 0.1, 0.05); if (!c) continue;
+    const top = c.max.y, up = top - P.pos.y;
+    if (up < 0.4 || up > 1.75) return false;
+    for (const ex of [0.35, 0.5, 0.65]) {
+      const L = P.pos.clone().addScaledVector(fwd, d + ex); L.y = top + 0.005;
+      if (!blocked(L, 1.8, PR - 0.03) && !blocked(new V3(P.pos.x, top + 0.05, P.pos.z), 1.8 - up * 0.3, PR - 0.1)) {
+        P.mantle = { t: 0, dur: 0.55 + up * 0.45, a: P.pos.clone(), b: L, up }; P.adsOn = false; P.leanState = 0; P.inspecting = false; P.sprinting = false;
+        return true;
+      }
+    }
+    return false;
+  }
+  return false;
+}
+function updateMantle(dt) {
+  const M = P.mantle; M.t += dt / M.dur; const t = Math.min(1, M.t);
+  const rise = clamp(t / 0.62, 0, 1), over = clamp((t - 0.38) / 0.62, 0, 1), e = x => x * x * (3 - 2 * x);
+  P.pos.x = lerp(M.a.x, M.b.x, e(over)); P.pos.z = lerp(M.a.z, M.b.z, e(over));
+  P.pos.y = M.a.y + (M.b.y - M.a.y) * (1 - Math.pow(1 - rise, 2.2)) + Math.sin(rise * Math.PI) * 0.04;
+  P.mantleK = Math.sin(t * Math.PI);
+  if (M.t >= 1) { P.pos.copy(M.b); P.mantle = null; P.onGround = true; P.vel.set(0, 0, 0); P.jumpCD = 0.4; P.landKick = (P.landKick || 0) + 0.35; }
+}
 function standHeight() { return 1.8 - 0.6 * P.crouch - 1.3 * P.prone; }
 function updatePlayer(dt) {
   if (!P.alive) { localBody.root.visible = false; fpBody.root.visible = false; return; }
@@ -49,39 +77,59 @@ function updatePlayer(dt) {
   P.crouch = damp(P.crouch, P.stance === 1 ? 1 : 0, 10, dt);
   P.prone = damp(P.prone, P.stance === 2 ? 1 : 0, 5, dt);
 
-  const wantSprint = keys.ShiftLeft && fz < 0 && len > 0 && P.stance === 0 && !oneLeg && !P.staminaLock && P.stamina > 0;
+  // ---- movement. No stamina; instead the body has weight: it takes time to get going and to stop, sprints only forward,
+  // walks slower backward and sideways, surges and slows with each step, can't hop again right after landing, loses speed when
+  // it lands, and climbs over things it can't step onto.
+  const wantSprint = keys.ShiftLeft && fz < 0 && len > 0 && P.stance === 0 && !oneLeg && !P.mantle;
   P.sprinting = !!(wantSprint && P.onGround) || (P.sprinting && wantSprint && !P.onGround);
-  if (P.sprinting) {
-    P.adsOn = false; P.leanState = 0; P.inspecting = false; P.healing = false;
-    P.stamina -= 20 * dt; P.staminaDelay = 1.1; if (P.stamina <= 0) { P.stamina = 0; P.staminaLock = true; P.sprinting = false; }
-  } else {
-    P.staminaDelay -= dt;
-    const bloodK = clamp((an.blood - 2500) / 2500, 0.2, 1);
-    if (P.staminaDelay <= 0) P.stamina = Math.min(100 * an.breath, P.stamina + 15 * dt * an.breath * bloodK);
-    if (P.staminaLock && P.stamina > 30 * an.breath) P.staminaLock = false;
-  }
+  if (P.sprinting) { P.adsOn = false; P.leanState = 0; P.inspecting = false; P.healing = false; }
+  P.stamina = 100;
 
-  let spd = 4.3;
-  if (P.sprinting) spd = 7.2;
+  if (P.mantle) { updateMantle(dt); P.speed = 0; P.vel.set(0, 0, 0); }
+  else {
+  let spd = P.sprinting ? 5.4 : 3.0;
+  // backward and sideways are slower than forward
+  if (len) spd *= fz > 0.1 ? 0.62 : Math.abs(fx_) > 0.5 ? 0.8 : 1;
   spd *= lerp(1, 0.47, P.crouch); spd *= lerp(1, downed ? 0.1 : 0.21, P.prone);
-  spd *= lerp(1, 0.62, P.ads); spd *= 1 - Math.abs(P.lean) * 0.25;
-  if (oneLeg && !downed) spd *= 0.5;
+  spd *= lerp(1, 0.6, P.ads); spd *= 1 - Math.abs(P.lean) * 0.25;
+  if (oneLeg && !downed) spd *= 0.45;
   if (P.healing) spd *= 0.4;
   spd *= clamp((an.blood - 2500) / 1500, 0.4, 1);
-  const k = P.onGround ? 1 - Math.exp(-11 * dt) : 1 - Math.exp(-1.6 * dt);
-  P.vel.x += (wx * spd - P.vel.x) * k; P.vel.z += (wz * spd - P.vel.z) * k;
+  spd *= 1 - clamp(P.landK || 0, 0, 0.7);                                     // just landed
+  if (len && P.onGround) spd *= 1 + Math.sin((P.bobT || 0) * 2) * 0.07;      // each footfall pushes, then the stride carries
+  // drift: feet are never perfectly straight, the heading wanders a little with the stride
+  const wob = len ? Math.sin((P.bobT || 0) * 0.5 + 0.7) * 0.035 + Math.sin(performance.now() / 1300) * 0.02 : 0;
+  const mx = wx * Math.cos(wob) - wz * Math.sin(wob), mz = wx * Math.sin(wob) + wz * Math.cos(wob);
+  const cur = Math.hypot(P.vel.x, P.vel.z), speeding = spd * (len ? 1 : 0) > cur;
+  // speeding up is slow (slower still into a sprint), stopping is quicker but not instant; in the air almost no control
+  const rate = !P.onGround ? 0.8 : speeding ? (P.sprinting ? 2.6 : 5) : 7.5;
+  const k = 1 - Math.exp(-rate * dt);
+  P.vel.x += (mx * spd - P.vel.x) * k; P.vel.z += (mz * spd - P.vel.z) * k;
   P.vel.y -= 22 * dt;
-  if (keys.Space && P.onGround && P.stance === 0 && !oneLeg && P.stamina > 8) { P.vel.y = 7.4; P.onGround = false; P.stamina -= 8; P.staminaDelay = 1.1; }
+  P.jumpCD = Math.max(0, (P.jumpCD || 0) - dt); P.landK = Math.max(0, (P.landK || 0) - dt * 2.2);
+  if (keys.Space && P.onGround && P.stance === 0 && !oneLeg && !P.jumpCD) {
+    if (!tryMantle()) { P.vel.y = 4.6; P.onGround = false; P.jumpCD = 0.9; P.jumpKick = 1; }   // about half a metre of hop
+  }
 
   const h = standHeight();
-  P.pos.x += P.vel.x * dt;
-  let c = blocked(P.pos, h, PR); if (c) { P.pos.x = P.vel.x > 0 ? c.min.x - PR - 1e-4 : c.max.x + PR + 1e-4; P.vel.x = 0; }
-  P.pos.z += P.vel.z * dt;
-  c = blocked(P.pos, h, PR); if (c) { P.pos.z = P.vel.z > 0 ? c.min.z - PR - 1e-4 : c.max.z + PR + 1e-4; P.vel.z = 0; }
+  // horizontal moves step up onto anything up to a kerb's height instead of stopping dead
+  const stepX = (axis, v) => {
+    const old = P.pos[axis]; P.pos[axis] += v * dt;
+    const c = blocked(P.pos, h, PR); if (!c) return;
+    const up = c.max.y - P.pos.y;
+    if (P.onGround && up > 0 && up <= 0.36 && !blocked(new V3(P.pos.x, c.max.y + 0.01, P.pos.z), h, PR)) { P.pos.y = c.max.y; P.stepDip = (P.stepDip || 0) + up; return; }
+    P.pos[axis] = v > 0 ? c.min[axis] - PR - 1e-4 : c.max[axis] + PR + 1e-4; P.vel[axis] = 0;
+  };
+  stepX('x', P.vel.x); stepX('z', P.vel.z);
+  const wasGround = P.onGround, vy = P.vel.y;
   P.pos.y += P.vel.y * dt; P.onGround = false;
   if (P.pos.y <= 0) { P.pos.y = 0; P.vel.y = 0; P.onGround = true; }
-  c = blocked(P.pos, h, PR);
+  let c = blocked(P.pos, h, PR);
   if (c) { if (P.vel.y <= 0) { P.pos.y = c.max.y; P.onGround = true; } else P.pos.y = c.min.y - h - 1e-4; P.vel.y = 0; }
+  // stay glued to the ground walking down a small step instead of floating off it
+  if (!P.onGround && wasGround && vy <= 0 && P.vel.y <= 0) { const g = new V3(P.pos.x, P.pos.y - 0.36, P.pos.z), cb = blocked(g, 0.36, PR); if (cb && cb.max.y <= P.pos.y + 0.01) { P.pos.y = cb.max.y; P.onGround = true; P.vel.y = 0; } else if (P.pos.y - 0.36 <= 0 && P.pos.y > 0) { P.pos.y = 0; P.onGround = true; P.vel.y = 0; } }
+  if (P.onGround && !wasGround && vy < -2) { const imp = clamp((-vy - 2) / 6, 0, 1); P.landK = 0.25 + imp * 0.5; P.landImp = imp; P.jumpCD = Math.max(P.jumpCD, 0.35); P.landKick = (P.landKick || 0) + 0.4 + imp; }
+  }
   if (P.pos.y < -20) respawnLocal(spawns[0]);
   P.speed = Math.hypot(P.vel.x, P.vel.z);
   if (P.prone > 0.5) P.pitch = clamp(P.pitch, -0.45, 0.6);
@@ -97,9 +145,11 @@ function updatePlayer(dt) {
   // the visible first-person body follows the same pose, set back from the eye; hidden when prone (the eye is down among it)
   fpBody.root.visible = !S.tp && P.prone < 0.3;
   if (fpBody.root.visible) {
-    fpBody.root.position.copy(P.pos).add(_fpo.set(Math.sin(P.yaw), 0, Math.cos(P.yaw)).multiplyScalar(0.2 + 0.2 * P.crouch));
+    fpBody.root.position.copy(P.pos).add(_fpo.set(Math.sin(P.yaw), 0, Math.cos(P.yaw)).multiplyScalar(0.29 + 0.2 * P.crouch));
     fpBody.root.rotation.y = P.yaw; Object.assign(fpBody.anim, a); fpBody.update(dt);
     for (const k of ['head', 'neck', 'shL', 'shR']) if (fpBody[k]) fpBody[k].visible = false;
+    // the third-person rifle stance twists the torso to the right; the body you look down at faces straight ahead
+    fpBody.spine.rotation.y = 0; fpBody.hips.rotation.y = 0; fpBody.spine.rotation.z *= 0.3; fpBody.root.updateMatrixWorld(true);
     { // nothing of the body above eye level is drawn (the neck and collar would be around the camera)
       fpClip.setFromNormalAndCoplanarPoint(_fpo.set(0, -1, 0), camera.position.clone().setY(camera.position.y - 0.06 - 0.08 * P.crouch)); }
   }
@@ -310,7 +360,7 @@ function updateWeapons(dt) {
 function tryFire() {
   const w = WEAPONS[P.weapon], G = P.guns[P.weapon], now = performance.now() / 1000;
   if (P.reloading && w.pellets && P.sgPhase === 'load' && P.semiReady) { P.sgStop = true; P.semiReady = false; }
-  if (P.reloading || P.inspecting || P.rack || G.held || P.switchT > 0 || P.sprintBlend > 0.3) return;
+  if (P.reloading || P.inspecting || P.rack || G.held || P.switchT > 0 || P.sprintBlend > 0.3 || P.mantle) return;
   if (!w.auto && !P.semiReady) return;
   if (now - P.lastShot < 60 / w.rpm) return;
   if (!G.chamber) { if (P.semiReady) { blip(1500, 0.02, 0.05); noiseHit(2200, 0.03, 0.04); P.semiReady = false; } return; }
@@ -446,7 +496,7 @@ function respawnLocal(sp) {
   if (S.mode === 'test') P.yaw = 0;
   if (P.rag) { P.rag.keep = false; P.rag.headG.visible = true; }
   P.anat = new Anatomy(); P.downed = false; localBody.setLost(0); P.stance = 0; P.prone = 0; P.slot = 0; P.weapon = P.loadout[0]; P.medUses = 3; P.healing = false; P.healT = 0; P.platesInv = 2; P.plating = false; P.plateTarget = null; P.invPlate = null; P.packGuns = []; P.loose = []; P.packPos = {}; P.supp = 0; P.downSent = false; P.lookX = P.lookY = 0; setHelmet(localBody, true);
-  P.alive = true; P.stamina = 100; P.staminaLock = false; P.crouch = 0; P.lean = 0; P.leanState = 0; P.adsOn = false;
+  P.alive = true; P.stamina = 100; P.staminaLock = false; P.mantle = null; P.mantleK = 0; P.jumpCD = 0; P.landK = 0; P.crouch = 0; P.lean = 0; P.leanState = 0; P.adsOn = false;
   P.activeLo = P.loadout.slice(); P.guns = freshGuns(P.activeLo); P.reloading = false; P.inspecting = false; P.rag = null; P.headDeath = false;
   $('black').style.transition = 'opacity .35s'; $('black').style.opacity = '0';
   $('deathmsg').style.display = 'none'; $('dmgv').style.opacity = '0';

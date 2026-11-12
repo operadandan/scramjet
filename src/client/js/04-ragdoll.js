@@ -233,7 +233,9 @@ class Ragdoll {
     _ru.subVectors(p[1], p[2]).normalize();
     _rs.subVectors(p[6], p[3]); _rs.addScaledVector(_ru, -_rs.dot(_ru)).normalize();
     _rf.crossVectors(_ru, _rs);
-    const push = (A, B, dir, k) => { p[B].addScaledVector(dir, k * 0.5); p[A].addScaledVector(dir, -k * 0.5); };
+    if (!(_ru.lengthSq() > 0.5) || !(_rs.lengthSq() > 0.5)) return;   // torso frame degenerate (a body folded flat): no limits this step
+    // each correction is capped: a limit only ever eases a joint back, a big snap would turn into speed and fling the body
+    const push = (A, B, dir, k) => { k = clamp(k, -0.012, 0.012); p[B].addScaledVector(dir, k * 0.5); p[A].addScaledVector(dir, -k * 0.5); };
     // knee: a hinge. The shin swings only behind the thigh, about the hips' side-to-side axis, and barely sideways
     const knee = (H, K, F) => {
       _rt.subVectors(p[K], p[H]).normalize(); _rd.subVectors(p[F], p[K]);
@@ -265,10 +267,11 @@ class Ragdoll {
     knee(9, 10, 11); knee(12, 13, 14); hip(9, 10, -1); hip(12, 13, 1); elbow(3, 4, 5); elbow(6, 7, 8); shoulder(3, 4, -1); shoulder(6, 7, 1);
     // neck: the head stays above the shoulders' side of the torso axis and tips at most about 70 degrees any way
     _rt.subVectors(p[0], p[1]); const hl = _rt.length(), hu = _rt.dot(_ru) / (hl || 1);
-    if (hu < 0.34 && !this.neckTorn) { const k = (0.34 - hu) * hl; p[0].addScaledVector(_ru, k * 0.6); p[1].addScaledVector(_ru, -k * 0.4); }
+    if (hu < 0.34 && !this.neckTorn) { const k = Math.min(0.012, (0.34 - hu) * hl); p[0].addScaledVector(_ru, k * 0.6); p[1].addScaledVector(_ru, -k * 0.4); }
   }
   step(h) {
-    const p = this.p, q = this.q, g = 9.8 * h * h, dmp = this.life < 1.2 ? 0.988 : 0.975, vmax = 0.1;
+    // speed cap: 12 m/s just after a hit (a shove from a round can be violent), otherwise 6 m/s, which a falling body never needs to beat
+    const p = this.p, q = this.q, g = 9.8 * h * h, dmp = this.life < 1.2 ? 0.988 : 0.975, vmax = this.life < 0.25 || this.life - (this.kT || -9) < 0.2 ? 0.1 : 0.05;
     let mv = 0;
     for (let i = 0; i < p.length; i++) {
       const pi = p[i], qi = q[i];
@@ -299,19 +302,23 @@ class Ragdoll {
     const p = this.p, q = this.q;
     for (let i = 0; i < p.length; i++) {
       const r = this.rad[i], P = p[i], Q = q[i];
-      if (P.y < r) { P.y = r; Q.y = Math.max(Q.y, r); const fk = this.fric || 0.45; Q.x = P.x - (P.x - Q.x) * fk; Q.z = P.z - (P.z - Q.z) * fk; }
+      if (P.y < r) { P.y = r; Q.y = r;   // landing kills the downward speed (the old max() kept it, and it piled up)
+        const fk = this.fric || 0.45; Q.x = P.x - (P.x - Q.x) * fk; Q.z = P.z - (P.z - Q.z) * fk; }
       for (const c of colliders) {
         if (P.x > c.min.x - r && P.x < c.max.x + r && P.y > c.min.y - r && P.y < c.max.y + r && P.z > c.min.z - r && P.z < c.max.z + r && !(c.mesh && gridOpenW(c.mesh, P))) {
           const d = [P.x - (c.min.x - r), (c.max.x + r) - P.x, P.y - (c.min.y - r), (c.max.y + r) - P.y, P.z - (c.min.z - r), (c.max.z + r) - P.z];
           let k = 0; for (let j = 1; j < 6; j++) if (d[j] < d[k]) k = j;
+          // pushed out along the shallowest side, and the speed along that side is zeroed: being pulled out of a wall or crate
+          // must not turn into speed (that was the fling when a body fell against or into something)
           if (k === 0) P.x = c.min.x - r; else if (k === 1) P.x = c.max.x + r;
           else if (k === 2) P.y = c.min.y - r; else if (k === 3) { P.y = c.max.y + r; Q.x = P.x - (P.x - Q.x) * 0.5; Q.z = P.z - (P.z - Q.z) * 0.5; }
           else if (k === 4) P.z = c.min.z - r; else P.z = c.max.z + r;
+          if (k < 2) Q.x = P.x; else if (k < 4) Q.y = P.y; else Q.z = P.z;   // and no speed is left into the surface
         }
       }
     }
   }
-  kick(dir, power, idx) { const h = 1 / 120; const i = idx === undefined ? 1 : idx; this.q[i].addScaledVector(dir, -power * h); this.q[2].addScaledVector(dir, -power * 0.3 * h); this.life = Math.min(this.life, 4); this.asleep = false; this.still = 0; }
+  kick(dir, power, idx) { const h = 1 / 120; const i = idx === undefined ? 1 : idx; this.q[i].addScaledVector(dir, -power * h); this.q[2].addScaledVector(dir, -power * 0.3 * h); this.life = Math.min(this.life, 4); this.kT = this.life; this.asleep = false; this.still = 0; }
   // ---------------------------------------------------------------- the body moving on its own
   // Writhing: someone down but awake rolls side to side, draws the knees up and holds the wound, weaker as the blood runs out.
   // Twitching: in the first seconds after a sudden death (brain, spine, a destroyed head) the limbs jerk at random.
@@ -322,7 +329,7 @@ class Ragdoll {
     const tw = this.twitch > 0 && this.life < this.twitch * 1.6 + 1 ? Math.exp(-this.life / Math.max(1, this.twitch * 1.1)) : 0;
     this.fric = writhe > 0.02 ? 0.82 : 0.45;   // a writhing body grips and slides less than a dead weight
     if (writhe <= 0.02 && tw <= 0.02) return false;
-    this.actT += dt; const p = this.p, q = this.q, h = 1 / 120, t = this.actT + this.actSeed, push = (i, v) => { if (p[i]) q[i].addScaledVector(v, -h * dt * 30); };   // a steady push: about 30 x v per second of speed gained
+    this.actT += dt; const p = this.p, q = this.q, h = 1 / 120, t = this.actT + this.actSeed, push = (i, v) => { if (p[i]) q[i].addScaledVector(v, -h * dt * 14); };   // a steady push: about 14 x v per second of speed gained
     if (writhe > 0) {
       const up = _a.subVectors(p[1], p[2]).normalize(), side = _b.subVectors(p[6], p[3]).normalize(), roll = Math.sin(t * 1.3) * Math.sin(t * 0.37 + 1);
       // rolling: shoulders and hips pushed the same way across the floor, the shoulder leading

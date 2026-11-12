@@ -217,7 +217,8 @@ function setupArms(W, D, pistol) {
   hide(W.rh); hide(W.L.h); W.L.fa.material = new THREE.MeshBasicMaterial({ visible: false }); W.L.fa.userData.armSkip = true;
   const gun = new GraspCloud().addTree(g, skip);
   // firing hand: frame of the hand-built grip hand
-  const h = W.rh.children[0]; h.updateMatrix(); const hq = h.quaternion, S = ARM_SET.grip;
+  // a pistol hand sits a little lower in the grip than on a rifle's pistol grip (the web of the hand under the slide's tang, not up against it)
+  const h = W.rh.children[0]; h.updateMatrix(); const hq = h.quaternion, S = pistol ? Object.assign({}, ARM_SET.grip, { mcp: [0.02, -0.017, -0.006], thumb: [-0.024, 0.033, -0.025] }) : ARM_SET.grip;
   const pnR = v3a(S.pn).applyQuaternion(hq), fR = v3a(S.fwd).applyQuaternion(hq), qR = R.orient(fR, pnR);
   const wR = settleHand(R, gun, qR, R.wristForMcp(qR, v3a(S.mcp).applyMatrix4(h.matrix)), pnR);
   R.setHand(qR, wR); R.elbowT.fromArray(D.elbowR); R.shoulderT.copy(R.elbowT).add(new V3(0.07, -0.12, 0.26));
@@ -265,7 +266,9 @@ const RACK = {
   m4: { kind: 'chg', pn: [0.15, -0.99, 0.0], fwd: [0.8, 0.0, -0.6], mcp: [-0.03, 0.058, 0.128], travel: 0.07, slap: [-0.0147, -0.023, 0.0085] },
   ak74: { kind: 'side', pn: [0.2, -0.98, 0.0], fwd: [0.98, 0.0, -0.2], mcp: [-0.012, 0.052, -0.045], travel: 0.085 },
   m107: { kind: 'side', pn: [0.2, -0.98, 0.0], fwd: [0.98, 0.0, -0.2], mcp: [0.02, 0.07, 0.0], travel: 0.09 },
-  g17: { kind: 'slide', pn: [0.15, -0.99, 0.0], fwd: [0.97, 0.0, 0.25], mcp: [-0.018, 0.042, 0.062], travel: 0.04, stop: [-0.0175, 0.003, 0.022] },
+  // overhand on the slide: palm across the top, heel of the hand and thumb down the left serrations, knuckles over the
+  // right top edge so the fingers fold down onto the right serrations and pinch
+  g17: { kind: 'slide', pn: [0.55, -0.83, 0.05], fwd: [0.8, 0.55, -0.22], mcp: [0.014, 0.034, 0.068], thumb: [-0.017, 0.004, 0.072], travel: 0.04, stop: [-0.0175, 0.003, 0.022] },
   m9: { kind: 'slide', pn: [0.15, -0.99, 0.0], fwd: [0.97, 0.0, 0.25], mcp: [-0.018, 0.044, 0.07], travel: 0.04, stop: [-0.017, 0.006, 0.035] }
 };
 // a left-hand target pose (W.poses entry) that puts the rigged hand at q / wrist
@@ -276,7 +279,7 @@ function poseForRig(W, q, wrist) {
 function rackPoses(W, D, L, gun, skip) {
   const R = RACK[W.id]; if (!R) return; W.rack = R;
   const q = L.orient(v3a(R.fwd), v3a(R.pn)), w = settleHand(L, gun, q, L.wristForMcp(q, v3a(R.mcp)), v3a(R.pn).normalize());
-  L.setHand(q, w); const c = graspSolve(L, gun, { thumb: { fixed: [0, 0, 0] } }); c.thumb = thumbTo(L, gun, v3a(R.mcp).add(new V3(0.0, -0.035, 0.02)));
+  L.setHand(q, w); const c = graspSolve(L, gun, { thumb: { fixed: [0, 0, 0] } }); c.thumb = thumbTo(L, gun, R.thumb ? v3a(R.thumb) : v3a(R.mcp).add(new V3(0.0, -0.035, 0.02)));
   W.poses.HC = Object.assign(poseForRig(W, q, w), { c });
   W.poses.HCb = Object.assign(poseForRig(W, q, w.clone().add(new V3(0, 0, R.travel))), { c });
   if (R.slap) {

@@ -44,7 +44,22 @@ function updateCamera(dt) {
   const tt = performance.now() / 1000;
   const rlB = P.reloading ? Math.sin(P.reloadT / P.reloadDur * Math.PI) : 0;
   const br = P.bobRot || { p: 0, r: 0, y: 0 };
-  camera.rotation.set(P.pitch + P.recoilPitch - rlB * 0.03 + Math.sin(tt * 3.1) * shake + br.p, P.yaw + Math.sin(tt * 2.3) * shake + br.y, -P.leanEff * 0.22 + br.r);
+  // turning: the head rolls a touch into the turn, more for a fast flick, a little more still when the flick is also vertical
+  { const ddt = Math.max(dt, 1 / 240), vx = (P.mdx || 0) / ddt, vy = (P.mdy || 0) / ddt; P.mdx = 0; P.mdy = 0;
+    const tgt = clamp(-vx * 0.000022 * (1 + Math.min(1, Math.abs(vy) / 1500) * 0.5), -0.045, 0.045) * (1 - P.ads * 0.6);
+    P.mRoll = damp(P.mRoll || 0, tgt, 10, dt); }
+  // jumping and landing move the head: it tips down as the legs drive off, lifts a little going up, sinks and nods down on
+  // landing (harder from higher), then springs back. A spring (jp: angle, jv: rate) so it overshoots and settles naturally
+  { if (P.jumpKick) { P.jv = (P.jv || 0) - 0.55; P.jumpKick = 0; }
+    if (P.landKick) { P.jv = (P.jv || 0) - 0.9 * P.landKick; P.ldv = (P.ldv || 0) - 0.55 * P.landKick; P.landKick = 0; }
+    const air = P.onGround ? 0 : clamp(P.vel.y * 0.006, -0.03, 0.03), h2 = Math.min(dt, 0.05);
+    P.jv = (P.jv || 0) + (-120 * ((P.jp || 0) - air) - 13 * (P.jv || 0)) * h2; P.jp = (P.jp || 0) + P.jv * h2;
+    P.ldv = (P.ldv || 0) + (-140 * (P.ld || 0) - 14 * (P.ldv || 0)) * h2; P.ld = (P.ld || 0) + P.ldv * h2;
+    if (P.stepDip) { P.ld -= Math.min(P.stepDip, 0.36) * 0.5; P.stepDip = 0; }
+    camera.position.y += clamp(P.ld, -0.25, 0.1); }
+  // climbing over something: the head pitches down at the edge and comes up as the body goes over
+  const mk = P.mantleK || 0;
+  camera.rotation.set(P.pitch + P.recoilPitch - rlB * 0.03 + Math.sin(tt * 3.1) * shake + br.p + clamp(P.jp || 0, -0.2, 0.08) - mk * 0.22, P.yaw + Math.sin(tt * 2.3) * shake + br.y, -P.leanEff * 0.22 + br.r + P.mRoll + mk * 0.06);
   const w = WEAPONS[P.weapon];
   const zW = VMW[P.weapon], mag = zW && zW.lens; camera.fov = lerp(75, mag ? (w.scope ? 52 : 60) : w.fovAds, P.ads) + P.sprintBlend * 4; camera.updateProjectionMatrix();
 }
@@ -101,6 +116,7 @@ function updateViewmodel(dt) {
       else { ip.x -= 0.04 * k; ip.y += 0.15 * k; ip.z -= 0.16 * k; ir.x += 0.3 * k; ir.y += 0.12 * k; ir.z += 0.35 * k; } // butt off the shoulder, muzzle up, gun canted in front of the chest so the handle is in reach and in view
     }
   }
+  { const mk2 = P.mantleK || 0; if (mk2 > 0.001) { ip.x -= 0.05 * mk2; ip.y -= 0.16 * mk2; ip.z += 0.04 * mk2; ir.x -= 0.35 * mk2; ir.z += 0.6 * mk2; } }   // gun swung down out of the way while climbing
   // at the hip a long gun rides with the muzzle tipped up toward the middle of the view; a pistol sits low with the wrists relaxed,
   // the muzzle a touch down and canted in. Either way the hands are never still: breathing and a slow drift
   const hipK = pis ? 0 : 1 - a, pk = pis ? 1 - a : 0, tb = performance.now() / 1000, still = (1 - a * 0.75) * (1 - s);
@@ -262,6 +278,7 @@ addEventListener('mousemove', e => {
   if (!P.alive || P.downed) { P.lookX = clamp(P.lookX - e.movementX * 0.0012, -0.55, 0.55); P.lookY = clamp(P.lookY - e.movementY * 0.0012, -0.4, 0.4); return; }
   const zl = P.slot < 2 && VMW[P.weapon] && VMW[P.weapon].lens; const sens = 0.0022 * (camera.fov / 75) * lerp(1, 0.85, P.ads) * (zl ? lerp(1, 1.5 / zl.userData.zoom, P.ads) : 1);
   P.yaw -= e.movementX * sens; P.pitch = clamp(P.pitch - e.movementY * sens, -1.5, 1.5);
+  P.mdx = (P.mdx || 0) + e.movementX; P.mdy = (P.mdy || 0) + e.movementY;
   P.swayX = clamp(P.swayX - e.movementX * 0.00003, -0.02, 0.02); P.swayY = clamp(P.swayY + e.movementY * 0.00003, -0.02, 0.02);
   P.aimOX = clamp(P.aimOX + e.movementX * 0.0012, -0.08, 0.08); P.aimOY = clamp(P.aimOY + e.movementY * 0.0012, -0.06, 0.06);
 });
