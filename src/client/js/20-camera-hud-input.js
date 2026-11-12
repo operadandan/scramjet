@@ -104,6 +104,9 @@ function updateViewmodel(dt) {
   const L = W.L;
   let seq = null, st = 0;
   if (P.reloading) { seq = P.rlSeq || (P.reloadEmpty ? SEQ.empty : SEQ.tac); st = r; } else if (P.inspecting) { seq = SEQ.inspect; st = ik; }
+  const G0 = P.guns[P.weapon];
+  if (!seq && P.rack && W.rack) { seq = P.rack.seq; st = Math.min(1, P.rack.t); }
+  else if (!seq && G0 && G0.held && W.poses.HCb) { seq = HOLD_SEQ; st = 0; }
   if (seq) poseAt(W, seq, st, L.h.position, L.h.quaternion);
   else { L.h.position.copy(W.poses.H0.p); L.h.quaternion.copy(W.poses.H0.q); if (W.curlL && W.poses.H0.c) lerpCurls(W.poses.H0.c, W.poses.H0.c, 0, W.curlL); }
   { const vfg = !!W.vfgHand && W.vfgOn && !seq && !P.anat.lost.armL; if (W.vfgHand) W.vfgHand.visible = vfg; if (vfg) L.h.visible = L.fa.visible = false; }
@@ -134,14 +137,14 @@ function updateViewmodel(dt) {
   L.fa.quaternion.setFromUnitVectors(_Y, _fd.multiplyScalar(1 / fl));
   L.fa.scale.set(1, fl, 1);
   updateArms(W);
-  if (W.chg) W.chg.position.z = (P.reloading && P.reloadEmpty) ? 0.0 : 0;
+  const rk = W.rack ? rackK(G0) : 0;
+  if (W.chg) W.chg.position.z = W.rack && W.rack.kind === 'chg' ? rk * W.rack.travel : 0;
   if (W.slide) W.slide.position.z = P.slideBack;
   W.boltK = Math.max(0, W.boltK - dt / 0.075);
   if (W.bolt) {
     const G = P.guns[P.weapon], rr = P.reloading ? P.reloadT / P.reloadDur : 0;
-    const locked = W.id !== 'ak74' && !w.pellets && G && G.mag === 0 && !G.chamber && !(P.reloading && P.reloadEmpty && rr > 0.86);
-    const pull = W.id === 'ak74' && P.reloading && P.reloadEmpty && rr > 0.78 && rr < 0.885 ? ramp(rr, 0.78, 0.82) : 0;
-    let k = Math.max(locked ? 1 : 0, pull, Math.sin(Math.min(1, W.boltK) * Math.PI));
+    const locked = !w.pellets && G && G.lockBack && !(P.rack && P.rack.done);
+    let k = Math.max(locked ? 1 : 0, rk, Math.sin(Math.min(1, W.boltK) * Math.PI));
     // pump gun: the forend, action bars and bolt ride back together, and the support hand goes with them
     if (w.pellets) { k = W.pumpK; if (W.boltIn) W.boltIn.scale.z = 1 - 0.85 * k; }
     if (W.boltMode === 'scale') W.bolt.scale.z = 1 - 0.82 * k; else W.bolt.position.z = W.boltTravel * k;
@@ -197,7 +200,8 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyR') startReload();
   if (e.code === 'KeyM') startInspect();
   if (e.code === 'AltLeft' && !e.repeat) { e.preventDefault(); S.tp = !S.tp; blip(500, 0.03, 0.03); }
-  if (e.code === 'KeyF') pickUp();
+  // F works the action when the gun needs it (or when there is nothing to pick up), otherwise picks things up
+  if (e.code === 'KeyF' && !e.repeat) { if (rackNeeded() || (!S.pick && canRack())) workAction(); else pickUp(); }
   if (e.code === 'KeyB') dropHeld();
   if (S.mode === 'test' && e.code === 'KeyN') suppress(0.8, 900);
   if (e.code === 'KeyT') { P.deviceOn = !P.deviceOn; noiseHit(3000, 0.02, 0.04); }

@@ -217,6 +217,45 @@ function setupArms(W, D, pistol) {
   for (const k in W.poses) W.poses[k].c = k === 'H0' || k === 'HV' ? curlRest : k === 'HB' || k === 'HBp' ? curlOpen : curlMag;
   L.setCurls(curlRest); L.elbowT.copy(W.elbow); L.shoulderT.copy(L.elbowT).add(new V3(-0.07, -0.12, 0.26)); L.apply();
   W.armR = R; W.armL = L; W.curlL = lerpCurls(curlRest, curlRest, 0);
+  rackPoses(W, D, L, gun, skip);
+  L.setHand(qL, wL); L.setCurls(curlRest); L.apply();
+}
+// ---------------------------------------------------------------- hand poses for working the action (F)
+// where each gun's action is worked, in the gun's frame: the hand's palm normal and finger direction, where its middle knuckle
+// goes, and how far the part travels. 'chg': AR charging handle at the back of the receiver; 'side': a handle on the right of
+// the bolt carrier; 'slide': a pistol slide gripped over the top at the rear serrations.
+const RACK = {
+  m4: { kind: 'chg', pn: [0.15, -0.99, 0.0], fwd: [0.8, 0.0, -0.6], mcp: [-0.03, 0.058, 0.128], travel: 0.07, slap: [-0.0147, -0.023, 0.0085] },
+  ak74: { kind: 'side', pn: [0.2, -0.98, 0.0], fwd: [0.98, 0.0, -0.2], mcp: [-0.012, 0.052, -0.045], travel: 0.085 },
+  m107: { kind: 'side', pn: [0.2, -0.98, 0.0], fwd: [0.98, 0.0, -0.2], mcp: [0.02, 0.07, 0.0], travel: 0.09 },
+  g17: { kind: 'slide', pn: [0.15, -0.99, 0.0], fwd: [0.97, 0.0, 0.25], mcp: [-0.018, 0.042, 0.062], travel: 0.04, stop: [-0.0175, 0.003, 0.022] },
+  m9: { kind: 'slide', pn: [0.15, -0.99, 0.0], fwd: [0.97, 0.0, 0.25], mcp: [-0.018, 0.044, 0.07], travel: 0.04, stop: [-0.017, 0.006, 0.035] }
+};
+// a left-hand target pose (W.poses entry) that puts the rigged hand at q / wrist
+function poseForRig(W, q, wrist) {
+  const hq = q.clone().multiply(W.armOffL.q.clone().invert()), hp = wrist.clone().sub(W.armOffL.p.clone().applyQuaternion(hq));
+  return { p: hp, q: hq };
+}
+function rackPoses(W, D, L, gun, skip) {
+  const R = RACK[W.id]; if (!R) return; W.rack = R;
+  const q = L.orient(v3a(R.fwd), v3a(R.pn)), w = settleHand(L, gun, q, L.wristForMcp(q, v3a(R.mcp)), v3a(R.pn).normalize());
+  L.setHand(q, w); const c = graspSolve(L, gun, { thumb: { fixed: [0, 0, 0] } }); c.thumb = thumbTo(L, gun, v3a(R.mcp).add(new V3(0.0, -0.035, 0.02)));
+  W.poses.HC = Object.assign(poseForRig(W, q, w), { c });
+  W.poses.HCb = Object.assign(poseForRig(W, q, w.clone().add(new V3(0, 0, R.travel))), { c });
+  if (R.slap) {
+    // flat palm onto the bolt catch, fingers forward along the receiver
+    const sq = L.orient(new V3(0, 0.35, -0.94), new V3(1, 0, 0)), sw = L.wristForPalm(sq, v3a(R.slap).add(new V3(-0.009, -0.022, 0.012)));
+    const open = {}; for (const f of FINGERS) open[f] = f === 'thumb' ? [0.15, 0.1, 0.1, 0.3] : [0.05, 0.1, 0.08, 0];
+    W.poses.HS = Object.assign(poseForRig(W, sq, sw.clone().add(new V3(-0.05, 0.01, 0.01))), { c: open });
+    W.poses.HSp = Object.assign(poseForRig(W, sq, sw), { c: open });
+  }
+  if (R.stop) {
+    // pistol: the support thumb rides up onto the slide stop and pushes it down; the rest of the hand stays on the grip
+    const H0 = W.poses.H0; L.setHand(H0.q.clone().multiply(W.armOffL.q), W.armOffL.p.clone().applyQuaternion(H0.q).add(H0.p));
+    const cl = new GraspCloud().addTree(W.g, skip), up = Object.assign({}, H0.c), dn = Object.assign({}, H0.c);
+    up.thumb = thumbTo(L, cl, v3a(R.stop).add(new V3(-0.004, 0.006, 0))); dn.thumb = thumbTo(L, new GraspCloud(), v3a(R.stop).add(new V3(0, -0.004, 0)));
+    W.poses.HT = { p: H0.p.clone(), q: H0.q.clone(), c: up }; W.poses.HTp = { p: H0.p.clone(), q: H0.q.clone(), c: dn };
+  }
 }
 // per frame: the support arm follows its target, fingers blend between the poses' grips
 // support hand on a vertical foregrip: the firing hand's grip, mirrored
@@ -260,13 +299,15 @@ const SG_SEQ = {
 };
 // every reload is put together fresh: it may fumble the magazine well, may tug the magazine to check it, and the hand never takes quite the same path
 function makeReloadSeq(empty, stress) {
-  // an empty reload stows the empty magazine like a tactical one, then hits the bolt release
-  const base = empty ? { keys: SEQ.tac.keys.filter(k => k[0] <= 0.73).concat([[0.8, 'HB'], [0.845, 'HBp'], [0.885, 'HB'], [1, 'H0']]), held: SEQ.tac.held, hidden: [], fum: SEQ.tac.fum, seat: SEQ.tac.seat } : SEQ.tac, fumble = Math.random() < 0.22 + 0.6 * stress, tug = !empty && Math.random() < 0.5, warp = rnd(-0.02, 0.02);
+  // an empty reload is the same as a tactical one: the bolt stays where it is until the shooter works it (F)
+  const base = SEQ.tac, fumble = Math.random() < 0.22 + 0.6 * stress, tug = !empty && Math.random() < 0.5, warp = rnd(-0.02, 0.02);
   let keys = base.keys.map(k => [k[0] + (k[1] === 'HP' ? warp : 0), fumble || k[1] !== 'H1miss' ? k[1] : 'H1d', /^(H0|H1|H1up|HB|HBp)$/.test(k[1]) ? null : new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(0.005 + 0.012 * stress)]);
   if (!tug && !empty) keys = keys.filter(k => k[0] !== 0.79 && k[0] !== 0.83);
   return { keys, held: base.held, hidden: base.hidden, fum: fumble ? base.fum : 9, seat: base.seat, fumble };
 }
 const _po = new V3();
+// holding the charging handle / slide back
+const HOLD_SEQ = { keys: [[0, 'HCb'], [1, 'HCb']], held: [], hidden: [] };
 function inRanges(rs, t) { for (const [a, b] of rs) if (t >= a && t < b) return true; return false; }
 function poseAt(W, seq, t, outP, outQ) {
   const k = seq.keys;

@@ -109,7 +109,7 @@ P.hum = localBody;
 function flashMsg(html, ms) { const m = $('magcheck'); m.innerHTML = html; m.style.opacity = '1'; clearTimeout(flashMsg.t); flashMsg.t = setTimeout(() => { m.style.opacity = '0'; }, ms || 1600); }
 function startReload() {
   const w = WEAPONS[P.weapon], G = P.guns[P.weapon];
-  if (!P.alive || P.slot >= 2 || P.reloading || P.switchT > 0 || P.sprinting) return;
+  if (!P.alive || P.slot >= 2 || P.reloading || P.rack || P.switchT > 0 || P.sprinting) return;
   if (G.mag >= w.cap && G.chamber) return;
   if (w.pellets) return startShellLoad(w, G);
   if (S.mode === 'test' && !G.pouch.some(n => n > 0)) G.pouch = G.pouch.concat(Array(w.spare).fill(w.cap));
@@ -119,7 +119,66 @@ function startReload() {
   P.reloadEmpty = !G.chamber;
   const stress = clamp(P.anat.pain * 0.8 + (P.supp || 0) * 0.8 + (P.stamina < 35 ? 0.2 : 0), 0, 1);
   P.rlSeq = makeReloadSeq(P.reloadEmpty, stress);
-  P.reloadDur = (P.reloadEmpty ? w.empty : w.tac) * 1.3 * rnd(0.86, 1.16) * (1 + P.anat.pain * 0.35 + (P.supp || 0) * 0.45) * (P.rlSeq.fumble ? 1.1 : 0.95) * (P.anat.handBroken('L') || P.anat.handBroken('R') ? 1.6 : 1) * (P.anat.anyArm() ? 1.3 : 1);
+  P.reloadDur = w.tac * 1.3 * rnd(0.86, 1.16) * (1 + P.anat.pain * 0.35 + (P.supp || 0) * 0.45) * (P.rlSeq.fumble ? 1.1 : 0.95) * (P.anat.handBroken('L') || P.anat.handBroken('R') ? 1.6 : 1) * (P.anat.anyArm() ? 1.3 : 1);
+}
+// ---------------------------------------------------------------- working the action by hand (F)
+// Nothing chambers by itself after an empty reload. Locked back (AR, pistols, Barrett): F hits the bolt catch / drops the slide
+// stop (the Barrett: a tug on the handle). Bolt forward on an empty chamber, or to clear one: F pulls the charging handle or
+// slide back and holds it, F again lets it go and it strips a round off the magazine.
+const HOLD_OPEN = { m4: 1, g17: 1, m9: 1, m107: 1 };
+const RK = (keys, extra) => Object.assign({ seq: { keys, held: [], hidden: [] } }, extra);
+function canRack() { const w = WEAPONS[P.weapon], V = VMW[P.weapon]; return P.alive && !P.downed && P.slot < 2 && !w.pellets && V && V.rack && !P.reloading && !P.inspecting && !P.rack && P.switchT <= 0; }
+function rackNeeded() { const G = P.guns[P.weapon]; return canRack() && G && (G.held || (!G.chamber && G.mag > 0)); }
+function workAction() {
+  const V = VMW[P.weapon], G = P.guns[P.weapon], R = V.rack;
+  P.adsOn = false;
+  if (G.held) P.rack = RK([[0, 'HCb'], [0.22, 'HCb'], [1, 'H0']], { type: 'fwd', dur: 0.5, ev: 0.14 });
+  else if (G.lockBack && R.slap) P.rack = RK([[0, 'H0'], [0.42, 'HS'], [0.56, 'HSp'], [0.68, 'HS'], [1, 'H0']], { type: 'slap', dur: 0.62, ev: 0.56 });
+  else if (G.lockBack && R.stop) P.rack = RK([[0, 'H0'], [0.42, 'HT'], [0.58, 'HTp'], [0.72, 'HT'], [1, 'H0']], { type: 'stop', dur: 0.55, ev: 0.58 });
+  else if (G.lockBack) P.rack = RK([[0, 'H0'], [0.4, 'HC'], [0.55, 'HCb'], [0.62, 'HCb'], [1, 'H0']], { type: 'tug', dur: 0.7, ev: 0.6 });
+  else P.rack = RK([[0, 'H0'], [0.48, 'HC'], [0.6, 'HC'], [1, 'HCb']], { type: 'back', dur: 0.6, ev: 0.85 });
+  P.rack.t = 0; P.rack.done = false;
+  blip(420, 0.02, 0.03);
+}
+function boltHome(G) {
+  G.held = false; G.lockBack = false;
+  if (!G.chamber && G.mag > 0) { G.mag--; G.chamber = 1; }
+  noiseHit(1700, 0.09, 0.1); blip(950, 0.04, 0.08); P.kick += 0.25;
+}
+function updateRack(w, G, V, dt) {
+  const R = P.rack; if (!R) return;
+  R.t += dt / R.dur;
+  if (!R.done && R.t >= R.ev) {
+    R.done = true;
+    if (R.type === 'back') {
+      // the bolt comes back past the ejector: a round in the chamber flies out
+      if (G.chamber) { G.chamber = 0; vmCamera.updateMatrixWorld(true); const q = V.g.getWorldQuaternion(new THREE.Quaternion()); ejectShell(V.port.getWorldPosition(new V3()), new V3(1, 0, 0).applyQuaternion(q), new V3(0, 1, 0).applyQuaternion(q), new V3(0, 0, -1).applyQuaternion(q), P.vel, w.shell); }
+      noiseHit(1300, 0.06, 0.06); blip(600, 0.03, 0.04);
+    } else boltHome(G);
+  }
+  if (R.t >= 1) { if (R.type === 'back') G.held = true; P.rack = null; }
+}
+// how far back the bolt / slide / charging handle is being held by the hand (0..1)
+function rackK(G) {
+  const R = P.rack;
+  if (!R) return G && G.held ? 1 : 0;
+  const t = R.t;
+  if (R.type === 'back') return ramp(t, 0.6, 1);
+  if (R.type === 'fwd') return t < R.ev ? 1 : Math.max(0, 1 - (t - R.ev) * R.dur / 0.035);
+  if (R.type === 'tug') return t < R.ev ? Math.max(G.lockBack ? 1 : 0, ramp(t, 0.4, 0.55)) : Math.max(0, 1 - (t - R.ev) * R.dur / 0.035);
+  return t < R.ev ? 1 : Math.max(0, 1 - (t - R.ev) * R.dur / 0.035);
+}
+function rackHint() {
+  const el = $('rackhint'); if (!el) return;
+  const w = WEAPONS[P.weapon], G = P.guns[P.weapon], V = VMW[P.weapon];
+  let txt = '';
+  if (P.alive && !P.downed && P.slot < 2 && G && V && V.rack && !w.pellets && !P.reloading && !P.rack) {
+    const R = V.rack, part = R.kind === 'slide' ? 'SLIDE' : R.kind === 'chg' ? 'CHARGING HANDLE' : 'BOLT HANDLE';
+    if (G.held) txt = 'PRESS <b>F</b> TO LET THE ' + part + ' GO';
+    else if (G.lockBack && G.mag > 0) txt = 'PRESS <b>F</b> TO ' + (R.slap ? 'HIT THE BOLT CATCH' : R.stop ? 'DROP THE SLIDE STOP' : 'RACK THE BOLT');
+    else if (!G.chamber && G.mag > 0) txt = 'CHAMBER EMPTY: PRESS <b>F</b> TO RACK THE ' + part + '<small>F pulls it back, F again lets it go</small>';
+  }
+  if (el.dataset.t !== txt) { el.dataset.t = txt; el.innerHTML = txt; el.style.opacity = txt ? '1' : '0'; }
 }
 // ---------------------------------------------------------------- shotgun: shells go into the tube one at a time, the pump chambers one
 // Loading can be cut short by pulling the trigger: the shell in hand still goes in, then the hand goes back to the pump.
@@ -175,7 +234,7 @@ function finishReload() {
   const nm = G.pouch.splice(best, 1)[0];
   G.pouch.push(G.mag);   // the old magazine goes back in the pouch, even when it is empty
   G.mag = nm;
-  if (!G.chamber && G.mag > 0) { G.mag--; G.chamber = 1; }
+  // the new magazine is in; chambering a round is the shooter's job (F)
   P.reloading = false;
 }
 function startInspect() {
@@ -191,11 +250,12 @@ function switchWeapon(i) {
   if (i === P.slot || !P.alive) return;
   if (i < 2 && P.activeLo[i] == null) { flashMsg('NO WEAPON IN THAT SLOT', 900); return; }
   P.slot = i; if (i < 2) P.weapon = P.activeLo[i];
-  P.reloading = false; P.inspecting = false; P.healing = false; P.healT = 0; P.plating = false; P.plateT = 0; P.adsOn = false; P.switchT = 0.35; blip(320, 0.05, 0.05);
+  P.rack = null; P.reloading = false; P.inspecting = false; P.healing = false; P.healT = 0; P.plating = false; P.plateT = 0; P.adsOn = false; P.switchT = 0.35; blip(320, 0.05, 0.05);
 }
 function updateWeapons(dt) {
   const w = WEAPONS[P.weapon], G = P.guns[P.weapon], V = VMW[P.weapon];
   if (P.switchT > 0) P.switchT = Math.max(0, P.switchT - dt);
+  rackHint();
   if (P.downed || !P.alive || (!G && P.slot < 2)) { P.ads = 0; muzzleLight.intensity = 0; vmMuzzleLight.intensity = 0; return; }
   if (P.slot >= 2) {
     if (P.switchT <= 0) { if (P.slot === 2) updateMedkit(dt); else if (P.slot === 3) updatePlate(dt); }
@@ -213,7 +273,6 @@ function updateWeapons(dt) {
     const sq = P.rlSeq;
     if (!P.reloadFum && r > sq.fum) { P.reloadFum = true; noiseHit(1900, 0.03, 0.05); blip(520, 0.02, 0.03); P.rlJ = (P.rlJ || 0) - 0.5; }
     if (P.reloadStage === 1 && r > sq.seat) { P.reloadStage = 2; blip(700, 0.05, 0.08); noiseHit(900, 0.07, 0.09); P.rlJ = (P.rlJ || 0) + 1.2; }
-    if (P.reloadStage === 2 && P.reloadEmpty && r > 0.86) { P.reloadStage = 3; blip(1200, 0.03, 0.07); noiseHit(1600, 0.08, 0.08); P.kick += 0.3; }
     if (P.reloadT >= P.reloadDur) finishReload();
   }
   if (P.inspecting) {
@@ -235,8 +294,9 @@ function updateWeapons(dt) {
     if (P.pumpStage === 1 && ts > 0.36) { P.pumpStage = 2; pumpSound(1); }
   }
   P.kick = damp(P.kick, 0, 14, dt); P.recoilPitch = damp(P.recoilPitch, 0, 9, dt);
-  const locked = !!V.slide && G.mag === 0 && !G.chamber && !(P.reloading && P.reloadEmpty && P.reloadT / P.reloadDur > 0.86);
-  P.slideBack = locked ? 0.03 : damp(P.slideBack, 0, 28, dt);
+  updateRack(w, G, V, dt);
+  const rk = rackK(G), back = V.rack ? Math.max(G.lockBack ? 0.03 : 0, rk * V.rack.travel) : 0;
+  P.slideBack = back > 0 ? back : damp(P.slideBack, 0, 28, dt);
   P.flashT -= dt;
   const flashOn = P.flashT > 0;
   VMW.forEach(v => { v.flash.visible = flashOn && v === V && !v.supp; if (flashOn) v.flash.rotation.z = Math.random() * 3; });
@@ -245,12 +305,14 @@ function updateWeapons(dt) {
 function tryFire() {
   const w = WEAPONS[P.weapon], G = P.guns[P.weapon], now = performance.now() / 1000;
   if (P.reloading && w.pellets && P.sgPhase === 'load' && P.semiReady) { P.sgStop = true; P.semiReady = false; }
-  if (P.reloading || P.inspecting || P.switchT > 0 || P.sprintBlend > 0.3) return;
+  if (P.reloading || P.inspecting || P.rack || G.held || P.switchT > 0 || P.sprintBlend > 0.3) return;
   if (!w.auto && !P.semiReady) return;
   if (now - P.lastShot < 60 / w.rpm) return;
   if (!G.chamber) { if (P.semiReady) { blip(1500, 0.02, 0.05); noiseHit(2200, 0.03, 0.04); P.semiReady = false; } return; }
   P.lastShot = now; P.semiReady = false;
   G.chamber = 0; if (G.mag > 0) { G.mag--; G.chamber = 1; }
+  // last round gone: guns with a hold-open device lock the bolt / slide back on the empty magazine
+  if (!G.chamber && HOLD_OPEN[w.id]) G.lockBack = true;
   P.shots = (P.shots || 0) + 1;
   fire(w);
 }

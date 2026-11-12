@@ -185,8 +185,8 @@ function applyAttachments(wi) {
     W.ret = o.ret; W.sightH = o.sightY; W.zoom = o.zoom || 1; W.lens = o.lens || W.scopeLens || null;
     W.ads.set(0, -o.sightY, A.optic === 'irons' ? (id === 'ak74' ? -0.34 : -0.25) : A.optic === 'acog' ? -0.27 : (M.adsZ || -0.25));
     if (W.sideMountG) W.sideMountG.visible = A.optic !== 'irons';
-    // the flip-up rear sight folds flat under an optic (the model only has it up, so it is hidden)
-    if (W.imported) W.g.traverse(o => { if (o.userData.part === 'RearBackupIronSightUp') o.visible = A.optic === 'irons'; });
+    // with an optic on, the iron sights come off (front sight and flip-up rear)
+    if (W.imported) W.g.traverse(o => { if (o.userData.part === 'RearBackupIronSightUp' || o.userData.part === 'ForwardIronSight') o.visible = A.optic === 'irons'; });
     for (const k in W.parts.optic) if (W.parts.optic[k].ret) W.parts.optic[k].ret.material.opacity = 0;
   }
   // the support hand goes where the grip is: around a vertical grip, back on the ramp of an angled one
