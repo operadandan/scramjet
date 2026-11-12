@@ -11,7 +11,8 @@ const WEAPONS = [
   // round balls shed speed fast (about 945 fps left at 50 yd). Pattern opens about 2.5 cm per metre. Spares are 8-shell carriers, loaded one shell at a time.
   { id: 'm870', name: 'M870', kind: 'shotgun', auto: false, rpm: 105, cap: 6, spare: 4, carrier: 8, tac: 0.62, empty: 0.62, inspect: 1.8, recoil: 0.075, fovAds: 58, shell: '12g', vel: 404, mass: 0.00349, drag: 0.0074, disp: 0.0005, pellets: 9, spread: 0.0125, zero: 25, tracerEvery: 0, snd: 4, gap: 450 }
 ];
-const PRIMARIES = [0, 3, 2, 5], SECONDARIES = [1, 4], MEDKIT_W = 9;
+// only the M4 and G17 are finished; the AK-74M, M107, M870 and M9 stay in the code but can't be picked yet
+const PRIMARIES = [0], SECONDARIES = [1], MEDKIT_W = 9;
 const isPistol = w => WEAPONS[w] && WEAPONS[w].kind === 'pistol';
 const isShotgun = w => WEAPONS[w] && WEAPONS[w].kind === 'shotgun';
 const roundsPer = w => WEAPONS[w].carrier || WEAPONS[w].cap;

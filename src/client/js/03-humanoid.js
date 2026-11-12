@@ -24,6 +24,35 @@ function buildTPMedkit(M) {
   return { g, mag: new THREE.Object3D(), grip: mark(g, 0.085, -0.01, 0.0), fore: mark(g, -0.085, -0.01, 0.0), well: mark(g, 0, -0.05, 0) };
 }
 const RPIV_WORLD = new V3(0.15, 0.53, -0.05);
+// wounded behaviour shared by AI and players. A hit makes the free (left) hand go to the wound and press on it for a few
+// seconds; parts it can't reach (its own arm, the back, below the knee) are left alone
+const CLUTCH_OK = { head: 1, neck: 1, spine: 1, hips: 1, shR: 1, elR: 1, lgL: 1, lgR: 1 };
+// while a wound is still bleeding hard the hand keeps going back to it
+function reClutch(a, an, dt) { if (a.woundF && !(a.clutchT > 0) && an.bleedRate() > 25 && Math.random() < dt * 0.3) { a.clutchF = a.woundF; a.clutchP = a.woundP; a.clutchT = rnd(1.8, 3.5); } }
+function hurtClutch(a, frame, e, secs) {
+  if (!CLUTCH_OK[frame] || !e) return;
+  if ((frame === 'spine' || frame === 'hips') && e.z > 0.05) return;
+  a.clutchF = frame; a.clutchP = [e.x * 1.12, e.y, e.z * 1.12 - 0.012]; a.clutchT = Math.max(a.clutchT || 0, secs || rnd(2.2, 3.8));
+  a.woundF = a.clutchF; a.woundP = a.clutchP;
+}
+// how hurt a body looks: pain and blood loss
+function hurtLevel(an) { return an.dead ? 0 : clamp(Math.max(((an.painLvl || 0) - 25) / 60, (4700 - an.blood) / 1900), 0, 1); }
+// standing still and badly hurt, a body puts a hand on a wall within reach. Checked a few times a second, sideways from the chest
+const _brR = new THREE.Raycaster();
+function updateBrace(hum, dt) {
+  const a = hum.anim; hum._brT = (hum._brT || 0) - dt; if (hum._brT > 0) return; hum._brT = 0.5;
+  if ((a.hurt || 0) < 0.35 || a.speed > 0.5 || a.prone > 0.3 || !hum.root.visible) { a.braceP = null; return; }
+  hum.root.updateMatrixWorld(true); const o = hum.spine.localToWorld(new V3(0, 0.3, 0)), q = hum.root.getWorldQuaternion(new THREE.Quaternion());
+  let best = null;
+  for (const sd of [-1, 1, -0.6, 0.6]) {
+    const d = new V3(sd, 0, -0.35 * Math.abs(sd)).normalize().applyQuaternion(q); _brR.set(o, d); _brR.far = 0.85;
+    const h = _brR.intersectObjects(worldMeshes, false)[0]; if (h && (!best || h.distance < best.distance)) best = Object.assign(h, { sd });
+  }
+  if (!best) { a.braceP = null; return; }
+  const n = best.face ? best.face.normal.clone().transformDirection(best.object.matrixWorld) : new V3();
+  a.braceP = best.point.clone().addScaledVector(n, 0.03).toArray(); a.braceSide = best.sd < 0 ? -1 : 1;
+}
+const _cv = new V3(), _bv = new V3();
 class Humanoid {
   constructor(pal, shadowOnly) {
     this.pal = Object.assign({}, HUM_DEFAULT, pal || {});
@@ -96,8 +125,9 @@ class Humanoid {
   }
   // a round lands: dl is the bullet's direction in the body's own frame, k how hard (about 1 for a rifle round)
   flinch(frame, dl, k) {
-    const F = this.fl || (this.fl = { x: { sx: 0, sy: 0, sz: 0, nx: 0, ny: 0, nz: 0, dip: 0, hz: 0, kl: 0, kr: 0 }, v: { sx: 0, sy: 0, sz: 0, nx: 0, ny: 0, nz: 0, dip: 0, hz: 0, kl: 0, kr: 0 } });
+    const F = this.fl || (this.fl = { x: { sx: 0, sy: 0, sz: 0, nx: 0, ny: 0, nz: 0, dip: 0, hz: 0, kl: 0, kr: 0, px: 0, pz: 0 }, v: { sx: 0, sy: 0, sz: 0, nx: 0, ny: 0, nz: 0, dip: 0, hz: 0, kl: 0, kr: 0, px: 0, pz: 0 } });
     const V = F.v, r = () => rnd(0.7, 1.3) * k;
+    V.px += dl.x * 2.5 * k; V.pz += dl.z * 2.5 * k;   // the body is shoved back a step by the hit
     if (frame === 'head' || frame === 'neck') { V.nx += -dl.z * 9 * r(); V.nz += -dl.x * 9 * r(); V.ny += rnd(-4, 4) * k; V.sx += -dl.z * 2 * r(); }
     else if (frame === 'spine') { V.sx += -dl.z * 5 * r(); V.sz += -dl.x * 5 * r(); V.sy += rnd(-5, 5) * k; V.nx += -dl.z * 3 * r(); V.dip += 1.5 * k; }
     else if (frame === 'hips') { V.dip += 4 * r(); V.hz += -dl.x * 3 * r(); V.sx += 3 * r(); V.kl += 2 * k; V.kr += 2 * k; }
@@ -143,6 +173,15 @@ class Humanoid {
       this.hips.position.y -= Math.max(0, x.dip) * 0.12; this.hips.rotation.z += x.hz;
       this.knL.rotation.x -= Math.max(0, x.kl); this.knR.rotation.x -= Math.max(0, x.kr); this.lgL.rotation.x += Math.max(0, x.kl) * 0.5; this.lgR.rotation.x += Math.max(0, x.kr) * 0.5;
     }
+    // badly hurt: hunched over, head down, breathing hard, and leaning onto a wall it is bracing against
+    const hu = a.hurt || 0;
+    if (hu > 0.01 && pr < 0.3) {
+      const br = Math.sin(performance.now() / 1000 * (3 + 3 * hu)) * 0.025 * hu;
+      this.spine.rotation.x += 0.26 * hu + br; this.neck.rotation.x += 0.18 * hu - br * 0.5; this.hips.position.y -= 0.035 * hu;
+      this.spine.rotation.z += Math.sin(performance.now() / 1700) * 0.04 * hu;
+    }
+    if ((a.braceW || 0) > 0.01 && a.braceSide) this.spine.rotation.z += a.braceSide * 0.12 * a.braceW;
+    if (this.fl) { this.hips.position.x += this.fl.x.px * 0.1; this.hips.position.z += this.fl.x.pz * 0.1; }
     const P = a.pitch - sx + pr * Math.PI / 2;
     const r = a.reload;
     this.rPiv.position.copy(RPIV_WORLD).applyAxisAngle(_YAX, -stance);
@@ -170,6 +209,11 @@ class Humanoid {
       const keys = [[0, tL], [0.16, well], [0.26, well], [0.45, pouch], [0.62, well], [0.78, well], [0.92, tL], [1, tL]];
       for (let i = 0; i < keys.length - 1; i++) if (r <= keys[i + 1][0]) { tL = keys[i][1].clone().lerp(keys[i + 1][1], smooth((r - keys[i][0]) / (keys[i + 1][0] - keys[i][0]))); break; }
     }
+    // hurt: the free hand presses the wound, or steadies the body against a wall
+    a.clutchW = damp(a.clutchW || 0, (a.clutchT || 0) > 0 && a.clutchF && !a.downedPose ? 1 : 0, 6, dt || 0.016); if (a.clutchT > 0) a.clutchT -= dt || 0.016;
+    a.braceW = damp(a.braceW || 0, a.braceP && !(a.clutchT > 0) ? 1 : 0, 4, dt || 0.016);
+    if (a.braceW > 0.01 && a.braceP) tL = tL.clone().lerp(_bv.fromArray(a.braceP), a.braceW);
+    if (a.clutchW > 0.01 && a.clutchF && this.frames[a.clutchF]) tL = tL.clone().lerp(this.frames[a.clutchF].localToWorld(_cv.fromArray(a.clutchP)), a.clutchW);
     // a broken or severed arm can't hold the gun: it hangs and swings
     const hang = (sh, el, side) => { sh.rotation.set(0.08 + sw * amp * 0.2, 0, side * (0.06 + 0.04 * Math.abs(sw))); el.rotation.set(0.15, 0, 0); };
     if ((ah & 2) || (ls & 12)) hang(this.shR, this.elR, 1); else solveArm(this.shR, this.elR, tR, poleR, 0.3, 0.3);

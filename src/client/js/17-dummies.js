@@ -84,7 +84,7 @@ class Remote {
     a.speed = damp(a.speed, m.v, 10, dt); a.crouch = damp(a.crouch, m.c, 12, dt);
     a.lean = damp(a.lean, m.l, 12, dt); a.pitch = damp(a.pitch, m.pi, 14, dt);
     a.sprint = damp(a.sprint, m.sp ? 1 : 0, 8, dt); a.air = damp(a.air, m.g ? 0 : 1, 10, dt);
-    a.ads = m.a; a.weapon = WEAPONS[m.w] || m.w === MEDKIT_W ? m.w : m.w === PLATE_W || m.w === 7 ? MEDKIT_W : 0; a.unarmed = m.w === 7; a.reload = m.r; a.prone = damp(a.prone, m.pr || 0, 5, dt); a.limp = m.lm || 0;
+    a.ads = m.a; a.weapon = WEAPONS[m.w] || m.w === MEDKIT_W ? m.w : m.w === PLATE_W || m.w === 7 ? MEDKIT_W : 0; a.unarmed = m.w === 7; a.reload = m.r; a.prone = damp(a.prone, m.pr || 0, 5, dt); a.limp = m.lm || 0; a.hurt = damp(a.hurt || 0, clamp(Number(m.hu) || 0, 0, 1), 3, dt); a.downedPose = !!m.dn; if (Array.isArray(m.cl) && CLUTCH_OK[m.cl[0]] === 1 && m.cl.length === 4 && m.cl.slice(1).every(v => Number.isFinite(v) && Math.abs(v) < 1)) { a.clutchF = m.cl[0]; a.clutchP = m.cl.slice(1); a.clutchT = 0.35; } updateBrace(this.hum, dt);
     for (let i = 0; i < this.hum.tp.length; i++) if (this.hum.tp[i].sup) this.hum.tp[i].sup.visible = i === a.weapon && !!m.su;
     a.bb = m.bb || 0; a.ah = m.ah || 0; a.ls = m.ls || 0; syncLost(this.hum, a.ls, new V3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).negate(), m.lc);
     this.hum.update(dt);
@@ -154,6 +154,7 @@ class Dummy {
     a.bb = this.anat.brokenMask(); a.ah = this.anat.armHangMask(); a.ls = this.anat.lostMask();
     if (downed) { a.prone = 1; a.limp = 1; }
     else if (this.anat.legBroken('L') || this.anat.legBroken('R')) { a.limp = 1; a.speed *= 0.5; }
+    a.hurt = damp(a.hurt || 0, hurtLevel(this.anat), 2, dt); a.downedPose = downed; reClutch(a, this.anat, dt); updateBrace(this.hum, dt);
     if (this.anim !== 'patrol' || downed) root.rotation.y = Math.PI;
     if (this.anim !== 'lean') a.lean = 0;
     this.hum.update(dt);
@@ -163,6 +164,7 @@ class Dummy {
     if (this.dead) return { killed: false };
     this.anat.lastDir.copy(wdir); this.anat.lastDist = dist;
     const res = this.anat.hit(info.frame, info.e, info.d, v, w, info.armor, info.pd);
+    if (!res.stopped) hurtClutch(this.hum.anim, info.frame, info.e);
     if (res.blast && res.blast.big && !this.rag && !this.anat.dead) this.blastFall(wdir);
     else if (this.react !== undefined && this.stagT > 0.15 && !this.rag && this.react.kind !== 'neck') { this.react = undefined; this.stag = undefined; this.reactDone = true; this.forceDown = true; this.goLimp(); }
     else if (res.region === 'neck' && !res.stopped && !this.rag && !this.anat.dead && !this.anat.paralyzed && (this.react === undefined || this.react.kind !== 'neck')) { this.forceDown = true; this.startReaction('neck'); }

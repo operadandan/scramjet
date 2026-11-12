@@ -92,6 +92,7 @@ function updatePlayer(dt) {
   localBody.root.visible = true;
   localBody.root.position.copy(P.pos); localBody.root.rotation.y = P.yaw;
   Object.assign(a, { speed: P.speed, crouch: P.crouch, prone: P.prone, limp: downed ? 1 : oneLeg ? 0.5 : 0, lean: P.leanEff, pitch: P.pitch, sprint: P.sprintBlend, ads: P.ads, air: P.onGround ? 0 : 1, weapon: P.slot >= 2 ? MEDKIT_W : P.weapon, unarmed: P.slot === 4, bb: an.brokenMask(), ah: an.armHangMask(), ls: an.lostMask(), lc: an.cutArr(), reload: P.reloading ? Math.max(0.001, P.reloadT / P.reloadDur) : 0 });
+  a.hurt = damp(a.hurt || 0, hurtLevel(an), 2, dt); a.downedPose = downed; reClutch(a, an, dt); updateBrace(localBody, dt);
   localBody.update(dt);
   // the visible first-person body follows the same pose, set back from the eye; hidden when prone (the eye is down among it)
   fpBody.root.visible = !S.tp && P.prone < 0.3;
@@ -436,6 +437,7 @@ function testSelfHit() {
   const info = hitToFrame(localBody, m, pt.clone().addScaledVector(dir, -0.12), dir);
   P.anat.lastDir.copy(dir); P.anat.lastBy = 0;
   const res = P.anat.hit(info.frame, info.e, info.d, rnd(600, 900), 0, info.armor);
+  if (!res.stopped) hurtClutch(localBody.anim, info.frame, info.e);
   flashMsg('TEST HIT: ' + REGION_NAME[res.region || 'chest'] + (res.stopped ? ' (armor stopped it)' : '') + '<small>' + ((res.structures || []).join(', ') || 'flesh only') + '</small>', 2000);
   onSelfHurt(res);
 }

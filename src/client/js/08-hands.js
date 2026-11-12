@@ -157,7 +157,12 @@ const ARM_SET = {
   // bottom right edge, fingers up the right side, thumb along the left
   fore: { pn: [0.2, 0.98, 0.0], fwd: [0.9, -0.1, -0.42], mcp: [0.012, -0.052, 0.0], thumb: [-0.04, 0.005, -0.05] },
   // support hand on a pistol: palm on the firing hand's fingers from the left, fingers wrapping over them
-  pist: { pn: [1, 0.12, 0.05], fwd: [0.12, -0.55, -0.83], mcp: [-0.012, -0.022, -0.036], thumb: [-0.022, 0.03, -0.07] }
+  // thumbs-forward support grip, in the gun's own frame. The heel of the support palm fills the bare left grip panel under the
+  // firing thumb; the wrist is canted down and the fingers wrap the front of the firing
+  // hand's fingers, the index tight under the trigger guard (the knuckles run forward, the fingers fold down round the front); the support thumb lies along the frame under the slide, pointing
+  // at the target. The forearm continues the hand with the wrist bent toward the little finger (ulnar deviation, dev radians),
+  // and the elbow sits where that forearm meets an upper arm hanging from the left shoulder.
+  pist: { g: 1, pn: [0.95, 0.28, 0.0], fwd: [0.16, -0.22, -0.96], mcp: [-0.036, -0.06, 0.026], thumb: [-0.019, -0.013, -0.028], shoulder: [-0.15, -0.34, 0.6], dev: 0.42 }
 };
 function palmVerts(rig) {
   if (rig._pv) return rig._pv;
@@ -182,6 +187,27 @@ function postedVerts(rig, step) {
   rig.apply(); rig.root.updateMatrixWorld(true); const out = [], v = new V3(), n = rig.mesh.geometry.attributes.position.count;
   for (let i = 0; i < n; i += step || 1) out.push(rig.mesh.getVertexPosition(i, v).clone());
   return out;
+}
+// where the elbow goes, given the wrist W, the hand's finger direction f and palm normal n, and the shoulder S.
+// The elbow lies on the circle where the sphere of forearm length around the wrist meets the sphere of upper-arm length round
+// the shoulder. Of all points on that circle, take the one whose forearm direction is closest to the hand's own axis bent by the
+// wrist's natural deviation (rotating -f about the palm normal by dev, the way that brings the forearm down), with a slight
+// preference for the elbow hanging down rather than winging out.
+function solveElbow(W, f, n, S, dev, Lf, Lu) {
+  Lf = Lf || 0.254; Lu = Lu || 0.3;
+  const back = f.clone().negate(), q = new THREE.Quaternion();
+  const cand = [dev || 0, -(dev || 0)].map(a => back.clone().applyQuaternion(q.setFromAxisAngle(n, a)));
+  const nat = cand[0].y < cand[1].y ? cand[0] : cand[1];   // the one that brings the forearm down under the gun
+  const d = S.clone().sub(W), D = Math.min(d.length(), Lf + Lu - 1e-4), u = d.clone().normalize();
+  const a = (Lf * Lf - Lu * Lu + D * D) / (2 * D), h = Math.sqrt(Math.max(0, Lf * Lf - a * a));   // circle centre distance from W, radius
+  const C = W.clone().addScaledVector(u, a), e1 = new V3(0, 1, 0).cross(u); if (e1.lengthSq() < 1e-6) e1.set(1, 0, 0); e1.normalize(); const e2 = u.clone().cross(e1);
+  let best = null, bs = Infinity;
+  for (let i = 0; i < 180; i++) {
+    const t = i / 180 * Math.PI * 2, E = C.clone().addScaledVector(e1, Math.cos(t) * h).addScaledVector(e2, Math.sin(t) * h);
+    const fd = E.clone().sub(W).normalize(), cost = Math.acos(clamp(fd.dot(nat), -1, 1)) + 0.25 * Math.max(0, E.y - W.y) / Lf;
+    if (cost < bs) { bs = cost; best = E; }
+  }
+  return best;
 }
 function setupArms(W, D, pistol) {
   if (!ARM_DATA) return;
@@ -211,19 +237,22 @@ function setupArms(W, D, pistol) {
   R.setCurls(W.curlR); R.apply();
   // support hand, rigid on the left-hand target: solved at rest on the gun, and again holding the magazine
   const H0 = W.poses.H0, SL = pistol ? ARM_SET.pist : ARM_SET.fore;
-  const pnL = v3a(SL.pn).normalize().applyQuaternion(H0.q), fL = v3a(SL.fwd).normalize().applyQuaternion(H0.q), qL = L.orient(fL, pnL);
+  // pistol support hand is specified straight in the gun's frame (G), the rifle one in the left-hand target's frame
+  const toG = (v, pt) => SL.g ? v3a(v) : pt ? v3a(v).applyQuaternion(H0.q).add(H0.p) : v3a(v).applyQuaternion(H0.q);
+  const pnL = toG(SL.pn).normalize(), fL = toG(SL.fwd).normalize(), qL = L.orient(fL, pnL);
   const cloudL = pistol ? new GraspCloud().addTree(g, skip).addPoints(postedVerts(R, 1)) : gun;
-  const wL = settleHand(L, cloudL, qL, L.wristForMcp(qL, v3a(SL.mcp).applyQuaternion(H0.q).add(H0.p)), pnL);
+  const wL = settleHand(L, cloudL, qL, L.wristForMcp(qL, toG(SL.mcp, true)), pnL);
+  if (SL.shoulder) W.elbow.copy(solveElbow(wL, fL, pnL, v3a(SL.shoulder), SL.dev));
   L.setHand(qL, wL);
   const iq = H0.q.clone().invert();
   W.armOffL = { q: iq.clone().multiply(qL), p: wL.clone().sub(H0.p).applyQuaternion(iq) };
-  const curlRest = graspSolve(L, cloudL, { thumb: { fixed: [0, 0, 0] } }); curlRest.thumb = thumbTo(L, cloudL, v3a(SL.thumb).applyQuaternion(H0.q).add(H0.p));
+  const curlRest = graspSolve(L, cloudL, { thumb: { fixed: [0, 0, 0] } }); curlRest.thumb = thumbTo(L, cloudL, toG(SL.thumb, true));
   const H1 = W.poses.H1; L.setHand(H1.q.clone().multiply(W.armOffL.q), W.armOffL.p.clone().applyQuaternion(H1.q).add(H1.p));
   const mp = new V3(0, -0.03, 0); W.mag.localToWorld(mp); g.worldToLocal(mp);
   const curlMag = graspSolve(L, gun, { thumb: { fixed: [0, 0, 0] } }); curlMag.thumb = thumbTo(L, gun, mp.clone().add(new V3(-0.02, 0, 0)));
   const curlOpen = {}; for (const f of FINGERS) curlOpen[f] = f === 'thumb' ? [0.1, 0, 0, 0.2] : [0.25, 0.35, 0.25];
   for (const k in W.poses) W.poses[k].c = k === 'H0' || k === 'HV' ? curlRest : k === 'HB' || k === 'HBp' ? curlOpen : curlMag;
-  L.setCurls(curlRest); L.elbowT.copy(W.elbow); L.shoulderT.copy(L.elbowT).add(new V3(-0.07, -0.12, 0.26)); L.apply();
+  L.setCurls(curlRest); L.elbowT.copy(W.elbow); if (SL.shoulder) L.shoulderT.fromArray(SL.shoulder); else L.shoulderT.copy(L.elbowT).add(new V3(-0.07, -0.12, 0.26)); L.apply();
   W.armR = R; W.armL = L; W.curlL = lerpCurls(curlRest, curlRest, 0);
   rackPoses(W, D, L, gun, skip);
   L.setHand(qL, wL); L.setCurls(curlRest); L.apply();

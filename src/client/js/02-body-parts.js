@@ -146,6 +146,8 @@ class Body {
   constructor(pal, M, onHit) { this.c = pal; this.M = M; this.onHit = onHit; }
   add(geo, col, parent, x, y, z, frame, s, r, armor) {
     const m = new THREE.Mesh(geo, col && col.isMaterial ? (this.M(0) === shadowMat ? shadowMat : col) : this.M(col));
+    // first-person body: the chest rig is drawn smaller and pulled in against the torso, so looking down it doesn't fill the view
+    if (this.rk) { const k = this.rk.k; x *= k; z *= k * 0.9; y = this.rk.y0 + (y - this.rk.y0) * 0.94; s = s ? [s[0] * k, s[1] * k, s[2] * k] : [k, k, k]; }
     m.position.set(x, y, z); if (s) m.scale.set(s[0], s[1], s[2]); if (r) m.rotation.set(r[0], r[1], r[2]);
     m.castShadow = true; m.receiveShadow = true; parent.add(m);
     if (armor) m.userData.armor = armor;
@@ -206,6 +208,7 @@ class Body {
     const c = this.c; f = f && 'spine';
     this.guts('chest', p, y);
     this.add(latheG('torso', TORSO_PTS), c.shirt, p, 0, y, 0, f, [1, 1, 0.6]);
+    if (c.noRig) this.rk = { k: 0.84, y0: y + 0.3 };
     // plate carrier: the front plate bag is the only armour; soft back panel, cummerbund, shoulder straps
     this.add(GC('plate', plateGeo), c.vest, p, 0, y + 0.19, -0.15, f, null, [0.05, 0, 0], 'plateF');
     this.add(rbox(0.29, 0.31, 0.03, 0.014), c.vest, p, 0, y + 0.345, 0.122, f, null, [-0.04, 0, 0]);
@@ -237,6 +240,7 @@ class Body {
     for (const sx of [-1, 1]) { this.add(rbox(0.012, 0.3, 0.02, 0.003), c.dark, p, sx * 0.137, y + 0.3, 0.2); this.add(rbox(0.02, 0.012, 0.14, 0.003), c.dark, p, sx * 0.13, y + 0.2, 0.21); this.add(rbox(0.02, 0.012, 0.14, 0.003), c.dark, p, sx * 0.13, y + 0.4, 0.21); }
     this.add(rbox(0.06, 0.016, 0.02, 0.005), c.dark, p, 0, y + 0.52, 0.17);
     for (let i = 0; i < 3; i++) this.add(rbox(0.19, 0.012, 0.006, 0.002), c.dark, p, 0, y + 0.19 + i * 0.05, 0.311);
+    this.rk = null;
   }
   head(p, cy, f) {
     const c = this.c; f = f && 'head';
