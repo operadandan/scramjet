@@ -19,10 +19,17 @@ const keys = {}, mouse = { left: false };
 const localBody = new Humanoid({}, true); scene.add(localBody.root);
 // what you see of yourself when you look down: chest rig, belt and legs. The viewmodel draws the arms, so the body's own arms,
 // head, neck and slung weapons are hidden, and it sits a little behind the eye so the camera never ends up inside it.
-const fpBody = new Humanoid({});
+const fpBody = new Humanoid({ noRig: true });
 for (const k of ['head', 'neck', 'shL', 'shR']) if (fpBody[k]) fpBody[k].visible = false;
 if (fpBody.rPiv) fpBody.rPiv.visible = false; if (fpBody.pPiv) fpBody.pPiv.visible = false;
 fpBody.root.traverse(o => { if (o.isMesh) { o.castShadow = false; o.userData.fp = true; } }); fpBody.root.visible = false; scene.add(fpBody.root);
+// the player's eyes sit about 20 cm above the shoulders and over the front of the chest: the humanoid's neck is short, so for
+// the first-person body the torso is set lower into the hips (the camera goes where the eyes would be)
+fpBody.spine.position.y -= 0.1;
+// and everything above and behind a plane through the eyes is cut away (shoulders, straps, the upper back): the cut is seen
+// edge-on from the eye, so it never shows; what stays is what you see looking down, the front of the rig, the belt and the legs
+const fpClip = new THREE.Plane(); renderer.localClippingEnabled = true;
+fpBody.root.traverse(o => { if (!o.isMesh || !o.material) return; const cl = m => { m = m.clone(); m.clippingPlanes = [fpClip]; return m; }; o.material = Array.isArray(o.material) ? o.material.map(cl) : cl(o.material); });
 const PALS = [
   { shirt: 0x6b6650, pants: 0x5a5644, vest: 0x7a6e52, vest2: 0x6e6349, helmet: 0x6a6250 },
   { shirt: 0x3e4636, pants: 0x3a4032, vest: 0x4b5440, vest2: 0x434b39, helmet: 0x454c3c },

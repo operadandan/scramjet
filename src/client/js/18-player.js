@@ -96,9 +96,10 @@ function updatePlayer(dt) {
   // the visible first-person body follows the same pose, set back from the eye; hidden when prone (the eye is down among it)
   fpBody.root.visible = !S.tp && P.prone < 0.3;
   if (fpBody.root.visible) {
-    fpBody.root.position.copy(P.pos).add(_fpo.set(Math.sin(P.yaw), 0, Math.cos(P.yaw)).multiplyScalar(0.17 + 0.06 * P.crouch));
+    fpBody.root.position.copy(P.pos).add(_fpo.set(Math.sin(P.yaw), 0, Math.cos(P.yaw)).multiplyScalar(0.12 + 0.06 * P.crouch));
     fpBody.root.rotation.y = P.yaw; Object.assign(fpBody.anim, a); fpBody.update(dt);
     for (const k of ['head', 'neck', 'shL', 'shR']) if (fpBody[k]) fpBody[k].visible = false;
+    { const f = _fpo.set(-Math.sin(P.yaw), 0, -Math.cos(P.yaw)).multiplyScalar(4); f.y = -1; f.normalize(); fpClip.setFromNormalAndCoplanarPoint(f, camera.position); }
   }
   bleedDrips(P, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1));
 }
