@@ -141,16 +141,18 @@ function updateBullets(dt) {
 // ---------------------------------------------------------------- bodies wear away like walls: holes from blasts and .50s that land
 // near an earlier one widen it instead of making a new one, and once a hole is as wide as the limb the limb parts right there
 const LIMB_R = { shL: 0.05, shR: 0.05, elL: 0.04, elR: 0.04, lgL: 0.075, lgR: 0.075, knL: 0.055, knR: 0.055 };
-function erode(key, seg, frame, cl, r, info, dir) {
+function erode(key, seg, frame, cl, r, info, dir, depth) {
   if (!key || !frame) return;
   const E = key.erosion = key.erosion || [];
   let h = E.find(x => x.seg === seg && x.p.distanceTo(cl) < x.r + r + 0.02);
   if (h) { const a = h.r * h.r, b = r * r; h.p.lerp(cl, b / (a + b)); h.r = Math.min(0.16, Math.sqrt(a + b) * 1.05); h.n++; }
-  else E.push(h = { seg, frame, p: cl.clone(), r, n: 1 });
+  else E.push(h = { seg, frame, p: cl.clone(), r, n: 1, dep: 0 });
+  // how far in it has chewed: a shallow blast strips the surface, a limb only comes off once the damage reaches through it
+  h.dep = (h.dep || 0) + (depth || 0.3);
   // a wider channel where it grew
-  if (h.n > 1) { const dL = dir.clone().applyQuaternion(seg.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize(); holeInGroup(seg, h.p.clone().addScaledVector(dL, -0.06), dL, 0.32, h.r, h.r * 1.3, null); spawnGore(seg.localToWorld(h.p.clone()), dir, 'flesh', 2 + h.n, 2.5, 0.4, 0.012); }
+  if (h.n > 1) { const dL = dir.clone().applyQuaternion(seg.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize(); holeInGroup(seg, h.p.clone().addScaledVector(dL, depth ? -0.03 : -0.06), dL, depth || 0.32, h.r, depth ? h.r * 0.45 : h.r * 1.3, null); spawnGore(seg.localToWorld(h.p.clone()), dir, 'flesh', 2 + h.n, 2.5, 0.4, 0.012); }
   const lr = LIMB_R[frame];
-  if (lr && h.r >= lr * 0.75 && !h.cut) {
+  if (lr && h.r >= lr * 0.75 && h.dep >= lr * 1.8 && !h.cut) {
     h.cut = true;
     const region = regionOf(frame, info.e), lim = LIMB_OF[region]; if (!lim) return;
     const t = /hand|foot/.test(region) ? 0.93 : clamp(-info.e.y / (LSEG[frame] || 0.3), 0.1, 0.9);
@@ -170,11 +172,12 @@ function blastVisual(shot, hit, dir, info, key, hum) {
   if (sp > 0.16) return;
   g.lastN = g.n;
   const seg = g.seg, cl = seg.worldToLocal(c.clone()), dL = dir.clone().applyQuaternion(seg.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
-  const r0 = clamp(0.022 + sp * 0.55, 0.025, 0.075), st = cl.clone().addScaledVector(dL, -0.05);
-  holeInGroup(seg, st, dL, 0.3, r0, r0 * 1.6, [0.05, 0]);
-  erode(key, seg, g.frame, cl, r0, info, dir);
+  // buckshot scoops out a wide, shallow crater: the surface is torn away over a big area but it does not go far in
+  const r0 = clamp(0.03 + sp * 0.75, 0.035, 0.095), st = cl.clone().addScaledVector(dL, -0.03);
+  holeInGroup(seg, st, dL, 0.085, r0, r0 * 0.45, [0.03, 0]);
+  erode(key, seg, g.frame, cl, r0 * 0.85, info, dir, 0.085);
   if (!hit.object.userData.armor) addWound(hum, g.frame, seg, cl, dL.clone().negate(), 'blast', r0 * 7.5);
-  if (hum && g.frame) { hum.holes = hum.holes || []; hum.holes.push({ frame: g.frame, p: st, d: dL.clone(), len: 0.3, r0, r1: r0 * 1.6, sk: [0.05, 0] }); if (hum.holes.length > 10) hum.holes.shift(); }
+  if (hum && g.frame) { hum.holes = hum.holes || []; hum.holes.push({ frame: g.frame, p: st, d: dL.clone(), len: 0.085, r0, r1: r0 * 0.45, sk: [0.03, 0] }); if (hum.holes.length > 14) hum.holes.shift(); }
   const f = g.frame, part = f === 'head' || f === 'neck' ? 'headwound' : f === 'spine' ? (info.e.y > 0.22 ? 'chest' : 'abdomen') : f === 'hips' ? 'pelvis' : 'limb';
   const k = clamp((g.n - 2) / 5, 0.3, 1) * (sp < 0.06 ? 1 : 0.6);
   if (part === 'headwound') { spawnGore(c, dir, 'flesh', 3, 2.5, 0.5, 0.014); spawnGore(c, dir, 'bone', 2, 3, 0.5, 0.01); spawnGore(c, dir, 'skull', 2, 3, 0.5, 0.025, hum && hum.pal && hum.pal.skin); }
@@ -205,7 +208,8 @@ function onBulletHit(b, hit, dir, dist) {
     // neck: rounds and pellets tear it a little at a time until the head hangs on strands, then part the strands
     const nearStrands = rag.fibers && rag.fibers.some(f => rag.torso.localToWorld(f.a.clone()).lerp(rag.headG.localToWorld(f.b.clone()), 0.5).distanceTo(hit.point) < 0.07);
     if ((info.frame === 'neck' || nearStrands) && rag.headG.visible && !stopped) {
-      if (!rag.neckTorn) { rag.neckHits = (rag.neckHits || 0) + (b.w === 2 ? 6 : b.shot ? 1.4 : 1); if (rag.neckHits >= 5.5) rag.tearNeck(dir); }
+      const dmy = (rag.owner || {}).dummy || (rag.owner || {}).nd, base = dmy ? dmy.neckHits || 0 : 0;
+      if (!rag.neckTorn) { rag.neckHits = Math.max(rag.neckHits || 0, base) + (b.w === 2 ? 6 : b.shot ? 1.4 : 1); if (dmy) dmy.neckHits = rag.neckHits; if (rag.neckHits >= 4) rag.tearNeck(dir); }
       else rag.cutFibers(hit.point, b.w === 2 ? 99 : b.shot ? 2 : 1);
       if (b.w === 2) cont = null;
     }
@@ -247,9 +251,11 @@ function onBulletHit(b, hit, dir, dist) {
     if (!b.local) return cont;
     if (ud.hum.remote) net.send({ t: 'hit', id: ud.hum.remote.id, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
     else if (ud.hum.dummy) {
-      const d0 = ud.hum.dummy; d0.shot(info, v, b.w, dir, dist);
-      // a .50 or a close blast through the neck that kills: the head is left hanging
-      if (info.frame === 'neck' && (b.w === 2 || b.shot) && d0.rag && !d0.rag.neckTorn && d0.rag.headG.visible) d0.rag.tearNeck(dir);
+      const d0 = ud.hum.dummy;
+      // rounds into the neck add up: four rifle rounds (one .50, a couple of close blasts) tear it through and the head is left hanging
+      if (info.frame === 'neck' && !stopped) { d0.neckHits = (d0.neckHits || 0) + (b.w === 2 ? 6 : b.shot ? 1.4 : 1); if (d0.neckHits >= 4) { d0.anat.neckTear = true; if (!d0.anat.dead) d0.anat.kill('spinal'); } }
+      d0.shot(info, v, b.w, dir, dist);
+      if (d0.anat.neckTear && d0.rag && !d0.rag.neckTorn && d0.rag.headG.visible) d0.rag.tearNeck(dir);
     }
     return cont;
   }

@@ -108,7 +108,7 @@ class Dummy {
     if (this.dead) {
       // the heart has stopped: wounds keep draining by gravity for a while, slowing down, and the pool under the body keeps spreading
       this.deadT = (this.deadT || 0) + dt;
-      this.respawnT -= dt; if (this.respawnT <= 0) { this.deadT = 0; this.dead = false; this.unarmed = false; this.credited = false; this.stag = undefined; this.react = undefined; this.reactDone = false; this.forceDown = false; this.anat = new Anatomy(); this.rag = null; clearWounds(this.hum); this.hum.setLost(0); this.hum.root.visible = true; setHelmet(this.hum, true); } return; }
+      this.respawnT -= dt; if (this.respawnT <= 0) { this.deadT = 0; this.neckHits = 0; this.dead = false; this.unarmed = false; this.credited = false; this.stag = undefined; this.react = undefined; this.reactDone = false; this.forceDown = false; this.anat = new Anatomy(); this.rag = null; clearWounds(this.hum); this.hum.setLost(0); this.hum.root.visible = true; setHelmet(this.hum, true); } return; }
     this.anat.update(dt);
     if (this.anat.dead) { this.die(); return; }
     const down = this.anat.isDowned() || this.anat.bothLegs() || this.forceDown || this.react !== undefined;
@@ -322,13 +322,13 @@ class Dummy {
     const pm = Math.min(160, Math.max(an.bleedRate() * 0.8, 12 + 7 * an.wounds.length) + (headW ? 28 : 0));
     // a sudden death to the brain or spine sets the limbs jerking for a few seconds
     const tw = /brain|spinal/.test(an.cause) || an.gibHead ? rnd(2, 5) : Math.random() < 0.3 ? rnd(1, 2.5) : 0;
-    if (this.rag) { this.rag.keep = false; this.rag.owner = { anat: an }; this.rag.bleedR = Math.max(this.rag.bleedR, pm); this.rag.twitch = tw; this.rag.asleep = false; }
+    if (this.rag) { this.rag.keep = false; this.rag.owner = { anat: an, nd: this }; this.rag.bleedR = Math.max(this.rag.bleedR, pm); this.rag.twitch = tw; this.rag.asleep = false; }
     else {
       // killed on its feet: by a blast it goes over backwards (or along its stride), otherwise it drops where it stands
       const mv = this.moveVel(), d = an.lastDir.clone().setY(0).normalize(), blast = an.lastW !== undefined && isShotgun(an.lastW);
       const vTop = blast ? (mv.length() > 1 ? mv.clone().multiplyScalar(1.2).addScaledVector(d, 0.6) : d.clone().multiplyScalar(rnd(1.6, 2.4))) : null;
       this.rag = spawnRagdoll(this.hum, mv.length() > 1 ? mv.multiplyScalar(0.6) : this.vel, an.lastDir, PART_OF_REGION(an.lastRegion), an.cause === 'brain', { bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(), gib: an.gibHead || (an.cause === 'brain' && an.lastW === 2), tear: an.neckTear || (an.lastRegion === 'neck' && an.lastW === 2), vTop, bleed: pm, twitch: tw });
-      this.rag.owner = { anat: an };
+      this.rag.owner = { anat: an, nd: this };
     }
     this.hum.root.visible = false;
   }

@@ -199,11 +199,11 @@ class Anatomy {
       else if (z.n >= 3 && spread < 0.11 && !this.dead) this.kill(z.frame === 'neck' ? 'spinal' : 'brain');
     } else if (limb) {
       const bones = (STRUCTS_BY_FRAME[z.frame] || []).filter(st => st.type === 'bone' || st.type === 'artery');
-      for (const st of bones) if (pathDist(c, c.clone().addScaledVector(d, 0.2), st)[0] < st.r + 0.03 + spread) this.damage(this.s[st.id], st, 40 * k, region);
+      for (const st of bones) if (pathDist(c, c.clone().addScaledVector(d, 0.09), st)[0] < st.r + 0.03 + spread) this.damage(this.s[st.id], st, 34 * k, region);
       this.flesh[region] = Math.max(0, this.flesh[region] - 35 * k);
       if (z.n >= 4 && spread < 0.07 && !z.done) { z.done = 1; const t = /hand|foot/.test(region) ? 0.93 : clamp(-c.y / (LSEG[z.frame] || 0.3), 0.1, 0.9); this.sever(limb[0], limb[1], t); res.sever = limb[0]; }
     } else {
-      for (const st of STRUCTS_BY_FRAME[z.frame] || []) if (!st.shell && pathDist(c, c.clone().addScaledVector(d, 0.3), st)[0] < st.r + 0.02 + spread) this.damage(this.s[st.id], st, 30 * k, region);
+      for (const st of STRUCTS_BY_FRAME[z.frame] || []) if (!st.shell && pathDist(c, c.clone().addScaledVector(d, 0.11), st)[0] < st.r + 0.02 + spread) this.damage(this.s[st.id], st, 26 * k, region);
       this.flesh[region] = Math.max(0, this.flesh[region] - 18 * k);
       if (z.n === 3) this.wounds.push({ region, name: 'Shotgun wound, massive tissue loss', rate: 0, treated: false, blast: 1 });
       const bw = this.wounds.find(x => x.blast && x.region === region); if (bw) bw.rate = Math.min(70, 10 + 6 * z.n * (spread < 0.06 ? 1.4 : 1));

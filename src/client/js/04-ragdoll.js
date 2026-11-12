@@ -89,30 +89,33 @@ class Ragdoll {
       }
     }
     if (masks.w) for (const w of masks.w) {
-      const [g, dy] = this.frameGroup(w.frame); if (!g) continue;
+      const [g, dy] = this.frameGroup(w.frame, w.p.y); if (!g) continue;
       const m = new THREE.Object3D(); m.position.copy(w.p).addScaledVector(w.n, 0.004); m.position.y += dy; m.userData.keep = true; g.add(m);
       this.anchors.push({ m, n: w.n.clone() });
       if (w.st && w.st.isMesh) { const sk = soakMesh(g, w.p.clone().setY(w.p.y + dy), w.n, w.st.scale.x); this.soaks = this.soaks || []; this.soaks.push([sk, w.grow]); }
-      (this.liq = this.liq || []).push([w.frame, w.p.clone().setY(w.p.y + dy), w.n.clone(), w.tear]);
+      (this.liq = this.liq || []).push([w.frame, w.p.clone().setY(w.p.y + dy), w.n.clone(), w.tear, w.p.y]);
     }
     if (masks.gib) B.add(sph(0.052), 0x6a0505, this.torso, 0, 0.315, 0, null, [1, 0.6, 1]);
     if (masks.nh) this.group.traverse(o => { if (o.userData.armor === 'helmet') o.visible = false; });
     mergeTree(this.group, vcMat);
     this.group.traverse(o => { if (o.isMesh) o.userData.rag = this; });
     if (masks.gib) this.headG.visible = false;
-    if (masks.h) for (const h of masks.h) { const [g, dy] = this.frameGroup(h.frame); if (g) holeInGroup(g, h.p.clone().setY(h.p.y + dy), h.d, h.len, h.r0, h.r1, h.sk); }
+    if (masks.h) for (const h of masks.h) { const [g, dy] = this.frameGroup(h.frame, h.p.y + h.d.y * h.len * 0.5); if (g) holeInGroup(g, h.p.clone().setY(h.p.y + dy), h.d, h.len, h.r0, h.r1, h.sk); }
     this.lostMask = lost; this.sync(); this.group.updateMatrixWorld(true);
     for (const i of hidden) if ((i % 2 === 0 || !hidden.has(i - 1)) && !cutSeg[i - (i % 2)] && !(i % 2 && cutSeg[i - 1])) this.stump(i);
     for (const i in cutSeg) this.cutAt(+i, cutSeg[i]);
-    if (this.liq) { this.group.updateMatrixWorld(true); for (const [fr, lp, n, tear] of this.liq) { const [g] = this.frameGroup(fr); if (g) { if (tear) tearMesh(g, lp, n, tear); else liquidBlood(g, lp, n, 0.022, 5, 1); } } this.liq = null; }
+    if (this.liq) { this.group.updateMatrixWorld(true); for (const [fr, lp, n, tear, fy] of this.liq) { const [g] = this.frameGroup(fr, fy); if (g) { if (tear) tearMesh(g, lp, n, tear); else liquidBlood(g, lp, n, 0.022, 5, 1); } } this.liq = null; }
     if (masks.tear && !masks.gib) { this.sync(); this.group.updateMatrixWorld(true); this.tearNeck(dir || new V3(0, 0, 1)); }
     if (masks.gib) { addStump(this.torso, new V3(0, 0.33, 0), new V3(0, 1, 0), 0.05); const st = new THREE.Object3D(); st.position.set(0, 0.34, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) }); this.bleedR += 70; }
     this.sync();
   }
   // which piece of the ragdoll stands for a skeleton frame, and the y offset from frame coordinates to that piece
-  frameGroup(fr) {
+  frameGroup(fr, y) {
     if (fr === 'spine') return [this.torso, -0.24]; if (fr === 'hips') return [this.torso, -0.31]; if (fr === 'head') return [this.headG, -0.1]; if (fr === 'neck') return [this.headG, -0.16];
-    const sg = this.segs[RAG_FRAME_SEG[fr]]; return sg && sg.g && !sg.hidden ? [sg.g, sg.L / 2] : [null, 0];
+    const sg = this.segs[RAG_FRAME_SEG[fr]]; if (!sg || sg.hidden) return [null, 0]; if (sg.g) return [sg.g, sg.L / 2];
+    // a limb drawn as two pieces: pick the half the point falls in (frame y runs from 0 at the joint down to -L)
+    const hL = sg.L / 2, end = y !== undefined && y < -hL, l = this.limbs.find(l => l.seg === sg.si && l.first === !end);
+    return l ? [l.g, end ? hL * 1.5 : hL / 2] : [null, 0];
   }
   // bone-and-flesh stump on whatever segment si was attached to
   stump(si) {

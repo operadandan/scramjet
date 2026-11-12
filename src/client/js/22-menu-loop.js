@@ -97,8 +97,7 @@ $('test').onclick = () => startTest();
 $('resume').onclick = () => renderer.domElement.requestPointerLock();
 try { S.showTarget = localStorage.getItem('breach_target_panel') === '1'; } catch (e) { S.showTarget = false; }
 $('opt_target').checked = !!S.showTarget;
-{ let pv = 25; try { const s = localStorage.getItem('breach_pixel'); if (s !== null) pv = +s; } catch (e) {} $('opt_pixel').value = pv; $('opt_pixel_v').textContent = pv; setPixelation(pv);
-  $('opt_pixel').oninput = () => { $('opt_pixel_v').textContent = $('opt_pixel').value; setPixelation($('opt_pixel').value); }; }
+setPixelation(50);   // the retro look is part of the game: fixed, no setting
 $('opt_target').onchange = () => { S.showTarget = $('opt_target').checked; try { localStorage.setItem('breach_target_panel', S.showTarget ? '1' : '0'); } catch (e) {} };
 document.querySelectorAll('.attm1').forEach(b => b.onclick = () => openAttMenu(P.loadout[+b.dataset.i]));
 $('leave').onclick = () => leave();

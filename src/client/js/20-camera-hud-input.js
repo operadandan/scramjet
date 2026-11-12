@@ -48,7 +48,7 @@ function updateCamera(dt) {
   const w = WEAPONS[P.weapon];
   const zW = VMW[P.weapon], mag = zW && zW.lens; camera.fov = lerp(75, mag ? (w.scope ? 52 : 60) : w.fovAds, P.ads) + P.sprintBlend * 4; camera.updateProjectionMatrix();
 }
-const _vt = new V3(), _wr = new V3(), _fd = new V3();
+const _vt = new V3(), _wr = new V3(), _fd = new V3(), _vi = new V3(), _vir = new V3(), _v0 = new V3(), _v1 = new V3(), _v2 = new V3(), _v3 = new V3(), _V1 = new V3(1, 1, 1), _q0 = new THREE.Quaternion(), _e0 = new THREE.Euler(), _m0 = new THREE.Matrix4(), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
 function updateViewmodel(dt) {
   const W = VMW[P.weapon], w = WEAPONS[P.weapon];
   VMW.forEach((v, i) => { v.g.visible = P.slot < 2 && i === P.weapon; }); VMK.g.visible = P.slot === 2; VMP.g.visible = P.slot === 3;
@@ -90,25 +90,57 @@ function updateViewmodel(dt) {
   W.L.h.visible = W.L.fa.visible = !P.anat.lost.armL; if (W.rh) W.rh.visible = !P.anat.lost.armR;
   const scoped = (!!w.scope || W.zoom > 1) && a > 0.86;
   vm.visible = true; $('scope').style.display = 'none'; $('acog').style.display = 'none';
+  // inspect and rack: the gun is brought in and turned over (ip = position offset, ir = rotation offset)
+  const pis = w.kind === 'pistol', ip = _vi.set(0, 0, 0), ir = _vir.set(0, 0, 0);
+  if (P.inspecting) {
+    const ss = (e0, e1, x) => { const u = clamp((x - e0) / (e1 - e0), 0, 1); return u * u * (3 - 2 * u); };
+    const wA = ss(0.04, 0.22, ik) * (1 - ss(0.42, 0.56, ik)), wB = ss(0.48, 0.62, ik) * (1 - ss(0.84, 0.98, ik)), tw = Math.sin(ik * 19) * 0.012 * (wA + wB);
+    if (pis) { // wrist rolled out to show the right side, then back over to show the left
+      ip.set(-0.035 * wA - 0.06 * wB, 0.05 * wA + 0.045 * wB, 0.09 * wA + 0.08 * wB); ir.set(0.22 * wA + 0.18 * wB + tw, -0.55 * wA + 0.5 * wB, -1.05 * wA + 1.15 * wB);
+    } else { // muzzle swung left to show the ejection side, then canted over to the right to look down the top and left side
+      ip.set(-0.07 * wA - 0.03 * wB, 0.035 * wA + 0.05 * wB, 0.07 * wA + 0.05 * wB); ir.set(0.14 * wA + 0.26 * wB + tw, 0.78 * wA - 0.32 * wB, 0.3 * wA - 0.72 * wB);
+    }
+  }
+  { // working the action: the gun comes in toward the chest and cants so the support hand can reach the handle or slide comfortably
+    const rkOn = W.rack && P.rack && !P.rack.done ? 1 : 0, G1 = P.guns[P.weapon]; P.rackW = damp(P.rackW || 0, Math.max(rkOn, G1 && G1.held ? 1 : 0), 9, dt);
+    const k = P.rackW * (1 - a), side = W.rack && W.rack.kind === 'side';
+    if (k > 0.001) {
+      if (pis) { ip.x -= 0.045 * k; ip.y += 0.05 * k; ip.z += 0.055 * k; ir.x += 0.2 * k; ir.y += 0.12 * k; ir.z += 0.5 * k; }
+      else if (side) { ip.x -= 0.04 * k; ip.y += 0.035 * k; ip.z += 0.07 * k; ir.x += 0.1 * k; ir.y -= 0.18 * k; ir.z += 0.55 * k; }
+      else { ip.x -= 0.04 * k; ip.y += 0.15 * k; ip.z -= 0.16 * k; ir.x += 0.3 * k; ir.y += 0.12 * k; ir.z += 0.35 * k; } // butt off the shoulder, muzzle up, gun canted in front of the chest so the handle is in reach and in view
+    }
+  }
+  // at the hip a long gun rides with the muzzle tipped up toward the middle of the view
+  const hipK = pis ? 0 : 1 - a;
   vm.position.set(
-    t.x + bx + P.swayX - 0.05 * s + P.aimOX * 0.06 * ao - 0.02 * ib,
-    t.y + by + P.swayY - 0.05 * s - 0.03 * b - P.switchT * 0.7 + air - P.aimOY * 0.04 * ao + 0.02 * ib,
-    t.z + P.kick * 0.05 * (1 - a * 0.4) + 0.03 * s + 0.03 * ib);
+    t.x + bx + P.swayX - 0.05 * s + P.aimOX * 0.06 * ao + ip.x,
+    t.y + by + P.swayY - 0.05 * s - 0.03 * b - P.switchT * 0.7 + air - P.aimOY * 0.04 * ao + ip.y,
+    t.z + P.kick * 0.05 * (1 - a * 0.4) + 0.03 * s + ip.z);
   vm.rotation.set(
-    P.kick * 0.09 * (1 - a * 0.6) - 0.35 * s - 0.12 * b + P.swayY * 2 * ao - P.aimOY * ao + 0.06 * ib,
-    0.6 * s + P.swayX * 2 * ao - P.aimOX * ao + 0.08 * ib + 0.12 * b,
-    0.35 * b + P.leanEff * 0.04 * (1 - a) + 0.18 * ib);
+    P.kick * 0.09 * (1 - a * 0.6) - 0.35 * s - 0.12 * b + P.swayY * 2 * ao - P.aimOY * ao + 0.07 * hipK + ir.x,
+    0.6 * s + P.swayX * 2 * ao - P.aimOX * ao + 0.12 * b + 0.035 * hipK + ir.y,
+    0.35 * b + P.leanEff * 0.04 * (1 - a) + ir.z);
+  // the turn happens at the wrist/grip, and the elbows stay where they were in the view, so the forearms twist instead of swinging with the gun
+  { const g = W.g; g.updateMatrix(); _m0.compose(_v0.copy(vm.position).sub(ip), _q0.setFromEuler(_e0.set(vm.rotation.x - ir.x, vm.rotation.y - ir.y, vm.rotation.z - ir.z)), _V1);
+    vm.updateMatrix(); const pv = _v1.set(0, pis ? -0.07 : -0.06, pis ? 0.06 : -0.08).applyMatrix4(g.matrix);
+    vm.position.add(_v2.copy(pv).applyMatrix4(_m0).add(ip).sub(_v3.copy(pv).applyMatrix4(vm.matrix))); vm.updateMatrix();
+    _m1.copy(g.matrix).invert().multiply(_m2.copy(vm.matrix).invert()).multiply(_m0).multiply(g.matrix);
+    for (const A of [W.armR, W.armL]) if (A) { if (!A.e0) { A.e0 = A.elbowT.clone(); A.s0 = A.shoulderT.clone(); } A.elbowT.copy(A.e0).applyMatrix4(_m1); A.shoulderT.copy(A.s0).applyMatrix4(_m1); } }
   { const tt = performance.now() / 1000, an = P.anat, sh = (an.anyArm() ? 0.02 : 0) + an.pain * 0.008 + (an.blood < 3500 ? 0.01 : 0) + (P.supp || 0) * 0.014;
     vm.rotation.x += Math.sin(tt * 6.3) * sh; vm.rotation.y += Math.sin(tt * 4.7 + 1) * sh; vm.position.x += Math.sin(tt * 3.9) * sh * 0.3; }
   // left hand + magazine choreography
   const L = W.L;
   let seq = null, st = 0;
-  if (P.reloading) { seq = P.rlSeq || (P.reloadEmpty ? SEQ.empty : SEQ.tac); st = r; } else if (P.inspecting) { seq = SEQ.inspect; st = ik; }
+  if (P.reloading) { seq = P.rlSeq || (P.reloadEmpty ? SEQ.empty : SEQ.tac); st = r; } else if (P.inspecting) { seq = w.kind === 'pistol' ? SEQ.inspectP : SEQ.inspectR; st = ik; }
   const G0 = P.guns[P.weapon];
   if (!seq && P.rack && W.rack) { seq = P.rack.seq; st = Math.min(1, P.rack.t); }
   else if (!seq && G0 && G0.held && W.poses.HCb) { seq = HOLD_SEQ; st = 0; }
   if (seq) poseAt(W, seq, st, L.h.position, L.h.quaternion);
   else { L.h.position.copy(W.poses.H0.p); L.h.quaternion.copy(W.poses.H0.q); if (W.curlL && W.poses.H0.c) lerpCurls(W.poses.H0.c, W.poses.H0.c, 0, W.curlL); }
+  { // pistol at the hip is held one-handed: the support hand drops away and comes up to the grip as the sights come up
+    const low = w.kind === 'pistol' && !P.reloading && !P.rack && !(G0 && G0.held) ? 1 - a : 0; P.pLow = damp(P.pLow || 0, low, 9, dt);
+    if (P.pLow > 0.001 && W.poses.HP) { L.h.position.lerp(W.poses.HP.p, P.pLow); L.h.quaternion.slerp(W.poses.HP.q, P.pLow); if (P.pLow > 0.85) L.h.visible = L.fa.visible = false; }
+  }
   { const vfg = !!W.vfgHand && W.vfgOn && !seq && !P.anat.lost.armL; if (W.vfgHand) W.vfgHand.visible = vfg; if (vfg) L.h.visible = L.fa.visible = false; }
   P.rlJ = damp(P.rlJ || 0, 0, 9, dt);
   if (P.reloading) {
@@ -253,7 +285,6 @@ function setPixelation(v) {
   // the low-resolution frame is made by retroTarget() (22-menu-loop.js); the canvas itself stays at full resolution
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight);
   renderer.domElement.style.imageRendering = 'auto';
-  try { localStorage.setItem('breach_pixel', String(S.pixel)); } catch (e) {}
 }
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
