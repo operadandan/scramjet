@@ -166,30 +166,45 @@ class Ragdoll {
     }
   }
   limits() {
-    // anatomical joint limits relative to the torso frame
+    // anatomical joint limits relative to the torso frame; every correction is shared by the two joints involved, so limits
+    // never push the whole body around
     const p = this.p;
     _ru.subVectors(p[1], p[2]).normalize();
     _rs.subVectors(p[6], p[3]); _rs.addScaledVector(_ru, -_rs.dot(_ru)).normalize();
     _rf.crossVectors(_ru, _rs);
-    // every correction is shared by the two joints involved, so limits never push the whole body around
+    const push = (A, B, dir, k) => { p[B].addScaledVector(dir, k * 0.5); p[A].addScaledVector(dir, -k * 0.5); };
+    // knee: a hinge. The shin swings only behind the thigh, about the hips' side-to-side axis, and barely sideways
     const knee = (H, K, F) => {
       _rt.subVectors(p[K], p[H]).normalize(); _rd.subVectors(p[F], p[K]);
-      const perp = _rd.clone().addScaledVector(_rt, -_rd.dot(_rt));
-      const fw = perp.dot(_rf); if (fw > 0.005) { p[F].addScaledVector(_rf, -fw * 0.5); p[K].addScaledVector(_rf, fw * 0.5); }   // knees only bend backwards
+      const ax = _rs.clone().addScaledVector(_rt, -_rs.dot(_rt)).normalize(), fw = _rf.clone().addScaledVector(_rt, -_rf.dot(_rt)).normalize();
+      const L = _rd.length(), perp = _rd.clone().addScaledVector(_rt, -_rd.dot(_rt));
+      const f = perp.dot(fw); if (f > 0.004) push(K, F, fw, -f);
+      const sd = perp.dot(ax), lim = 0.12 * L; if (Math.abs(sd) > lim) push(K, F, ax, -(sd - Math.sign(sd) * lim));
     };
-    const hip = (H, K) => {
+    // hip: about 30 degrees back, about 120 forward, about 45 out to the side, a little across the other leg
+    const hip = (H, K, side) => {
       _rt.subVectors(p[K], p[H]); const L = _rt.length(); _rt.multiplyScalar(1 / L);
-      const back = _rt.dot(_rf); if (back < -0.5) { const k = (-0.5 - back) * L * 0.5; p[K].addScaledVector(_rf, k); p[H].addScaledVector(_rf, -k); }
-      const up = _rt.dot(_ru); if (up > 0.45) { const k = (up - 0.45) * L * 0.5; p[K].addScaledVector(_ru, -k); p[H].addScaledVector(_ru, k); }
+      const back = _rt.dot(_rf); if (back < -0.5) push(H, K, _rf, (-0.5 - back) * L);
+      const up = _rt.dot(_ru); if (up > 0.45) push(H, K, _ru, -(up - 0.45) * L);
+      const out = _rt.dot(_rs) * side; if (out > 0.72) push(H, K, _rs, -(out - 0.72) * L * side); if (out < -0.3) push(H, K, _rs, (-0.3 - out) * L * side);
     };
+    // elbow: never bends backwards past straight, and folds toward the front of the upper arm
     const elbow = (S, E, Hn) => {
       _rt.subVectors(p[E], p[S]).normalize(); _rd.subVectors(p[Hn], p[E]);
       const perp = _rd.clone().addScaledVector(_rt, -_rd.dot(_rt));
-      const bk = perp.dot(_rf); if (bk < -0.01 && _rt.dot(_ru) < 0.3) { p[Hn].addScaledVector(_rf, -bk * 0.5); p[E].addScaledVector(_rf, bk * 0.5); }
+      const bk = perp.dot(_rf); if (bk < -0.01 && _rt.dot(_ru) < 0.3) push(E, Hn, _rf, -bk);
     };
-    knee(9, 10, 11); knee(12, 13, 14); hip(9, 10); hip(12, 13); elbow(3, 4, 5); elbow(6, 7, 8);
-    // neck: head stays on the shoulders' side of the torso axis
-    _rt.subVectors(p[0], p[1]); const hu = _rt.dot(_ru); if (hu < 0.06) { p[0].addScaledVector(_ru, (0.06 - hu) * 0.5); p[1].addScaledVector(_ru, -(0.06 - hu) * 0.5); }
+    // shoulder: the upper arm cannot go through the chest, or far behind the back
+    const shoulder = (S, E, side) => {
+      _rt.subVectors(p[E], p[S]); const L = _rt.length(); _rt.multiplyScalar(1 / L);
+      const inn = -_rt.dot(_rs) * side, fwd = _rt.dot(_rf);
+      if (inn > 0.35 && fwd < 0.35) push(S, E, _rs, (inn - 0.35) * L * side);
+      if (fwd < -0.75) push(S, E, _rf, (-0.75 - fwd) * L);
+    };
+    knee(9, 10, 11); knee(12, 13, 14); hip(9, 10, -1); hip(12, 13, 1); elbow(3, 4, 5); elbow(6, 7, 8); shoulder(3, 4, -1); shoulder(6, 7, 1);
+    // neck: the head stays above the shoulders' side of the torso axis and tips at most about 70 degrees any way
+    _rt.subVectors(p[0], p[1]); const hl = _rt.length(), hu = _rt.dot(_ru) / (hl || 1);
+    if (hu < 0.34) { const k = (0.34 - hu) * hl; p[0].addScaledVector(_ru, k * 0.6); p[1].addScaledVector(_ru, -k * 0.4); }
   }
   step(h) {
     const p = this.p, q = this.q, g = 9.8 * h * h, dmp = this.life < 1.2 ? 0.988 : 0.975, vmax = 0.1;
