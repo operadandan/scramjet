@@ -10,13 +10,14 @@ function pointBlocked(p, r) {
 const PR = 0.35;
 // how far down the player can look: about 60 degrees, the boots and the front of the rig at the bottom of the view
 const PITCH_MIN = -1.05;
-function enterDowned() {
+function enterDowned(extra) {
   const an = P.anat;
-  P.downed = true; P.adsOn = false; P.reloading = false; P.healing = false; P.inspecting = false; mouse.left = false;
+  P.downed = true; P.adsOn = false; P.reloading = false; P.healing = false; P.inspecting = false; mouse.left = false; P.stag = null; P.stun = 0;
   localBody.update(0);
-  P.rag = spawnRagdoll(localBody, P.vel.clone(), an.lastDir.clone(), PART_OF_REGION(an.lastRegion), false, { bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(), keep: true });
+  P.rag = spawnRagdoll(localBody, P.vel.clone(), an.lastDir.clone(), PART_OF_REGION(an.lastRegion), false, Object.assign({ bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(), keep: true }, extra || {}));
+  P.rag.owner = { anat: an };
   $('downmsg').style.display = 'block';
-  $('downwhy').textContent = an.paralyzed ? 'Spinal cord injury. You will not get up.' : 'You blacked out from the pain. You may come to if it eases.';
+  $('downwhy').textContent = an.paralyzed ? 'Spinal cord injury. You will not get up.' : P.forceDown ? 'You went down and cannot get back up.' : 'You blacked out from the pain. You may come to if it eases.';
 }
 function wakeUp() {
   const r = P.rag; P.downed = false;
@@ -63,13 +64,25 @@ function updatePlayer(dt) {
   an.update(dt);
   if (an.dead) { localDeath(); return; }
   P.supp = Math.max(0, (P.supp || 0) - dt * 0.2);
-  if (an.isDowned() && !P.downed) enterDowned();
+  if ((an.isDowned() || P.forceDown) && !P.downed) enterDowned();
   // a down only counts as a kill for the shooter if it isn't just pain (spine or both legs gone); pain knockouts wait for the death
   if (P.downed && !P.downSent && S.mode === 'online' && an.lastBy && (an.paralyzed || an.bothLegs())) { P.downSent = true; net.send({ t: 'down', by: an.lastBy }); }
-  else if (P.downed && !an.isDowned()) wakeUp();
+  else if (P.downed && !an.isDowned() && !P.forceDown) wakeUp();
   if (P.downed) { bleedDrips(P, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1)); localBody.root.visible = false; fpBody.root.visible = false; if (P.rag) P.pos.set(P.rag.p[2].x, 0, P.rag.p[2].z); P.vel.set(0, 0, 0); P.speed = 0; return; }
   let fx_ = 0, fz = 0;
+  // staggered (neck) or rocked by a hit: no control. The body stumbles along the hit instead, then a neck stagger ends on the floor
+  P.stun = Math.max(0, (P.stun || 0) - dt);
+  const dazed = !!P.stag || P.stun > 0;
+  if (P.stag) {
+    const R = P.stag; R.t += dt;
+    const k = R.t < 0.6 ? 1 : Math.max(0, 1 - (R.t - 0.6) / 1.2), sway = Math.sin(R.t * 2.2 + R.seed) * 0.35;
+    P.vel.x = damp(P.vel.x, (R.dir.x + R.dir.z * sway) * R.step * 3 * k, 6, dt); P.vel.z = damp(P.vel.z, (R.dir.z - R.dir.x * sway) * R.step * 3 * k, 6, dt);
+    if (R.t >= R.dur) { P.stag = null; P.forceDown = true; }
+  }
+  if (dazed) { P.adsOn = false; P.leanState = 0; P.inspecting = false; P.healing = false; mouse.left = false; if (P.reloading && P.stag) P.reloading = false; }
+  if (!dazed) {
   if (keys.KeyW) fz -= 1; if (keys.KeyS) fz += 1; if (keys.KeyA) fx_ -= 1; if (keys.KeyD) fx_ += 1;
+  }
   const len = Math.hypot(fx_, fz); if (len) { fx_ /= len; fz /= len; }
   const sn = Math.sin(P.yaw), cs = Math.cos(P.yaw);
   const wx = fx_ * cs + fz * sn, wz = -fx_ * sn + fz * cs;
@@ -85,7 +98,7 @@ function updatePlayer(dt) {
   // ---- movement. No stamina; instead the body has weight: it takes time to get going and to stop, sprints only forward,
   // walks slower backward and sideways, surges and slows with each step, can't hop again right after landing, loses speed when
   // it lands, and climbs over things it can't step onto.
-  const wantSprint = keys.ShiftLeft && fz < 0 && len > 0 && P.stance === 0 && !oneLeg && !P.mantle;
+  const wantSprint = keys.ShiftLeft && fz < 0 && len > 0 && P.stance === 0 && !oneLeg && !P.mantle && !dazed;
   P.sprinting = !!(wantSprint && P.onGround) || (P.sprinting && wantSprint && !P.onGround);
   if (P.sprinting) { P.adsOn = false; P.leanState = 0; P.inspecting = false; P.healing = false; }
   P.stamina = 100;
@@ -109,10 +122,10 @@ function updatePlayer(dt) {
   // speeding up is slow (slower still into a sprint), stopping is quicker but not instant; in the air almost no control
   const rate = !P.onGround ? 0.8 : speeding ? (P.sprinting ? 2.6 : 5) : 7.5;
   const k = 1 - Math.exp(-rate * dt);
-  P.vel.x += (mx * spd - P.vel.x) * k; P.vel.z += (mz * spd - P.vel.z) * k;
+  if (!P.stag) { P.vel.x += (mx * spd - P.vel.x) * k; P.vel.z += (mz * spd - P.vel.z) * k; }
   P.vel.y -= 22 * dt;
   P.jumpCD = Math.max(0, (P.jumpCD || 0) - dt); P.landK = Math.max(0, (P.landK || 0) - dt * 2.2);
-  if (keys.Space && P.onGround && P.stance === 0 && !oneLeg && !P.jumpCD) {
+  if (keys.Space && P.onGround && P.stance === 0 && !oneLeg && !P.jumpCD && !dazed) {
     if (!tryMantle()) { P.vel.y = 4.6; P.onGround = false; P.jumpCD = 0.9; P.jumpKick = 1; }   // about half a metre of hop
   }
 
@@ -145,6 +158,7 @@ function updatePlayer(dt) {
   localBody.root.visible = true;
   localBody.root.position.copy(P.pos); localBody.root.rotation.y = P.yaw;
   Object.assign(a, { speed: P.speed, crouch: P.crouch, prone: P.prone, limp: downed ? 1 : oneLeg ? 0.5 : 0, lean: P.leanEff, pitch: P.pitch, sprint: P.sprintBlend, ads: P.ads, air: P.onGround ? 0 : 1, weapon: P.slot >= 2 ? MEDKIT_W : P.weapon, unarmed: P.slot === 4, bb: an.brokenMask(), ah: an.armHangMask(), ls: an.lostMask(), lc: an.cutArr(), reload: P.reloading ? Math.max(0.001, P.reloadT / P.reloadDur) : 0 });
+  a.stag = P.stag ? 1 : P.stun > 0 ? 0.5 : 0;
   a.hurt = damp(a.hurt || 0, hurtLevel(an), 2, dt); a.downedPose = downed; reClutch(a, an, dt); updateBrace(localBody, dt);
   localBody.update(dt);
   // the visible first-person body follows the same pose, set back from the eye; hidden when prone (the eye is down among it)
@@ -167,7 +181,7 @@ P.hum = localBody;
 function flashMsg(html, ms) { const m = $('magcheck'); m.innerHTML = html; m.style.opacity = '1'; clearTimeout(flashMsg.t); flashMsg.t = setTimeout(() => { m.style.opacity = '0'; }, ms || 1600); }
 function startReload() {
   const w = WEAPONS[P.weapon], G = P.guns[P.weapon];
-  if (!P.alive || P.slot >= 2 || P.reloading || P.rack || P.switchT > 0 || P.sprinting) return;
+  if (!P.alive || P.slot >= 2 || P.reloading || P.rack || P.switchT > 0 || P.sprinting || P.stag || P.stun > 0) return;
   if (G.mag >= w.cap && G.chamber) return;
   if (w.pellets) return startShellLoad(w, G);
   if (S.mode === 'test' && !G.pouch.some(n => n > 0)) G.pouch = G.pouch.concat(Array(w.spare).fill(w.cap));
@@ -365,7 +379,7 @@ function updateWeapons(dt) {
 function tryFire() {
   const w = WEAPONS[P.weapon], G = P.guns[P.weapon], now = performance.now() / 1000;
   if (P.reloading && w.pellets && P.sgPhase === 'load' && P.semiReady) { P.sgStop = true; P.semiReady = false; }
-  if (P.reloading || P.inspecting || P.rack || G.held || P.switchT > 0 || P.sprintBlend > 0.3 || P.mantle) return;
+  if (P.reloading || P.inspecting || P.rack || G.held || P.switchT > 0 || P.sprintBlend > 0.3 || P.mantle || P.stag || P.stun > 0) return;
   if (!w.auto && !P.semiReady) return;
   if (now - P.lastShot < 60 / w.rpm) return;
   if (!G.chamber) { if (P.semiReady) { blip(1500, 0.02, 0.05); noiseHit(2200, 0.03, 0.04); P.semiReady = false; } return; }
@@ -457,8 +471,10 @@ function killSelf(head, dir, part, byName, causeText) {
   mouse.left = false;
   localBody.update(0);
   $('downmsg').style.display = 'none';
-  if (P.downed && P.rag) P.rag.keep = false;
-  else P.rag = spawnRagdoll(localBody, P.vel.clone(), dir, part, head, { bb: P.anat.brokenMask(), ls: P.anat.lostMask(), lc: P.anat.cutArr() });
+  const dm = P.deathM || deathMasks(P.anat); P.deathM = null;
+  if (P.downed && P.rag) { P.rag.keep = false; P.rag.bleedR = Math.max(P.rag.bleedR, dm.bleed); P.rag.twitch = dm.twitch; P.rag.asleep = false; }
+  else P.rag = spawnRagdoll(localBody, P.vel.clone(), dir, part, head, dm);
+  P.rag.owner = { anat: P.anat };
   if (head) { $('black').style.transition = 'none'; $('black').style.opacity = '1'; $('deathmsg').style.display = 'none'; }
   else { $('dmgv').style.opacity = '1'; $('deathmsg').style.display = 'block'; $('deathmsg').textContent = (byName ? 'KILLED BY ' + byName.toUpperCase() : 'YOU DIED') + (causeText ? '  (' + causeText.toUpperCase() + ')' : ''); }
 }
@@ -467,7 +483,8 @@ function localDeath() {
   const head = an.cause === 'brain' && an.lastRegion === 'head';
   const part = PART_OF_REGION(an.lastRegion), killer = an.lastBy ? (S.names[an.lastBy] || ('P' + an.lastBy)) : '';
   killSelf(head, an.lastDir.clone(), part, killer, DEATH_TEXT[an.cause]);
-  if (S.mode === 'online') net.send({ t: 'died', by: an.lastBy || 0, part, head, d: an.lastDir.toArray(), dist: Math.round(an.lastDist || 0), cause: an.cause, gib: an.gibHead || (an.cause === 'brain' && an.lastW === 2) ? 1 : 0 });
+  const dm = P.deathM = deathMasks(an);
+  if (S.mode === 'online') net.send({ t: 'died', by: an.lastBy || 0, part, head, d: an.lastDir.toArray(), dist: Math.round(an.lastDist || 0), cause: an.cause, gib: dm.gib ? 1 : 0, tear: dm.tear ? 1 : 0, bl: Math.round(dm.bleed), tw: +dm.twitch.toFixed(1) });
   else { S.testDeaths = (S.testDeaths || 0) + 1; setTimeout(() => { if (S.mode === 'test') respawnLocal(spawns[0]); }, 4000); }
 }
 function onSelfHurt(res) {
@@ -479,6 +496,26 @@ function onSelfHurt(res) {
   if (res && (res.region === 'handL' || res.region === 'handR') && !res.missing && !res.stopped && !P.anat.dead && dropWeapon()) flashMsg('HIT IN THE HAND<small>You dropped your weapon. Press F to pick it up.</small>', 2600);
   if (res && res.helmetOff) { setHelmet(localBody, false, P.anat.lastDir); flashMsg('HELMET KNOCKED OFF', 2000); }
   else if (res && res.plate) flashMsg('FRONT PLATE ' + (res.stopped ? 'HIT' : 'PENETRATED') + '<small>Plate condition ' + Math.round(P.anat.armor[res.plate]) + '%</small>', 1600);
+  // the same reactions as an AI body, from the same rules: a blast knocks you over; a round through the neck staggers you,
+  // hands to the throat, gun gone, and puts you down; hit again while staggering, you collapse. Any solid hit rocks you for a
+  // moment. While staggered or rocked you can do nothing.
+  const an = P.anat;
+  if (res && !an.dead && !P.downed) {
+    const d = an.lastDir.clone().setY(0); if (d.lengthSq() < 1e-4) d.set(0, 0, 1); d.normalize();
+    if (res.blast && res.blast.big) {
+      P.forceDown = true; dropWeapon();
+      const mv = P.vel.clone(), moving = mv.length() > 1;
+      enterDowned({ soft: true, vTop: moving ? mv.clone().multiplyScalar(rnd(1.05, 1.35)).addScaledVector(d, rnd(0.4, 0.9)) : d.clone().multiplyScalar(rnd(1.8, 2.8)).add(new V3(rnd(-0.3, 0.3), rnd(0.1, 0.4), rnd(-0.3, 0.3))), vLeg: moving ? mv.clone().multiplyScalar(rnd(0.2, 0.45)) : d.clone().multiplyScalar(rnd(-0.2, 0.3)) });
+    } else if (P.stag && P.stag.t > 0.15 && P.stag.kind !== 'neck' || P.stag && P.stag.kind === 'neck' && P.stag.t > 0.15 && !res.stopped) {
+      P.forceDown = true; enterDowned({ soft: true });
+    } else if (res.region === 'neck' && !res.stopped && !an.paralyzed && !(P.stag && P.stag.kind === 'neck')) {
+      const sd = Math.random() < 0.2 ? d.clone().negate() : d;
+      P.stag = { kind: 'neck', t: 0, dur: rnd(1.8, 3.4), dir: sd, step: rnd(0.15, 0.4), seed: Math.random() * 50 };
+      dropWeapon(); hurtClutch(localBody.anim, 'neck', new V3(0, 0.04, -0.05), 10);
+    } else if (!res.stopped && !res.missing) {
+      const E = res.energy || (an.lastV ? 0.5 * WEAPONS[an.lastW || 0].mass * an.lastV * an.lastV : 1500); P.stun = Math.max(P.stun || 0, clamp(E / 6000, 0.12, 0.45)); P.stunDir = d;
+    }
+  }
   if (P.anat.dead) localDeath();
 }
 function testSelfHit() {
@@ -497,6 +534,7 @@ function testSelfHit() {
   onSelfHurt(res);
 }
 function respawnLocal(sp) {
+  P.forceDown = false; P.stag = null; P.stun = 0; P.deathM = null;
   P.pos.copy(sp); P.vel.set(0, 0, 0); P.yaw = Math.atan2(sp.x, sp.z); P.pitch = 0;
   if (S.mode === 'test') P.yaw = 0;
   if (P.rag) { P.rag.keep = false; P.rag.headG.visible = true; }

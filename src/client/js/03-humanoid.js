@@ -180,6 +180,13 @@ class Humanoid {
       this.spine.rotation.x += 0.26 * hu + br; this.neck.rotation.x += 0.18 * hu - br * 0.5; this.hips.position.y -= 0.035 * hu;
       this.spine.rotation.z += Math.sin(performance.now() / 1700) * 0.04 * hu;
     }
+    // staggering (players; AI bodies play their own reaction): bent over, knees giving, reeling
+    a.stagW = damp(a.stagW || 0, a.stag || 0, 7, dt || 0.016);
+    if (a.stagW > 0.01 && pr < 0.3) {
+      const t = performance.now() / 1000, sg = a.stagW;
+      this.spine.rotation.x += 0.35 * sg; this.spine.rotation.z += Math.sin(t * 2.2) * 0.2 * sg; this.neck.rotation.x += 0.3 * sg + Math.sin(t * 3.1) * 0.12 * sg;
+      this.hips.position.y -= 0.09 * sg; this.knL.rotation.x -= 0.45 * sg; this.knR.rotation.x -= 0.35 * sg; this.lgL.rotation.x += 0.25 * sg; this.lgR.rotation.x += 0.2 * sg;
+    }
     if ((a.braceW || 0) > 0.01 && a.braceSide) this.spine.rotation.z += a.braceSide * 0.12 * a.braceW;
     if (this.fl) { this.hips.position.x += this.fl.x.px * 0.1; this.hips.position.z += this.fl.x.pz * 0.1; }
     const P = a.pitch - sx + pr * Math.PI / 2;

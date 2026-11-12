@@ -84,7 +84,7 @@ class Remote {
     a.speed = damp(a.speed, m.v, 10, dt); a.crouch = damp(a.crouch, m.c, 12, dt);
     a.lean = damp(a.lean, m.l, 12, dt); a.pitch = damp(a.pitch, m.pi, 14, dt);
     a.sprint = damp(a.sprint, m.sp ? 1 : 0, 8, dt); a.air = damp(a.air, m.g ? 0 : 1, 10, dt);
-    a.ads = m.a; a.weapon = WEAPONS[m.w] || m.w === MEDKIT_W ? m.w : m.w === PLATE_W || m.w === 7 ? MEDKIT_W : 0; a.unarmed = m.w === 7; a.reload = m.r; a.prone = damp(a.prone, m.pr || 0, 5, dt); a.limp = m.lm || 0; a.hurt = damp(a.hurt || 0, clamp(Number(m.hu) || 0, 0, 1), 3, dt); a.downedPose = !!m.dn; if (Array.isArray(m.cl) && CLUTCH_OK[m.cl[0]] === 1 && m.cl.length === 4 && m.cl.slice(1).every(v => Number.isFinite(v) && Math.abs(v) < 1)) { a.clutchF = m.cl[0]; a.clutchP = m.cl.slice(1); a.clutchT = 0.35; } updateBrace(this.hum, dt);
+    a.ads = m.a; a.weapon = WEAPONS[m.w] || m.w === MEDKIT_W ? m.w : m.w === PLATE_W || m.w === 7 ? MEDKIT_W : 0; a.unarmed = m.w === 7; a.reload = m.r; a.prone = damp(a.prone, m.pr || 0, 5, dt); a.limp = m.lm || 0; a.hurt = damp(a.hurt || 0, clamp(Number(m.hu) || 0, 0, 1), 3, dt); a.stag = clamp(Number(m.sg) || 0, 0, 1); a.downedPose = !!m.dn; if (Array.isArray(m.cl) && CLUTCH_OK[m.cl[0]] === 1 && m.cl.length === 4 && m.cl.slice(1).every(v => Number.isFinite(v) && Math.abs(v) < 1)) { a.clutchF = m.cl[0]; a.clutchP = m.cl.slice(1); a.clutchT = 0.35; } updateBrace(this.hum, dt);
     for (let i = 0; i < this.hum.tp.length; i++) if (this.hum.tp[i].sup) this.hum.tp[i].sup.visible = i === a.weapon && !!m.su;
     a.bb = m.bb || 0; a.ah = m.ah || 0; a.ls = m.ls || 0; syncLost(this.hum, a.ls, new V3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).negate(), m.lc);
     this.hum.update(dt);
@@ -94,6 +94,18 @@ class Remote {
 }
 
 // ---------------------------------------------------------------- dummies (testing mode)
+// what a body is like as it dies, the same for AI and players: how much it keeps bleeding (the wounds as they were, at least a
+// little from every open one, a lot more for the scalp, face and neck), whether the limbs jerk (a sudden brain or spine death),
+// whether the head is destroyed or the neck torn through
+function deathMasks(an) {
+  const headW = an.wounds.some(w => w.region === 'head' || w.region === 'neck');
+  return {
+    bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(),
+    bleed: Math.min(160, Math.max(an.bleedRate() * 0.8, 12 + 7 * an.wounds.length) + (headW ? 28 : 0)),
+    twitch: /brain|spinal/.test(an.cause) || an.gibHead ? rnd(2, 5) : Math.random() < 0.3 ? rnd(1, 2.5) : 0,
+    gib: !!(an.gibHead || (an.cause === 'brain' && an.lastW === 2)), tear: !!(an.neckTear || (an.lastRegion === 'neck' && an.lastW === 2))
+  };
+}
 class Dummy {
   constructor(x, z, anim, label) {
     this.hum = new Humanoid({ shirt: 0xb8662a, vest: 0x5a5a56, vest2: 0x4e4e4a, helmet: 0x4a4a46, skin: SKINS[Math.floor(Math.random() * SKINS.length)] });
@@ -320,16 +332,13 @@ class Dummy {
     const an = this.anat;
     // the body bleeds on: the wounds as they were at death, at least a little from every open one
     // the scalp and face bleed heavily, so a head or neck wound adds a lot
-    const headW = an.wounds.some(w => w.region === 'head' || w.region === 'neck');
-    const pm = Math.min(160, Math.max(an.bleedRate() * 0.8, 12 + 7 * an.wounds.length) + (headW ? 28 : 0));
-    // a sudden death to the brain or spine sets the limbs jerking for a few seconds
-    const tw = /brain|spinal/.test(an.cause) || an.gibHead ? rnd(2, 5) : Math.random() < 0.3 ? rnd(1, 2.5) : 0;
+    const dm = deathMasks(an), pm = dm.bleed, tw = dm.twitch;
     if (this.rag) { this.rag.keep = false; this.rag.owner = { anat: an, nd: this }; this.rag.bleedR = Math.max(this.rag.bleedR, pm); this.rag.twitch = tw; this.rag.asleep = false; }
     else {
       // killed on its feet: by a blast it goes over backwards (or along its stride), otherwise it drops where it stands
       const mv = this.moveVel(), d = an.lastDir.clone().setY(0).normalize(), blast = an.lastW !== undefined && isShotgun(an.lastW);
       const vTop = blast ? (mv.length() > 1 ? mv.clone().multiplyScalar(1.2).addScaledVector(d, 0.6) : d.clone().multiplyScalar(rnd(1.6, 2.4))) : null;
-      this.rag = spawnRagdoll(this.hum, mv.length() > 1 ? mv.multiplyScalar(0.6) : this.vel, an.lastDir, PART_OF_REGION(an.lastRegion), an.cause === 'brain', { bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(), gib: an.gibHead || (an.cause === 'brain' && an.lastW === 2), tear: an.neckTear || (an.lastRegion === 'neck' && an.lastW === 2), vTop, bleed: pm, twitch: tw });
+      this.rag = spawnRagdoll(this.hum, mv.length() > 1 ? mv.multiplyScalar(0.6) : this.vel, an.lastDir, PART_OF_REGION(an.lastRegion), an.cause === 'brain', Object.assign(dm, { vTop }));
       this.rag.owner = { anat: an, nd: this };
     }
     this.hum.root.visible = false;

@@ -89,6 +89,9 @@ function bulletTargets() {
   for (const rg of ragdolls) if (rg !== P.rag && rg.owner) rg.group.traverse(o => { if (o.isMesh && !o.userData.keep && !o.userData.organ && !o.userData.inner && !o.userData.tube && o.visible) arr.push(o); });
   for (const r of S.remotes.values()) if (r.alive && r.st && !r.rag) for (const m of r.hum.hitMeshes) if (m.visible) arr.push(m);
   for (const d of dummies) if (!d.dead && !d.rag) for (const m of d.hum.hitMeshes) if (m.visible) arr.push(m);
+  // your own body takes other players' rounds the same way any body does (holes, bits, blood, flinch); the damage itself
+  // still comes from the shooter's report. Your own rounds pass through it.
+  if (P.alive && !P.downed && localBody && bullets.some(b => !b.local)) for (const m of localBody.hitMeshes) if (m.visible) arr.push(m);
   return arr;
 }
 function updateBullets(dt) {
@@ -104,7 +107,7 @@ function updateBullets(dt) {
     b.pos.addScaledVector(b.vel, dt);
     _bd.subVectors(b.pos, _bp); const len = _bd.length(); if (len > 0) _bd.multiplyScalar(1 / len);
     bray.set(_bp, _bd); bray.far = len;
-    const hit = len > 0 ? bray.intersectObjects(targets, false)[0] : null;
+    const hit = len > 0 ? (b.local ? bray.intersectObjects(targets, false).find(h => h.object.userData.hum !== localBody) : bray.intersectObjects(targets, false)[0]) || null : null;
     b.life += dt;
     if (!b.local && !b.whizz && S.mode && P.alive && len > 0) {
       const tc = clamp(_a.subVectors(camera.position, _bp).dot(_bd), 0, hit ? hit.distance : len), dd = _a.copy(_bp).addScaledVector(_bd, tc).distanceTo(camera.position);

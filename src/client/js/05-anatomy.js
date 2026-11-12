@@ -115,7 +115,7 @@ class Anatomy {
     this.version++;
     const m = (WEAPONS[w] || WEAPONS[0]).mass;
     const region = regionOf(frame, e);
-    this.lastRegion = region; this.lastW = w;
+    this.lastRegion = region; this.lastW = w; this.lastV = v;
     const limb = LIMB_OF[region];
     if (limb && this.lost[limb[0]] && this.lost[limb[0]] <= limb[1]) return { region, missing: true };
     let vel = v;

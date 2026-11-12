@@ -427,7 +427,9 @@ function bodyWound(hit, dir, w, pen, ex, hum) {
   const g = hit.object.parent, frame = hit.object.userData.frame, armor = hit.object.userData.armor;
   const cal = CAL[w] || CAL[0], qi = g.getWorldQuaternion(new THREE.Quaternion()).invert();
   const pL = g.worldToLocal(hit.point.clone()), dL = dir.clone().applyQuaternion(qi).normalize(), nL = dL.clone().negate();
-  const through = pen.v > 0 && ex, depth = Math.max(0.02, pen.depth), r1 = through ? cal[1] : lerp(cal[0], cal[1], 0.4);
+  // through and through: the track ends where the round leaves this segment (pen.depth is how far it could have gone, which
+  // drew the wound tube sticking out of the far side as a long red cylinder)
+  const through = pen.v > 0 && ex, depth = Math.max(0.02, through ? Math.min(pen.depth, ex.len || pen.depth) : pen.depth), r1 = through ? cal[1] : lerp(cal[0], cal[1], 0.4);
   const start = pL.clone().addScaledVector(dL, -0.04), L = depth + 0.04 + (through ? 0.05 : 0), sk = [0.04, through ? 0.04 + depth : 0];
   const pellet = !!WEAPONS[w].pellets;
   if (!pellet) holeInGroup(g, start, dL, L, cal[0], r1, sk);

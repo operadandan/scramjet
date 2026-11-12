@@ -58,8 +58,13 @@ function updateCamera(dt) {
     if (P.stepDip) { P.ld -= Math.min(P.stepDip, 0.36) * 0.5; P.stepDip = 0; }
     camera.position.y += clamp(P.ld, -0.25, 0.1); }
   // climbing over something: the head pitches down at the edge and comes up as the body goes over
+  // staggered: the view reels and sinks, the head lolling forward; rocked by a hit: a short jolt
+  P.stagV = damp(P.stagV || 0, P.stag ? 1 : 0, 4, dt); P.stunV = damp(P.stunV || 0, P.stun > 0 ? 1 : 0, 14, dt);
+  const sgv = P.stagV, stt = tt * 2.2;
+  camera.position.y -= 0.12 * sgv;
+  const reelP = sgv * (-0.18 + Math.sin(stt * 1.4) * 0.08) + P.stunV * 0.05 * Math.sin(tt * 31), reelR = sgv * Math.sin(stt) * 0.12 + P.stunV * 0.04 * Math.sin(tt * 23);
   const mk = P.mantleK || 0;
-  camera.rotation.set(P.pitch + P.recoilPitch - rlB * 0.03 + Math.sin(tt * 3.1) * shake + br.p + clamp(P.jp || 0, -0.2, 0.08) - mk * 0.5, P.yaw + Math.sin(tt * 2.3) * shake + br.y, -P.leanEff * 0.22 + br.r + P.mRoll + mk * 0.06);
+  camera.rotation.set(P.pitch + P.recoilPitch - rlB * 0.03 + Math.sin(tt * 3.1) * shake + br.p + clamp(P.jp || 0, -0.2, 0.08) - mk * 0.5 + reelP, P.yaw + Math.sin(tt * 2.3) * shake + br.y, -P.leanEff * 0.22 + br.r + P.mRoll + mk * 0.06 + reelR);
   const w = WEAPONS[P.weapon];
   const zW = VMW[P.weapon], mag = zW && zW.lens; camera.fov = lerp(75, mag ? (w.scope ? 52 : 60) : w.fovAds, P.ads) + P.sprintBlend * 4; camera.updateProjectionMatrix();
 }
