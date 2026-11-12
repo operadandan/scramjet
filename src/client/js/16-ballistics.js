@@ -176,7 +176,14 @@ function onBulletHit(b, hit, dir, dist) {
       bloodFx(hit.point, dir, false, pen.v > 0 && ex ? 1 : 0.4); if (pen.v > 0 && ex) { bloodFx(ex.point, dir, true); cont = { point: ex.point, dir, v: pen.v }; }
       if (b.shot) blastVisual(b.shot, hit, dir, info, rag, null);
     }
-    if (b.w === 2 && (info.frame === 'head' || info.frame === 'neck') && rag.headG.visible && b.local) { rag.gibHead(dir); cont = null; }
+    // neck: rounds and pellets tear it a little at a time until the head hangs on strands, then part the strands
+    const nearStrands = rag.fibers && rag.fibers.some(f => rag.torso.localToWorld(f.a.clone()).lerp(rag.headG.localToWorld(f.b.clone()), 0.5).distanceTo(hit.point) < 0.07);
+    if ((info.frame === 'neck' || nearStrands) && rag.headG.visible && !stopped) {
+      if (!rag.neckTorn) { rag.neckHits = (rag.neckHits || 0) + (b.w === 2 ? 6 : b.shot ? 1.4 : 1); if (rag.neckHits >= 5.5) rag.tearNeck(dir); }
+      else rag.cutFibers(hit.point, b.w === 2 ? 99 : b.shot ? 2 : 1);
+      if (b.w === 2) cont = null;
+    }
+    else if (b.w === 2 && info.frame === 'head' && rag.headG.visible && b.local) { rag.gibHead(dir); cont = null; }
     else if (cont && (info.frame === 'head' || info.frame === 'neck')) wallSpatter(cont.point, dir, rnd(0.55, 0.8), true);
     let ni = 1, nd = 1e9; for (let i = 0; i < 16; i++) { const dd = rag.p[i].distanceToSquared(hit.point); if (dd < nd) { nd = dd; ni = i; } }
     rag.kick(dir, (0.35 + v / 1500) * (b.w === 2 ? 3 : 1) * (cont ? 0.5 : 1), ni);
@@ -212,7 +219,11 @@ function onBulletHit(b, hit, dir, dist) {
     }
     if (!b.local) return cont;
     if (ud.hum.remote) net.send({ t: 'hit', id: ud.hum.remote.id, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
-    else if (ud.hum.dummy) ud.hum.dummy.shot(info, v, b.w, dir, dist);
+    else if (ud.hum.dummy) {
+      const d0 = ud.hum.dummy; d0.shot(info, v, b.w, dir, dist);
+      // a .50 or a close blast through the neck that kills: the head is left hanging
+      if (info.frame === 'neck' && (b.w === 2 || b.shot) && d0.rag && !d0.rag.neckTorn && d0.rag.headG.visible) d0.rag.tearNeck(dir);
+    }
     return cont;
   }
   if (hit.face) {

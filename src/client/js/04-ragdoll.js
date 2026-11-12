@@ -12,7 +12,8 @@ const LOST_SEGS = { 1: [0, 1], 2: [1], 4: [2, 3], 8: [3], 16: [4, 5], 32: [5], 6
 const PART_IDX = { head: 0, torso: 1, arm: 7, leg: 10 };
 const RAG_FRAME_SEG = { shL: 0, elL: 1, shR: 2, elR: 3, lgL: 4, knL: 5, lgR: 6, knR: 7 };
 const ragdolls = [];
-const _a = new V3(), _b = new V3(), _c = new V3(), _m4 = new THREE.Matrix4(), _Y = new V3(0, 1, 0);
+const _a = new V3(), _b = new V3(), _c = new V3(), _m4 = new THREE.Matrix4(), _Y = new V3(0, 1, 0), _rq = new THREE.Quaternion(), _fa = new V3(), _fb = new V3(), _fc = new V3();
+const fiberMat = new THREE.MeshStandardMaterial({ color: 0x7a1010, roughness: 0.45, side: THREE.DoubleSide }), fiberMat2 = new THREE.MeshStandardMaterial({ color: 0xa8686a, roughness: 0.6, side: THREE.DoubleSide });
 const _rf = new V3(), _ru = new V3(), _rs = new V3(), _rt = new V3(), _rd = new V3();
 class Ragdoll {
   constructor(pts, pal, vel, hitIdx, dir, power, masks) {
@@ -104,6 +105,7 @@ class Ragdoll {
     for (const i of hidden) if ((i % 2 === 0 || !hidden.has(i - 1)) && !cutSeg[i - (i % 2)] && !(i % 2 && cutSeg[i - 1])) this.stump(i);
     for (const i in cutSeg) this.cutAt(+i, cutSeg[i]);
     if (this.liq) { this.group.updateMatrixWorld(true); for (const [fr, lp, n, tear] of this.liq) { const [g] = this.frameGroup(fr); if (g) { if (tear) tearMesh(g, lp, n, tear); else liquidBlood(g, lp, n, 0.022, 5, 1); } } this.liq = null; }
+    if (masks.tear && !masks.gib) { this.sync(); this.group.updateMatrixWorld(true); this.tearNeck(dir || new V3(0, 0, 1)); }
     if (masks.gib) { addStump(this.torso, new V3(0, 0.33, 0), new V3(0, 1, 0), 0.05); const st = new THREE.Object3D(); st.position.set(0, 0.34, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) }); this.bleedR += 70; }
     this.sync();
   }
@@ -125,6 +127,62 @@ class Ragdoll {
     const st = new THREE.Object3D(); st.position.set(0, 0.34, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) });
     this.bleedR += 70; this.twitch = Math.max(this.twitch, 3); this.asleep = false;
     goreBurst(hp, dir.clone().normalize(), this.skin);
+  }
+  // ---------------------------------------------------------------- neck torn through: the head hangs on by strands of muscle and skin
+  tearNeck(dir) {
+    if (this.neckTorn || this.headGone || !this.headG.visible) return;
+    this.neckTorn = true; this.neckTw = rnd(-0.6, 0.6);
+    const hp = this.headG.getWorldPosition(new V3());
+    // the neck no longer holds the head up: the head-to-chest link becomes a slack rope, the other head links go
+    // (keeping the links that only stop the head sinking into the shoulders)
+    this.c = this.c.filter(([a, b, rest, mode]) => !(a === 0 || b === 0) || mode === 1 || (mode === 0 && (a + b === 1)));
+    for (const c of this.c) if (c[3] === 0 && ((c[0] === 0 && c[1] === 1) || (c[0] === 1 && c[1] === 0))) { this.c.push([0, 1, c[2] * 0.95, 1]); c[2] *= 1.5; c[3] = 3; break; }
+    addStump(this.torso, new V3(0, 0.3, 0), new V3(0, 1, 0), 0.042); addStump(this.headG, new V3(0, -0.17, 0), new V3(0, -1, 0), 0.04);
+    const st = new THREE.Object3D(); st.position.set(0, 0.31, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) });
+    const sh = new THREE.Object3D(); sh.position.set(0, -0.18, 0); this.headG.add(sh); this.anchors.push({ m: sh, n: new V3(0, -1, 0) });
+    this.bleedR += 60; this.twitch = Math.max(this.twitch, 2.5); this.asleep = false;
+    // a few strands: front of the neck (skin and the strap muscles hold longest), and the sides
+    this.fibers = [];
+    const geo = new THREE.CylinderGeometry(1, 0.8, 1, 5, 1, true);
+    for (let i = 0; i < 7; i++) {
+      const ang = (i / 7) * Math.PI * 2 + rnd(-0.3, 0.3), r = rnd(0.012, 0.03), front = Math.cos(ang) < 0 ? 1 : 0;
+      const a = new V3(Math.sin(ang) * r, 0.3, Math.cos(ang) * r), b = new V3(Math.sin(ang) * r * 0.9, -0.17, Math.cos(ang) * r * 0.9);
+      const m = new THREE.Mesh(geo, i % 3 ? fiberMat : fiberMat2); m.userData.keep = true; m.userData.rag = this; scene.add(m);
+      this.fibers.push({ m, a, b, w: rnd(0.0025, 0.0055) * (front ? 1.3 : 1), hp: front ? 2 : 1 });
+    }
+    for (let i = 0; i < 2; i++) bloodFx(hp.clone().add(new V3(rnd(-0.03, 0.03), -0.12, rnd(-0.03, 0.03))), dir.clone().normalize(), true);
+    noiseHit(260, 0.22, 0.1);
+    this.syncFibers();
+  }
+  syncFibers() {
+    if (!this.fibers) return;
+    for (const f of this.fibers) {
+      const A = this.torso.localToWorld(_fa.copy(f.a)), Bw = this.headG.localToWorld(_fb.copy(f.b)), L = A.distanceTo(Bw) || 1e-3;
+      f.m.position.addVectors(A, Bw).multiplyScalar(0.5); f.m.quaternion.setFromUnitVectors(_Y, _fc.subVectors(A, Bw).multiplyScalar(1 / L));
+      // stretched strands thin out
+      const th = f.w * clamp(0.22 / L, 0.35, 1.2); f.m.scale.set(th, L, th);
+    }
+  }
+  // a hit near the strands parts some of them; when too few are left the head drops free
+  cutFibers(point, n) {
+    if (!this.fibers || this.headGone) return;
+    const byD = this.fibers.map(f => [f, this.torso.localToWorld(f.a.clone()).lerp(this.headG.localToWorld(f.b.clone()), 0.5).distanceTo(point)]).sort((x, y) => x[1] - y[1]);
+    for (const [f] of byD.slice(0, n)) { f.hp--; if (f.hp <= 0) { f.m.removeFromParent(); f.dead = true; } }
+    this.fibers = this.fibers.filter(f => !f.dead);
+    if (this.fibers.length <= 1) this.dropHead(point);
+  }
+  dropHead(point) {
+    if (this.headGone) return;
+    this.headGone = true;
+    for (const f of this.fibers || []) f.m.removeFromParent(); this.fibers = null;
+    this.anchors = this.anchors.filter(a => a.m.parent !== this.headG);
+    this.c = this.c.filter(([a, b]) => a !== 0 && b !== 0);
+    const h = this.headG; scene.attach(h); h.traverse(o => { if (o.isMesh) o.userData.rag = null; });
+    const v = new V3().subVectors(this.p[0], this.q[0]).multiplyScalar(120);
+    addProp(h, v.add(new V3(rnd(-0.4, 0.4), rnd(0.2, 0.8), rnd(-0.4, 0.4))), new V3(rnd(-6, 6), rnd(-6, 6), rnd(-6, 6)), 0.1, 'head', 90);
+    this.headG = new THREE.Group(); this.headG.visible = false; this.group.add(this.headG);
+    for (let i = 0; i < 2; i++) bloodFx((point || this.torso.localToWorld(new V3(0, 0.33, 0))).clone(), new V3(rnd(-0.5, 0.5), rnd(0.2, 1), rnd(-0.5, 0.5)).normalize(), true);
+    this.bleedR += 40; this.asleep = false; noiseHit(300, 0.2, 0.08);
   }
   // clip segment si at fraction t from its top, with a stump on the end that stays; returns the cut height
   cutAt(si, t) {
@@ -204,7 +262,7 @@ class Ragdoll {
     knee(9, 10, 11); knee(12, 13, 14); hip(9, 10, -1); hip(12, 13, 1); elbow(3, 4, 5); elbow(6, 7, 8); shoulder(3, 4, -1); shoulder(6, 7, 1);
     // neck: the head stays above the shoulders' side of the torso axis and tips at most about 70 degrees any way
     _rt.subVectors(p[0], p[1]); const hl = _rt.length(), hu = _rt.dot(_ru) / (hl || 1);
-    if (hu < 0.34) { const k = (0.34 - hu) * hl; p[0].addScaledVector(_ru, k * 0.6); p[1].addScaledVector(_ru, -k * 0.4); }
+    if (hu < 0.34 && !this.neckTorn) { const k = (0.34 - hu) * hl; p[0].addScaledVector(_ru, k * 0.6); p[1].addScaledVector(_ru, -k * 0.4); }
   }
   step(h) {
     const p = this.p, q = this.q, g = 9.8 * h * h, dmp = this.life < 1.2 ? 0.988 : 0.975, vmax = 0.1;
@@ -225,6 +283,7 @@ class Ragdoll {
         const A = p[a], B = p[b];
         _a.subVectors(B, A); const d = _a.length() || 1e-6;
         if (mode === 1 && d >= rest) continue;
+        if (mode === 3 && d <= rest) continue;   // a rope: only pulls when stretched
         let k = (d - rest) / d; if (mode === 2) { if (tone < 0.0004) continue; k *= tone; }
         const wa = im[a] / (im[a] + im[b]);
         A.addScaledVector(_a, k * wa); B.addScaledVector(_a, -k * (1 - wa));
@@ -321,6 +380,12 @@ class Ragdoll {
     this.torso.quaternion.setFromRotationMatrix(_m4);
     this.torso.position.addVectors(p[1], p[2]).multiplyScalar(0.5);
     this.headG.position.copy(p[0]); this.headG.quaternion.copy(this.torso.quaternion);
+    if (this.neckTorn && !this.headGone) {
+      // a hanging head turns so the torn neck points back at the body
+      const at = this.torso.localToWorld(_c.set(0, 0.3, 0)), d = _a.subVectors(p[0], at).normalize();
+      this.headG.quaternion.setFromUnitVectors(_Y, d).multiply(_rq.setFromAxisAngle(_Y, this.neckTw || 0));
+      this.syncFibers();
+    }
     for (const l of this.limbs) {
       const A = p[l.a], B = p[l.b];
       l.g.position.addVectors(A, B).multiplyScalar(0.5);
@@ -329,7 +394,7 @@ class Ragdoll {
     }
   }
   tag(key, val) { this.group.traverse(o => { if (o.isMesh) o.userData[key] = val; }); }
-  dispose() { scene.remove(this.group); if (this.pool) scene.remove(this.pool); this.group.traverse(o => { if (o.isMesh && o.userData.holeN) o.material.dispose(); if (o.isMesh && o.material === vcMat) o.geometry.dispose(); }); }
+  dispose() { if (this.fibers) for (const f of this.fibers) f.m.removeFromParent(); scene.remove(this.group); if (this.pool) scene.remove(this.pool); this.group.traverse(o => { if (o.isMesh && o.userData.holeN) o.material.dispose(); if (o.isMesh && o.material === vcMat) o.geometry.dispose(); }); }
 }
 function spawnRagdoll(hum, vel, dir, part, head, masks) {
   masks = Object.assign({ nh: !!hum.helmetOff, w: hum.wounds, h: hum.holes }, masks);

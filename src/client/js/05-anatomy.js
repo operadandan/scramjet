@@ -193,7 +193,9 @@ class Anatomy {
     if (zone === 'head') {
       for (const st of STRUCTS_BY_FRAME[z.frame] || []) this.damage(this.s[st.id], st, 45 * k, region);
       this.flesh.head = Math.max(0, this.flesh.head - 30 * k); this.flesh.neck = Math.max(0, this.flesh.neck - 15 * k);
-      if ((z.n >= 4 && spread < 0.1 || z.n >= 6 && spread < 0.14) && !this.gibHead) { this.gibHead = true; res.gib = true; this.wounds.push({ region: 'neck', name: 'Head destroyed', rate: 120, treated: false, artery: 1 }); this.kill('brain'); }
+      // a blast through the neck tears it rather than taking the head away: the head ends up hanging on what is left
+      if (z.frame === 'neck' && (z.n >= 4 && spread < 0.1 || z.n >= 6 && spread < 0.14) && !this.gibHead && !this.neckTear) { this.neckTear = true; res.tear = true; this.wounds.push({ region: 'neck', name: 'Neck torn through', rate: 110, treated: false, artery: 1 }); this.kill('spinal'); }
+      else if ((z.n >= 4 && spread < 0.1 || z.n >= 6 && spread < 0.14) && !this.gibHead && z.frame !== 'neck') { this.gibHead = true; res.gib = true; this.wounds.push({ region: 'neck', name: 'Head destroyed', rate: 120, treated: false, artery: 1 }); this.kill('brain'); }
       else if (z.n >= 3 && spread < 0.11 && !this.dead) this.kill(z.frame === 'neck' ? 'spinal' : 'brain');
     } else if (limb) {
       const bones = (STRUCTS_BY_FRAME[z.frame] || []).filter(st => st.type === 'bone' || st.type === 'artery');

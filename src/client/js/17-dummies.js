@@ -327,7 +327,7 @@ class Dummy {
       // killed on its feet: by a blast it goes over backwards (or along its stride), otherwise it drops where it stands
       const mv = this.moveVel(), d = an.lastDir.clone().setY(0).normalize(), blast = an.lastW !== undefined && isShotgun(an.lastW);
       const vTop = blast ? (mv.length() > 1 ? mv.clone().multiplyScalar(1.2).addScaledVector(d, 0.6) : d.clone().multiplyScalar(rnd(1.6, 2.4))) : null;
-      this.rag = spawnRagdoll(this.hum, mv.length() > 1 ? mv.multiplyScalar(0.6) : this.vel, an.lastDir, PART_OF_REGION(an.lastRegion), an.cause === 'brain', { bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(), gib: an.gibHead || (an.cause === 'brain' && an.lastW === 2), vTop, bleed: pm, twitch: tw });
+      this.rag = spawnRagdoll(this.hum, mv.length() > 1 ? mv.multiplyScalar(0.6) : this.vel, an.lastDir, PART_OF_REGION(an.lastRegion), an.cause === 'brain', { bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(), gib: an.gibHead || (an.cause === 'brain' && an.lastW === 2), tear: an.neckTear || (an.lastRegion === 'neck' && an.lastW === 2), vTop, bleed: pm, twitch: tw });
       this.rag.owner = { anat: an };
     }
     this.hum.root.visible = false;
