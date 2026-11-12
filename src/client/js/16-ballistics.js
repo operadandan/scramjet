@@ -138,6 +138,30 @@ function updateBullets(dt) {
 
 // pellets of one shot that land together on one body: past the third, the load tears one big opening (organs show through
 // it), throws out tissue and paints what is behind. Runs on every client that draws the shot, so everyone sees it.
+// ---------------------------------------------------------------- bodies wear away like walls: holes from blasts and .50s that land
+// near an earlier one widen it instead of making a new one, and once a hole is as wide as the limb the limb parts right there
+const LIMB_R = { shL: 0.05, shR: 0.05, elL: 0.04, elR: 0.04, lgL: 0.075, lgR: 0.075, knL: 0.055, knR: 0.055 };
+function erode(key, seg, frame, cl, r, info, dir) {
+  if (!key || !frame) return;
+  const E = key.erosion = key.erosion || [];
+  let h = E.find(x => x.seg === seg && x.p.distanceTo(cl) < x.r + r + 0.02);
+  if (h) { const a = h.r * h.r, b = r * r; h.p.lerp(cl, b / (a + b)); h.r = Math.min(0.16, Math.sqrt(a + b) * 1.05); h.n++; }
+  else E.push(h = { seg, frame, p: cl.clone(), r, n: 1 });
+  // a wider channel where it grew
+  if (h.n > 1) { const dL = dir.clone().applyQuaternion(seg.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize(); holeInGroup(seg, h.p.clone().addScaledVector(dL, -0.06), dL, 0.32, h.r, h.r * 1.3, null); spawnGore(seg.localToWorld(h.p.clone()), dir, 'flesh', 2 + h.n, 2.5, 0.4, 0.012); }
+  const lr = LIMB_R[frame];
+  if (lr && h.r >= lr * 0.75 && !h.cut) {
+    h.cut = true;
+    const region = regionOf(frame, info.e), lim = LIMB_OF[region]; if (!lim) return;
+    const t = /hand|foot/.test(region) ? 0.93 : clamp(-info.e.y / (LSEG[frame] || 0.3), 0.1, 0.9);
+    const own = key.owner || {}, an = key.dummy ? key.dummy.anat : own.dummy ? own.dummy.anat : own.anat || null;
+    if (an) {
+      an.sever(lim[0], lim[1], t);
+      if (key.dummy) { const d = key.dummy; if (d.rag) { d.rag.applyLost(an.lostMask(), dir, an.cutArr()); d.hum.setLost(an.lostMask(), an.cutArr()); } else syncLost(d.hum, an.lostMask(), dir, an.cutArr()); }
+      else if (key.applyLost) key.applyLost(an.lostMask(), dir, an.cutArr());
+    }
+  }
+}
 function blastVisual(shot, hit, dir, info, key, hum) {
   let g = shot.hits.get(key); if (!g) shot.hits.set(key, g = { n: 0, pts: [], seg: hit.object.parent, frame: info.frame, lastN: 0 });
   g.n++; if (hit.object.parent === g.seg) g.pts.push(hit.point.clone());
@@ -148,6 +172,7 @@ function blastVisual(shot, hit, dir, info, key, hum) {
   const seg = g.seg, cl = seg.worldToLocal(c.clone()), dL = dir.clone().applyQuaternion(seg.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
   const r0 = clamp(0.022 + sp * 0.55, 0.025, 0.075), st = cl.clone().addScaledVector(dL, -0.05);
   holeInGroup(seg, st, dL, 0.3, r0, r0 * 1.6, [0.05, 0]);
+  erode(key, seg, g.frame, cl, r0, info, dir);
   if (!hit.object.userData.armor) addWound(hum, g.frame, seg, cl, dL.clone().negate(), 'blast', r0 * 7.5);
   if (hum && g.frame) { hum.holes = hum.holes || []; hum.holes.push({ frame: g.frame, p: st, d: dL.clone(), len: 0.3, r0, r1: r0 * 1.6, sk: [0.05, 0] }); if (hum.holes.length > 10) hum.holes.shift(); }
   const f = g.frame, part = f === 'head' || f === 'neck' ? 'headwound' : f === 'spine' ? (info.e.y > 0.22 ? 'chest' : 'abdomen') : f === 'hips' ? 'pelvis' : 'limb';
@@ -175,6 +200,7 @@ function onBulletHit(b, hit, dir, dist) {
       info.pd = pen.depth; bodyWound(hit, dir, b.w, pen, ex, null);
       bloodFx(hit.point, dir, false, pen.v > 0 && ex ? 1 : 0.4); if (pen.v > 0 && ex) { bloodFx(ex.point, dir, true); cont = { point: ex.point, dir, v: pen.v }; }
       if (b.shot) blastVisual(b.shot, hit, dir, info, rag, null);
+      if (b.w === 2 && !b.shot) erode(rag, hit.object.parent, info.frame, hit.object.parent.worldToLocal(hit.point.clone()), 0.045, info, dir);
     }
     // neck: rounds and pellets tear it a little at a time until the head hangs on strands, then part the strands
     const nearStrands = rag.fibers && rag.fibers.some(f => rag.torso.localToWorld(f.a.clone()).lerp(rag.headG.localToWorld(f.b.clone()), 0.5).distanceTo(hit.point) < 0.07);
@@ -216,6 +242,7 @@ function onBulletHit(b, hit, dir, dist) {
       if (pen.v > 0 && ex) { bloodFx(ex.point, dir, true); cont = { point: ex.point, dir, v: pen.v }; if (info.frame === 'head' || info.frame === 'neck') wallSpatter(ex.point, dir, rnd(0.6, 0.9), true); }
       else if (info.frame === 'head' || info.frame === 'neck') { bloodFx(hit.point, dir, false, 2); blowSpatter(hit.point, dir, rnd(0.35, 0.55)); }
       if (b.shot) blastVisual(b.shot, hit, dir, info, ud.hum, ud.hum);
+      if (b.w === 2 && !b.shot && b.local) erode(ud.hum, hit.object.parent, info.frame, hit.object.parent.worldToLocal(hit.point.clone()), 0.045, info, dir);
     }
     if (!b.local) return cont;
     if (ud.hum.remote) net.send({ t: 'hit', id: ud.hum.remote.id, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
