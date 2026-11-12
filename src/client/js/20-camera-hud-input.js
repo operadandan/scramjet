@@ -169,7 +169,13 @@ function updateViewmodel(dt) {
       const iq = g.getWorldQuaternion(_q0).invert(), fw = _v0.set(-Math.sin(P.yaw), 0, -Math.cos(P.yaw)), rt = _v1.set(Math.cos(P.yaw), 0, -Math.sin(P.yaw));
       const palm = g.worldToLocal(_v2.fromArray(P.mantle.edge).addScaledVector(rt, -0.13).addScaledVector(fw, 0.02));
       const fL = fw.clone().addScaledVector(rt, 0.25).normalize().applyQuaternion(iq), pnL = _v3.set(0, -1, 0).applyQuaternion(iq);
-      const q = Lr.orient(fL, pnL), pose = poseForRig(W, q, Lr.wristForPalm(q, palm));
+      const q = Lr.orient(fL, pnL); let wr = Lr.wristForPalm(q, palm);
+      // the arm stays one piece: the hand only goes as far as the arm reaches from the shoulder (past that it lifts off the
+      // ledge), and the elbow is solved between the two so forearm and upper arm meet
+      const S = Lr.shoulderT, reach = 0.254 + 0.2 - 0.01, dv = wr.clone().sub(S);
+      if (dv.length() > reach) wr = S.clone().addScaledVector(dv.normalize(), reach);
+      Lr.elbowT.lerp(solveElbow(wr, fL, pnL, S, 0.25, 0.3, 1.5, 0.254, 0.2), wgt);
+      const pose = poseForRig(W, q, wr);
       L.h.position.lerp(pose.p, wgt); L.h.quaternion.slerp(pose.q, wgt); L.h.visible = true;
       if (W.curlL && W.curlOpenL) lerpCurls(W.curlL, W.curlOpenL, wgt, W.curlL);
     }
