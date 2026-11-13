@@ -228,15 +228,15 @@ for g in cov: cov[g][list(set(range(n)) - set(bv))] = 0
 GF = {g: [f for f in body if max(cov[g][i] for i in f) > 0.0 and SEGS[FS[tuple(f)]] not in ('handL', 'handR', 'head')] for g in cov}
 # how far each sits off whatever is under it, and the least it may come in to after smoothing
 ORDER = ['pants', 'boots', 'shirt']    # inside to outside where they overlap
-BASE = {'pants': (0.0055, 0.0035), 'boots': (0.0035, 0.0025), 'shirt': (0.0055, 0.0035)}
+BASE = {'pants': (0.0055, 0.0035), 'boots': (0.0035, 0.0025), 'shirt': (0.0065, 0.0048)}
 GP = {}; GN = {}
 under_off = np.zeros(n)          # how far the outermost garment so far sits off the skin, per vertex
 for g in ORDER:
     vs_ = sorted(set(i for f in GF[g] for i in f)); vl = np.array(vs_)
     o0, o1 = BASE[g]
     off = np.full(n, 0.0); mino_ = np.full(n, 0.0)
-    off[vl] = under_off[vl] * (under_off[vl] > 0) + o0 + (under_off[vl] > 0) * 0.002
-    mino_[vl] = under_off[vl] + o1
+    off[vl] = under_off[vl] * (under_off[vl] > 0) + o0 + (under_off[vl] > 0) * 0.003
+    mino_[vl] = under_off[vl] + o1 + (under_off[vl] > 0) * 0.0015
     if g == 'pants':    # trousers hang loose over the seat and the hips
         seatm = (wyv[vl] > 0.7) & (wyv[vl] < 1.05)
         off[vl[seatm]] += 0.008; mino_[vl[seatm]] += 0.003
@@ -282,7 +282,10 @@ for g in ORDER:
     print(g, 'faces', len(GF[g]), 'off mm', round(float(dd.min() * 1000), 1), round(float(np.median(dd) * 1000), 1), round(float(dd.max() * 1000), 1))
 # skin faces fully inside a garment are hidden until the garment is shot open; the rest (near any hem) stay drawn
 # skin under the shirt stays drawn near the shirt's open ends (you can see up under the hem and down the collar)
-shirt_closed = cov['shirt'] * (wyv > 1.12) * (wyv < np.array([collar_y(x, z) for x, y, z in P]) - 0.06)
+trunkv = np.array([bool(vseg.get(i, set()) & {'spine', 'hips', 'neck'}) and not vseg.get(i, set()) & {'shL', 'shR'} for i in range(n)])
+near_open = trunkv & ((wyv < 1.07) | ((wyv > np.array([collar_y(x, z) for x, y, z in P]) - 0.04) & (np.abs(P[:, 0]) < 0.13)))
+# (arms are closed all the way: the cuffs are under the gloves; skin left drawn under a sleeve pokes through at the bends)
+shirt_closed = cov['shirt'] * (~near_open)
 fullcov = np.maximum.reduce([cov['pants'], cov['boots'], shirt_closed])
 LAYERS = {'skin': 0, 'shirt': 1, 'pants': 2, 'boots': 3, 'hair': 4}
 LAY = [P, GP['shirt'], GP['pants'], GP['boots'], PH]; LN = [Nv, GN['shirt'], GN['pants'], GN['boots'], NH]

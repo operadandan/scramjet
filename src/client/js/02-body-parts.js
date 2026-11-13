@@ -99,7 +99,7 @@ if (vFab > 0.5) {
   diffuseColor.rgb *= 0.95 + 0.08 * cv;
   if (vFab < 1.5) diffuseColor.rgb *= mix(0.84, 1.0, smoothstep(0.5, 0.66, vHc));
   else if (vFab < 2.5) diffuseColor.rgb *= mix(0.78, 1.0, smoothstep(0.5, 0.6, vHc)) * mix(1.0, 0.82, smoothstep(0.2, 0.0, vCp.y + 0.38) * step(1.5, vFab));
-  if (!gl_FrontFacing) diffuseColor.rgb = vColor.rgb * 0.42;
+  if (!gl_FrontFacing) diffuseColor.rgb = vColor.rgb * 0.72;   // the inside of the cloth: a little darker (where a bent sleeve folds through itself it must not show as a dark tear)
 }`)
     .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nif (vFab > 0.5) roughnessFactor = vFab < 2.5 ? 0.94 : (vFab < 3.5 ? 0.55 : (vFab < 4.5 ? 0.85 : 0.97));')
     .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
