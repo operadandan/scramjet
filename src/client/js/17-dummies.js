@@ -28,8 +28,9 @@ fpBody.root.traverse(o => { if (o.isMesh) { o.castShadow = false; o.userData.fp 
 fpBody.spine.position.y -= 0.1;
 // and everything above and behind a plane through the eyes is cut away (shoulders, straps, the upper back): the cut is seen
 // edge-on from the eye, so it never shows; what stays is what you see looking down, the front of the rig, the belt and the legs
+// (the clones keep the skin and cloth shader patches)
 const fpClip = new THREE.Plane(); renderer.localClippingEnabled = true;
-fpBody.root.traverse(o => { if (!o.isMesh || !o.material) return; const cl = m => { m = m.clone(); m.clippingPlanes = [fpClip]; return m; }; o.material = Array.isArray(o.material) ? o.material.map(cl) : cl(o.material); });
+fpBody.root.traverse(o => { if (!o.isMesh || !o.material) return; const cl = m => { const c = m.clone(); c.clippingPlanes = [fpClip]; c.onBeforeCompile = m.onBeforeCompile; c.customProgramCacheKey = m.customProgramCacheKey; return c; }; o.material = Array.isArray(o.material) ? o.material.map(cl) : cl(o.material); });
 const PALS = [
   { shirt: 0x6b6650, pants: 0x5a5644, vest: 0x7a6e52, vest2: 0x6e6349, helmet: 0x6a6250 },
   { shirt: 0x3e4636, pants: 0x3a4032, vest: 0x4b5440, vest2: 0x434b39, helmet: 0x454c3c },

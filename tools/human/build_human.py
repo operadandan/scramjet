@@ -32,13 +32,13 @@ V = to_game(V); J = {k: to_game(v) for k, v in J.items()}
 def seg_of(b):
     s = b.split('.')[-1] if '.' in b else ''
     S = 'L' if s == 'L' else 'R'
-    if b.startswith('upperarm'): return 'sh' + S
+    if b.startswith(('upperarm', 'shoulder01')): return 'sh' + S
     if b.startswith(('lowerarm',)): return 'el' + S
     if b.startswith(('wrist', 'finger', 'metacarpal')): return 'hand' + S
     if b.startswith('upperleg'): return 'lg' + S
     if b.startswith(('lowerleg', 'foot', 'toe')): return 'kn' + S
     if b.startswith(('pelvis', 'root')): return 'hips'
-    if b.startswith(('spine', 'clavicle', 'breast', 'shoulder01')): return 'spine'
+    if b.startswith(('spine', 'clavicle', 'breast')): return 'spine'
     if b.startswith('neck'): return 'neck'
     return 'head'
 SEGS = ['hips', 'spine', 'neck', 'head', 'shL', 'elL', 'shR', 'elR', 'lgL', 'knL', 'lgR', 'knR', 'handL', 'handR']
@@ -373,7 +373,8 @@ def load_obj(path):
         elif l.startswith('vt '): vt.append([float(x) for x in l.split()[1:3]])
         elif l.startswith('f '): f.append([(int(c.split('/')[0]) - 1, int(c.split('/')[1]) - 1) for c in l.split()[1:]])
     return np.array(v), np.array(vt), f
-GARM = {}
+from collections import Counter
+GARM = {}; GW_ = {}
 deleted = set()
 for gname, base in (('suit', 'male_casualsuit06/male_casualsuit06'), ('shoes', 'shoes02/shoes02')):
     sc, refs, dele = load_mhclo(GD + base + '.mhclo'); ov, vt, gf = load_obj(GD + base + '.obj')
@@ -390,10 +391,28 @@ for gname, base in (('suit', 'male_casualsuit06/male_casualsuit06'), ('shoes', '
         for k in range(len(idx)):
             a_, b_, c_ = G[idx[k]], G[idx[(k + 1) % len(idx)]], G[idx[k - 1]]; GN_[idx[k]] += np.cross(b_ - a_, c_ - a_)
     GN_ /= np.maximum(np.linalg.norm(GN_, axis=1, keepdims=True), 1e-9)
-    GARM[gname] = dict(G=G, N=GN_, W=Wg, vt=vt, f=gf, refs=R_)
+    GARM[gname] = dict(G=G, N=GN_, W=Wg, vt=vt, f=gf, refs=R_); GW_[gname] = W_
     deleted |= dele
     print(gname, len(G), 'verts', len(gf), 'faces', 'hides', len(dele), 'body verts')
-fullcov = np.zeros(n); fullcov[list(d for d in deleted if d < n)] = 1.0
+# the garments' own lists stop a little short of their edges in places (skin then pokes through at the shoulders when the
+# arms go up): grow them over neighbouring skin that a garment still covers (a garment point within 2.2 cm, outside the
+# skin, facing the same way)
+from scipy.spatial import cKDTree as _KD
+_allG = np.vstack([g['G'] for g in GARM.values()]); _allN = np.vstack([g['N'] for g in GARM.values()]); _gt = _KD(_allG)
+_adj = {}
+for f in body:
+    for k in range(4): a_, b_ = f[k], f[(k + 1) % 4]; _adj.setdefault(a_, set()).add(b_); _adj.setdefault(b_, set()).add(a_)
+def _covered(v):
+    d_, j_ = _gt.query(P[v]); return d_ < 0.022 and _allN[j_] @ Nv[v] > 0.3 and (_allG[j_] - P[v]) @ Nv[v] > -0.001
+dl_ = set(d for d in deleted if d < n)
+for ring in range(4):
+    add = set()
+    for v in dl_:
+        for u in _adj.get(v, ()):
+            if u not in dl_ and _covered(u): add.add(u)
+    dl_ |= add
+print('hidden skin vertices', len(set(d for d in deleted if d < n)), '->', len(dl_))
+fullcov = np.zeros(n); fullcov[list(dl_)] = 1.0
 fullcov = np.maximum(fullcov, cov['socks'])
 LAYERS = {'skin': 0, 'shirt': 1, 'pants': 2, 'boots': 3, 'hair': 4, 'socks': 5}
 LAY = [P, GP['shirt'], GP['pants'], GP['boots'], PH, GP['socks']]; LN = [Nv, GN['shirt'], GN['pants'], GN['boots'], NH, GN['socks']]
@@ -471,15 +490,32 @@ def g_cloth(gname, G, uvv, k):
             r = (0.62 - wy) / 0.27 if wy >= 0.35 else 1 + (0.35 - wy) / 0.27
             return kk, min(r, 2.0), (np.arctan2(rv[0], rv[2]) / (2 * np.pi)) % 1.0 * 8
     return 0, 0, 0
+bseg = np.zeros(n, dtype=np.int64); _bv = {}
+for f in body:
+    for i in f: _bv.setdefault(i, Counter())[FS[tuple(f)]] += 1
+for i, c_ in _bv.items(): bseg[i] = c_.most_common(1)[0][0]
+# clothes are fitted to MakeHuman's hidden helper geometry (a tights-shaped shell over the body): a helper vertex goes with
+# the body part of the nearest visible skin vertex
+from scipy.spatial import cKDTree
+_bl = np.array(sorted(_bv)); _tr = cKDTree(V[_bl])
+_hl = np.array([i for i in range(n) if i not in _bv]); bseg[_hl] = bseg[_bl[_tr.query(V[_hl])[1]]]
+# garment skin weights from the visible skin itself (the helper shell's own weights don't match the skin near the
+# shoulders): the 4 nearest skin vertices to each garment vertex, by inverse distance, and its body part from the nearest
+_tr_game = cKDTree(P[_bl])
+for gd in GARM.values():
+    dd_, ii_ = _tr_game.query(gd['G'], k=4); wq = 1.0 / np.maximum(dd_, 1e-4); wq /= wq.sum(1, keepdims=True)
+    gd['W'] = (SW2[_bl[ii_]] * wq[:, :, None]).sum(1); gd['bs'] = bseg[_bl[ii_[:, 0]]]
 gout = {}
 for gname, gd in GARM.items():
     G, Ng, Wg, vt, gf = gd['G'], gd['N'], gd['W'], gd['vt'], gd['f']
     wyg = (G[:, 1] - hip_anchor[1]) * s_tor + 0.95
+    # each garment vertex goes with the body part its main body vertex belongs to (so a sleeve is cut where the arm's
+    # own skin is cut, and follows the arm), each face with the part most of its corners go with
+    R_ = gd['refs']; Wr = np.array([r_[1] for r_ in None]) if False else None
+    vsg = list(gd['bs'])
     def gseg(f):
-        idx = [c[0] for c in f]; w = Wg[idx].sum(0); w[HI] += w[SP]; w[SP] = 0
-        for hh in ('handL', 'handR'): w[SEGS.index('el' + hh[-1])] += w[SEGS.index(hh)]; w[SEGS.index(hh)] = 0
-        k = int(w.argmax())
-        if k == HI: k = HI if wyg[idx].mean() < 1.035 else SP
+        votes = Counter(vsg[c[0]] for c in f); k = votes.most_common(1)[0][0]
+        if k in (SEGS.index('handL'), SEGS.index('handR')): k = SEGS.index('el' + SEGS[k][-1])
         return k
     FSg = [gseg(f) for f in gf]
     gout[gname] = {}

@@ -100,6 +100,7 @@ class Ragdoll {
     mergeTree(this.group, vcMat); attachSkin(this.group, B.segAt);
     this.group.traverse(o => { if (o.isMesh) o.userData.rag = this; });
     if (masks.gib) this.headG.visible = false;
+    if (masks.h && masks.h.length) this.group.userData.wounded = true;   // (its clothes stay put over the blood: see ClothSim)
     if (masks.h) for (const h of masks.h) { const [g, dy] = this.frameGroup(h.frame, h.p.y + h.d.y * h.len * 0.5); if (g) holeInGroup(g, h.p.clone().setY(h.p.y + dy), h.d, h.len, h.r0, h.r1, h.sk); }
     this.lostMask = lost; this.sync(); this.group.updateMatrixWorld(true);
     for (const i of hidden) if ((i % 2 === 0 || !hidden.has(i - 1)) && !cutSeg[i - (i % 2)] && !(i % 2 && cutSeg[i - 1])) this.stump(i);
@@ -396,11 +397,19 @@ class Ragdoll {
       this.headG.quaternion.setFromUnitVectors(_Y, d).multiply(_rq.setFromAxisAngle(_Y, this.neckTw || 0));
       this.syncFibers();
     }
+    // each limb swings off the bone above it (torso for an upper arm or thigh) by the least rotation, so it keeps that bone's
+    // twist: the skin and clothes blend between neighbouring bones and tear apart if their twists don't agree
     for (const l of this.limbs) {
       const A = p[l.a], B = p[l.b];
       l.g.position.addVectors(A, B).multiplyScalar(0.5);
       _a.subVectors(A, B).normalize();
-      l.g.quaternion.setFromUnitVectors(_Y, _a);
+      // it starts with the living body's own bone turn (twist included), then each step only swings it to where the bone points now
+      if (l.q0) { l.g.quaternion.copy(l.q0); l.q0 = null; l.inc = true; }
+      if (l.inc) { _b.copy(_Y).applyQuaternion(l.g.quaternion); l.g.quaternion.premultiply(_rq.setFromUnitVectors(_b, _a)); continue; }
+      if (l.par === undefined) l.par = this.limbs.find(m => m.b === l.a && m !== l) || null;
+      const pq = l.par ? l.par.g.quaternion : this.torso.quaternion;
+      _b.copy(_Y).applyQuaternion(pq);
+      l.g.quaternion.setFromUnitVectors(_b, _a).multiply(pq);
     }
   }
   tag(key, val) { this.group.traverse(o => { if (o.isMesh) o.userData[key] = val; }); }
@@ -412,6 +421,7 @@ function spawnRagdoll(hum, vel, dir, part, head, masks) {
     goreBurst(hum.headMark.getWorldPosition(new V3()), dir.clone().normalize(), hum.pal && hum.pal.skin);
   }
   const r = new Ragdoll(hum.capture(), hum.pal, vel || new V3(), part === 'arm' ? (Math.random() < 0.5 ? 4 : 7) : part === 'leg' ? (Math.random() < 0.5 ? 10 : 13) : PART_IDX[part] || 1, dir, masks.soft ? 0.25 : head ? 5.5 : 3, masks);
+  { const BN = ['shL', 'elL', 'shR', 'elR', 'lgL', 'knL', 'lgR', 'knR']; for (const l of r.limbs) { const b = hum[BN[l.seg]]; if (b) l.q0 = b.getWorldQuaternion(new THREE.Quaternion()); } r.sync(); }
   ragdolls.push(r);
   while (ragdolls.length > 14) { const i = ragdolls.findIndex(x => !x.keep); if (i < 0) break; ragdolls.splice(i, 1)[0].dispose(); }
   // a dummy that goes down lets go of its weapon, which becomes an item on the ground

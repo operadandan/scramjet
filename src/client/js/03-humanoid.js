@@ -58,7 +58,7 @@ class Humanoid {
   constructor(pal, shadowOnly) {
     this.pal = Object.assign({}, HUM_DEFAULT, pal || {});
     this.shadowOnly = !!shadowOnly;
-    this.root = new THREE.Group();
+    this.root = new THREE.Group(); this.root.userData.hum = this;
     this.hitMeshes = [];
     this.wb = 0;
     this.anim = { phase: 0, speed: 0, crouch: 0, prone: 0, limp: 0, lean: 0, pitch: 0, reload: 0, sprint: 0, ads: 0, air: 0, weapon: 0 };
@@ -117,11 +117,11 @@ class Humanoid {
       ['legL', 16, 32, this.lgL, this.knL, 0.44, 0.44, 0.075, 0.055, [this.hips, this.lgL.position, [0, -1, 0]]], ['legR', 64, 128, this.lgR, this.knR, 0.44, 0.44, 0.075, 0.055, [this.hips, this.lgR.position, [0, -1, 0]]]];
     LIMBS.forEach(([nm, up, low, gU, gL, LU, LL, rU, rL, root], i) => {
       const t = cuts ? cuts[i] || 0 : 0;
-      show(gU, true); clipGroup(gU, null); clipGroup(gL, null);
+      show(gU, true); clipGroup(gU, null); clipGroup(gL, null); gU.userData.gone = gL.userData.gone = false;
       if (this.stumps[nm]) { this.stumps[nm].removeFromParent(); this.stumps[nm] = null; }
       let st = null;
-      if (mask & up) { show(gL, false); if (t) { clipGroup(gU, -t * LU); st = [gU, new V3(0, -t * LU, 0), new V3(0, -1, 0), rU * 0.85]; } else { show(gU, false); st = [root[0], root[1], new V3().fromArray(root[2]), rU]; } }
-      else if (mask & low) { if (t) { clipGroup(gL, -t * LL); st = [gL, new V3(0, -t * LL, 0), new V3(0, -1, 0), rL * 0.9]; } else { show(gL, false); st = [gU, gL.position, new V3(0, -1, 0), rL]; } }
+      if (mask & up) { show(gL, false); gL.userData.gone = true; if (t) { clipGroup(gU, -t * LU); st = [gU, new V3(0, -t * LU, 0), new V3(0, -1, 0), rU * 0.85]; } else { show(gU, false); gU.userData.gone = true; st = [root[0], root[1], new V3().fromArray(root[2]), rU]; } }
+      else if (mask & low) { if (t) { clipGroup(gL, -t * LL); st = [gL, new V3(0, -t * LL, 0), new V3(0, -1, 0), rL * 0.9]; } else { show(gL, false); gL.userData.gone = true; st = [gU, gL.position, new V3(0, -1, 0), rL]; } }
       if (st && !this.shadowOnly) this.stumps[nm] = addStump(st[0], st[1], st[2], st[3]);
     });
   }

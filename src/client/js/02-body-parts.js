@@ -59,7 +59,7 @@ const garmGeo = (g, seg) => {
 const GARM_MAT = (() => {
   const L = new THREE.TextureLoader(), tex = (u, srgb) => { const t = L.load(u); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
   return {
-    suit: new THREE.MeshStandardMaterial({ map: tex('/models/clothes/suit_col.jpg', true), normalMap: tex('/models/clothes/suit_nrm.jpg'), aoMap: tex('/models/clothes/suit_ao.jpg'), roughness: 0.95, metalness: 0, side: THREE.DoubleSide }),   // two-sided: the inside of the collar and sleeves shows
+    suit: new THREE.MeshStandardMaterial({ map: tex('/models/clothes/suit_col.jpg', true), normalMap: tex('/models/clothes/suit_nrm.jpg'), aoMap: tex('/models/clothes/suit_ao.jpg'), aoMapIntensity: 0.45, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }),   // two-sided: the inside of the collar and sleeves shows
     shoes: new THREE.MeshStandardMaterial({ map: tex('/models/clothes/shoes_col.jpg', true), roughness: 0.7, metalness: 0, side: THREE.DoubleSide }),
   };
 })();
@@ -78,10 +78,11 @@ function skinShader(sh, U) {
 const _skI = new THREE.Matrix4(), _skT = new THREE.Matrix4(), _skN = new THREE.Matrix3();
 function skinUpdate() {
   const sk = this._skin, P = this.parent; if (!sk || !P) return;
-  _skI.copy(P.matrixWorld).invert();
+  _skI.copy(this.matrixWorld).invert();   // the mesh's own frame: a part built off its group's origin (the ragdoll's) blends right too
   for (let k = 0; k < 12; k++) {
     const at = sk.at[HUMAN_SEGS[k]];
-    if (!at || !at[0].parent && at[0] !== P) { sk.U.segOK.value[k] = 0; continue; }
+    // a bone that isn't there (or a limb that was shot off) pulls on nothing: the skin and clothes by the cut stay put
+    if (!at || !at[0].parent && at[0] !== P || at[0].userData.gone) { sk.U.segOK.value[k] = 0; continue; }
     sk.U.segOK.value[k] = 1;
     sk.U.segM.value[k].multiplyMatrices(_skI, at[0].matrixWorld).multiply(_skT.makeTranslation(0, at[1], 0));
   }
@@ -106,7 +107,7 @@ class ClothSim {
   // where each particle's bit of cloth sits on the body now (skinned like a vertex)
   targets() {
     for (let i = 0; i < this.n; i++) {
-      const r = HUMAN_CLOTH[i], A = this.at[r.s]; if (!A) { this.ok[i] = 0; continue; }
+      const r = HUMAN_CLOTH[i], A = this.at[r.s]; if (!A || A[0].userData.gone) { this.ok[i] = 0; continue; }
       this.ok[i] = 1; const m = A[0].matrixWorld;
       this.tg[i].set(r.p[0], r.p[1] + A[1], r.p[2]).applyMatrix4(m);
       if (r.w > 0) { const B = this.at[HUMAN_SEGS[r.b]]; if (B) this.tg[i].lerp(_cB.set(r.q[0], r.q[1] + B[1], r.q[2]).applyMatrix4(B[0].matrixWorld), r.w); }
@@ -118,6 +119,10 @@ class ClothSim {
     let p = this.root; while (p.parent) p = p.parent;
     if (p !== scene || !this.root.visible) { this.idle++; this.on = false; return; }
     this.idle = 0;
+    // once the body is wounded its clothes settle and stay at rest: blood, holes and torn cloth are fixed to the cloth as
+    // it lies, and a swinging hem would slide over them
+    const hm = this.root.userData.hum;
+    if (this.root.userData.wounded || hm && hm.wounds && hm.wounds.length) { if (this.on) { for (const d of this.d) d.set(0, 0, 0); this.on = false; } return; }
     // only near bodies are simulated (nobody sees a hem swing at 40 m); far ones wear their clothes at rest
     _cA.setFromMatrixPosition(this.root.matrixWorld);
     if (_cA.distanceToSquared(camera.position) > 1600) { if (this.on) { for (const d of this.d) d.set(0, 0, 0); this.on = false; } return; }
@@ -217,7 +222,12 @@ if (vFab > 0.5) {
     diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.68, 0.78) * diffuseColor.rgb * 2.2, 0.10 * weft + 0.16 * wash);
     diffuseColor.rgb *= mix(0.8, 1.0, smoothstep(0.5, 0.6, vHc));
   }
-  if (!gl_FrontFacing) diffuseColor.rgb = vColor.rgb * 0.72;   // the inside of the cloth: a little darker (where a bent sleeve folds through itself it must not show as a dark tear)
+// the inside of the cloth: a little darker (where a bent sleeve folds through itself it must not show as a dark tear)
+#ifdef USE_COLOR
+  if (!gl_FrontFacing) diffuseColor.rgb = vColor.rgb * 0.72;
+#else
+  if (!gl_FrontFacing) diffuseColor.rgb *= 0.72;
+#endif
 }`)
     .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nif (vFab > 0.5) roughnessFactor = vFab < 2.5 ? 0.94 : (vFab < 3.5 ? 0.55 : (vFab < 4.5 ? 0.85 : 0.97));')
     .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
