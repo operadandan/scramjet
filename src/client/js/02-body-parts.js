@@ -79,8 +79,10 @@ float clothH(vec3 p, float fb, float c, float wk) {
     float band = 1.0 - smoothstep(0.5, 0.66, c);
     h += band * (0.0010 + 0.0003 * sin(atan(p.x, p.z) * 150.0));
   } else if (fb < 2.5) {
-    h = sin(p.y * 110.0 + cN(p * 12.0) * 5.0) * (0.00025 + 0.0008 * j) + cN(p * 50.0) * 0.00015;
-    h += (1.0 - smoothstep(0.5, 0.6, c)) * 0.0014;
+    // denim: stiff, so few soft folds but sharper creases at the joints, a raised twill, and a thick hem and waistband
+    h = sin(p.y * 90.0 + cN(p * 10.0) * 5.0) * (0.0002 + 0.0009 * j) + cN(p * 40.0) * 0.00012;
+    h += sin((p.y + 0.7 * (p.x + p.z)) * 2200.0) * 0.00004;
+    h += (1.0 - smoothstep(0.5, 0.6, c)) * 0.0016;
   } else if (fb < 4.5) {
     h = cN(p * 180.0) * 0.00025 + sin(p.y * 200.0 + cN(p * 20.0) * 4.0) * 0.00025 * (1.0 - step(3.5, fb));
   } else {
@@ -98,7 +100,12 @@ if (vFab > 0.5) {
   float cv = cN(vCp * 9.0) * 0.6 + cN(vCp * 140.0) * 0.4;
   diffuseColor.rgb *= 0.95 + 0.08 * cv;
   if (vFab < 1.5) diffuseColor.rgb *= mix(0.84, 1.0, smoothstep(0.5, 0.66, vHc));
-  else if (vFab < 2.5) diffuseColor.rgb *= mix(0.78, 1.0, smoothstep(0.5, 0.6, vHc)) * mix(1.0, 0.82, smoothstep(0.2, 0.0, vCp.y + 0.38) * step(1.5, vFab));
+  else if (vFab < 2.5) {
+    // denim: white weft showing through the indigo, a worn-lighter wash in patches, darker stitched hem and waistband
+    float weft = cN(vCp * 420.0), wash = smoothstep(0.35, 0.8, cN(vCp * 7.0 + 3.1));
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.68, 0.78) * diffuseColor.rgb * 2.2, 0.10 * weft + 0.16 * wash);
+    diffuseColor.rgb *= mix(0.8, 1.0, smoothstep(0.5, 0.6, vHc));
+  }
   if (!gl_FrontFacing) diffuseColor.rgb = vColor.rgb * 0.72;   // the inside of the cloth: a little darker (where a bent sleeve folds through itself it must not show as a dark tear)
 }`)
     .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nif (vFab > 0.5) roughnessFactor = vFab < 2.5 ? 0.94 : (vFab < 3.5 ? 0.55 : (vFab < 4.5 ? 0.85 : 0.97));')
@@ -309,7 +316,9 @@ class Body {
   }
   // a real human body segment (MakeHuman), painted: skin, shirt, pants, boots, sole, hair
   human(seg, p, y, f) {
-    const c = this.c, col = [c.skin, c.shirt, c.pants, c.boots, c.sole, c.hair];
+    // everyone wears blue jeans: a few washes, picked by the outfit's own trouser colour so a body keeps its pair
+    const DENIM = [0x2e3d57, 0x384a66, 0x29344a, 0x43546f];
+    const c = this.c, col = [c.skin, c.shirt, DENIM[((c.pants >>> 0) * 2654435761 >>> 28) & 3], c.boots, c.sole, c.hair];
     (this.segAt = this.segAt || {})[seg] = [p, y];
     for (let r = 0; r < 6; r++) { const g = humGeo(seg, r); if (g) this.add(g, col[r], p, 0, y, 0, f); }
     // the skin under the clothes and hair: hidden (and free) until the clothes over it are shot open

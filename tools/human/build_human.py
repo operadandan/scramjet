@@ -223,11 +223,13 @@ for i in range(n):
     if sg & {'knL', 'knR'}:
         c = (bootTop - y) / 0.012
         cov['boots'][i] = np.clip(0.5 + 0.5 * c, 0, 1)
+        # jeans: worn over the boots, the hem resting just under the ankle bone (the foot itself is not inside the leg)
+        cov['pants'][i] = min(cov['pants'][i], np.clip(0.5 + 0.5 * (y - (ankleY - 0.012)) / 0.012, 0, 1))
 for g in cov: cov[g][list(set(range(n)) - set(bv))] = 0
 # which faces each garment covers (any part of)
 GF = {g: [f for f in body if max(cov[g][i] for i in f) > 0.0 and SEGS[FS[tuple(f)]] not in ('handL', 'handR', 'head')] for g in cov}
 # how far each sits off whatever is under it, and the least it may come in to after smoothing
-ORDER = ['pants', 'boots', 'shirt']    # inside to outside where they overlap
+ORDER = ['boots', 'pants', 'shirt']    # inside to outside where they overlap
 BASE = {'pants': (0.0055, 0.0035), 'boots': (0.0035, 0.0025), 'shirt': (0.0065, 0.0048)}
 GP = {}; GN = {}
 under_off = np.zeros(n)          # how far the outermost garment so far sits off the skin, per vertex
@@ -262,6 +264,21 @@ for g in ORDER:
         for it in range(25):
             avg = np.array([PCg[nb_].mean(0) for nb_ in nbr]); PCg[vl] += 0.5 * (avg - PCg[vl])
             d = ((PCg[vl] - P[vl]) * Nv[vl]).sum(1); PCg[vl] += Nv[vl] * np.maximum(0, mino_[vl] - d)[:, None]
+        # straight-leg jeans: below the crotch each leg of the jeans is a straight tube round the leg's own line (hip to
+        # ankle), never narrower than a straight-leg cut (12.6 cm across), so it falls straight past the knee and calf
+        # instead of following them like skinny jeans; the thigh still fills it where the thigh is wider
+        for S in 'LR':
+            h0 = mj('upperleg01.' + S); a0 = mj('foot.' + S); ax = (a0 - h0) / np.linalg.norm(a0 - h0)
+            lv = np.array([i for i in vl if vseg[i] & {'lg' + S, 'kn' + S} and wyv[i] < 0.8])
+            if not len(lv): continue
+            fade = ss((0.78 - wyv[lv]) / 0.16)                # full straight cut from a little below the crotch
+            for it in range(30):
+                rel = PCg[lv] - h0; t = rel @ ax; rv = rel - np.outer(t, ax); rr = np.linalg.norm(rv, axis=1)
+                want = np.maximum(rr, 0.063 * fade + rr * (1 - fade))
+                PCg[lv] = h0 + np.outer(t, ax) + rv * (want / np.maximum(rr, 1e-6))[:, None]
+                idx_ = {v: k for k, v in enumerate(vl)}
+                avg = np.array([PCg[nbr[idx_[i]]].mean(0) for i in lv]); PCg[lv] += 0.35 * (avg - PCg[lv])
+                d = ((PCg[lv] - P[lv]) * Nv[lv]).sum(1); PCg[lv] += Nv[lv] * np.maximum(0, mino_[lv] - d)[:, None]
     if g == 'shirt':
         # the shirt hangs from the chest and shoulder blades: below the chest it falls straight instead of following the
         # waist in, and it stands off the trousers at the hem
