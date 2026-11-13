@@ -25,6 +25,7 @@ W = json.load(open(D + 'rigs/default_weights.mhw'))['weights']
 
 # MakeHuman faces +z with its left on +x, in decimetres. The game faces -z with its left on -x, in metres: turn 180 about y
 def to_game(p): p = np.asarray(p) * 0.1; return np.stack([-p[..., 0], p[..., 1], -p[..., 2]], -1)
+V_mh = V.copy()
 V = to_game(V); J = {k: to_game(v) for k, v in J.items()}
 
 # which game segment each MakeHuman bone belongs to
@@ -211,7 +212,7 @@ def collar_y(x, z):  # world height of the crew neck line round the base of the 
     return 1.497 + 0.03 * np.clip((z + 0.02) / 0.08, 0, 1) - 0.4 * x * x
 GW = {}   # garment -> coverage per vertex
 TRUNK = {'spine', 'hips', 'neck'}; ARM = {'shL', 'shR', 'elL', 'elR', 'handL', 'handR'}; LEG = {'lgL', 'lgR', 'knL', 'knR'}
-cov = {g: np.zeros(n) for g in ('shirt', 'pants', 'boots')}
+cov = {g: np.zeros(n) for g in ('shirt', 'pants', 'boots', 'socks')}
 bootTop = ankleY + 0.115
 for i in range(n):
     sg = vseg.get(i, set()); x, y, z = P[i]; wy = wyv[i]
@@ -228,14 +229,15 @@ for i in range(n):
     if sg & {'knL', 'knR'}:
         c = (bootTop - y) / 0.012
         cov['boots'][i] = np.clip(0.5 + 0.5 * c, 0, 1)
+        cov['socks'][i] = np.clip(0.5 + 0.5 * (ankleY + 0.16 - y) / 0.012, 0, 1)   # crew socks to mid-calf
         # jeans: worn over the boots, the hem resting just under the ankle bone (the foot itself is not inside the leg)
         cov['pants'][i] = min(cov['pants'][i], np.clip(0.5 + 0.5 * (y - (ankleY - 0.012)) / 0.012, 0, 1))
 for g in cov: cov[g][list(set(range(n)) - set(bv))] = 0
 # which faces each garment covers (any part of)
 GF = {g: [f for f in body if max(cov[g][i] for i in f) > 0.0 and SEGS[FS[tuple(f)]] not in ('handL', 'handR', 'head')] for g in cov}
 # how far each sits off whatever is under it, and the least it may come in to after smoothing
-ORDER = ['boots', 'pants', 'shirt']    # inside to outside where they overlap
-BASE = {'pants': (0.0055, 0.0035), 'boots': (0.0035, 0.0025), 'shirt': (0.0065, 0.0048)}
+ORDER = ['socks', 'boots', 'pants', 'shirt']    # inside to outside where they overlap
+BASE = {'pants': (0.0055, 0.0035), 'boots': (0.007, 0.005), 'shirt': (0.0065, 0.0048), 'socks': (0.0016, 0.0012)}
 GP = {}; GN = {}
 under_off = np.zeros(n)          # how far the outermost garment so far sits off the skin, per vertex
 for g in ORDER:
@@ -254,7 +256,7 @@ for g in ORDER:
     for f in GF[g]:
         for k in range(4): a_, b_ = f[k], f[(k + 1) % 4]; gad.setdefault(a_, set()).add(b_); gad.setdefault(b_, set()).add(a_)
     nbr = [np.array(sorted(gad[i])) for i in vs_]
-    its = {'pants': 45, 'shirt': 45, 'boots': 12}[g]
+    its = {'pants': 45, 'shirt': 45, 'boots': 70, 'socks': 3}[g]
     for it in range(its):
         avg = np.array([PCg[nb_].mean(0) for nb_ in nbr])
         PCg[vl] += 0.55 * (avg - PCg[vl])
@@ -284,6 +286,34 @@ for g in ORDER:
                 idx_ = {v: k for k, v in enumerate(vl)}
                 avg = np.array([PCg[nbr[idx_[i]]].mean(0) for i in lv]); PCg[lv] += 0.35 * (avg - PCg[lv])
                 d = ((PCg[lv] - P[lv]) * Nv[lv]).sum(1); PCg[lv] += Nv[lv] * np.maximum(0, mino_[lv] - d)[:, None]
+    if g == 'boots':
+        # a boot is not the shape of a foot: the heavy smoothing above already rounded the toes into one toe box; now a
+        # roomier toe box, a flat sole, and a rubber sole edge standing out round the bottom (the welt)
+        # the foot part of the boot is the foot's convex hull (no toes, no arch), a few mm out, blending into the shaft
+        from scipy.spatial import ConvexHull
+        for S in 'LR':
+            sd = vl[np.sign(P[vl, 0]) == (-1 if S == 'L' else 1)]
+            ft = sd[P[sd, 1] < ankleY + 0.035]; c0 = P[ft].mean(0); hq = ConvexHull(P[ft]).equations
+            for v in sd[P[sd, 1] < ankleY + 0.07]:
+                dv = P[v] - c0; dl = np.linalg.norm(dv)
+                if dl < 1e-6: continue
+                dv /= dl; nd = hq[:, :3] @ dv; ok_ = nd > 1e-6
+                tt = np.min(-(hq[ok_, :3] @ c0 + hq[ok_, 3]) / nd[ok_])
+                tgt = c0 + dv * (tt + 0.0065)
+                b_ = np.clip((ankleY + 0.07 - P[v, 1]) / 0.05, 0, 1); b_ = b_ * b_ * (3 - 2 * b_)
+                if np.linalg.norm(tgt - c0) > np.linalg.norm(PCg[v] - c0): PCg[v] = PCg[v] + (tgt - PCg[v]) * b_
+        for it in range(12):
+            avg = np.array([PCg[nb_].mean(0) for nb_ in nbr]); PCg[vl] += 0.4 * (avg - PCg[vl])
+            d = ((PCg[vl] - P[vl]) * Nv[vl]).sum(1); PCg[vl] += Nv[vl] * np.maximum(0, mino_[vl] - d)[:, None]
+        fr_ = vl[P[vl, 2] < mj('foot.L')[2] - 0.05]   # the front of the foot: toe box
+        PCg[fr_] += Nv[fr_] * 0.004
+        low = P[vl, 1] < solY + 0.03
+        lv_ = vl[low]
+        PCg[lv_, 1] = np.maximum(PCg[lv_, 1], solY - 0.002)          # never below the floor
+        flat = vl[P[vl, 1] < solY + 0.012]; PCg[flat, 1] = solY - 0.002   # flat tread
+        welt = vl[(P[vl, 1] < solY + 0.026)]
+        hor = Nv[welt] * np.array([1, 0, 1]); hl = np.linalg.norm(hor, axis=1, keepdims=True)
+        PCg[welt] += hor / np.maximum(hl, 1e-6) * 0.006 * (hl > 0.2)
     if g == 'shirt':
         # the shirt hangs from the chest and shoulder blades: below the chest it falls straight instead of following the
         # waist in, and it stands off the trousers at the hem
@@ -308,11 +338,67 @@ trunkv = np.array([bool(vseg.get(i, set()) & {'spine', 'hips', 'neck'}) and not 
 near_open = trunkv & ((wyv < 1.07) | ((wyv > np.array([collar_y(x, z) for x, y, z in P]) - 0.04) & (np.abs(P[:, 0]) < 0.13)))
 # (arms are closed all the way: the cuffs are under the gloves; skin left drawn under a sleeve pokes through at the bends)
 shirt_closed = cov['shirt'] * (~near_open)
-fullcov = np.maximum.reduce([cov['pants'], cov['boots'], shirt_closed])
-LAYERS = {'skin': 0, 'shirt': 1, 'pants': 2, 'boots': 3, 'hair': 4}
-LAY = [P, GP['shirt'], GP['pants'], GP['boots'], PH]; LN = [Nv, GN['shirt'], GN['pants'], GN['boots'], NH]
-COV = [np.ones(n), cov['shirt'], cov['pants'], cov['boots'], hf]
-REGOF = {1: 1, 2: 2, 3: 3, 4: 7}
+# ---- real garments (MakeHuman 1.1 system assets, CC0): the casual outfit (T-shirt and jeans) and lace-up boots.
+# Each garment vertex is tied to three body vertices (barycentric weights plus an offset scaled to the body) in its .mhclo
+# file, so it fits this body exactly, and it takes its skin weights from those same body vertices, so it bends exactly as
+# the skin under it does: nothing pokes through. The body vertices the garment lists as covered are hidden.
+GD = '/home/claude/assets/mc/data/clothes/'
+def load_mhclo(path):
+    scale = {}; refs = []; dele = set(); mode = None
+    for l in open(path):
+        t = l.split('#')[0].split()
+        if not t: continue
+        if t[0] in ('x_scale', 'y_scale', 'z_scale'): scale[t[0][0]] = (int(t[1]), int(t[2]), float(t[3])); continue
+        if t[0] == 'verts': mode = 'v'; continue
+        if t[0] == 'delete_verts': mode = 'd'; continue
+        if not t[0].lstrip('-').replace('.', '').isdigit(): mode = None if t[0] not in ('material', 'vertexboneweights_file', 'z_depth') else mode; continue
+        if mode == 'v':
+            if len(t) == 1 and t[0].isdigit(): refs.append(([int(t[0])] * 3, [1.0, 0, 0], [0, 0, 0])); continue
+            if len(t) >= 9:
+                try: refs.append(([int(x) for x in t[:3]], [float(x) for x in t[3:6]], [float(x) for x in t[6:9]])); continue
+                except ValueError: pass
+            mode = None
+        elif mode == 'd':
+            i = 0
+            try:
+                while i < len(t):
+                    if i + 2 < len(t) and t[i + 1] == '-': dele.update(range(int(t[i]), int(t[i + 2]) + 1)); i += 3
+                    else: dele.add(int(t[i])); i += 1
+            except ValueError: mode = None
+    return scale, refs, dele
+def load_obj(path):
+    v = []; vt = []; f = []
+    for l in open(path):
+        if l.startswith('v '): v.append([float(x) for x in l.split()[1:4]])
+        elif l.startswith('vt '): vt.append([float(x) for x in l.split()[1:3]])
+        elif l.startswith('f '): f.append([(int(c.split('/')[0]) - 1, int(c.split('/')[1]) - 1) for c in l.split()[1:]])
+    return np.array(v), np.array(vt), f
+GARM = {}
+deleted = set()
+for gname, base in (('suit', 'male_casualsuit06/male_casualsuit06'), ('shoes', 'shoes02/shoes02')):
+    sc, refs, dele = load_mhclo(GD + base + '.mhclo'); ov, vt, gf = load_obj(GD + base + '.obj')
+    assert len(refs) == len(ov), (gname, len(refs), len(ov))
+    ax = {'x': 0, 'y': 1, 'z': 2}; svec = np.ones(3)
+    for k, (a_, b_, size) in sc.items(): svec[ax[k]] = abs(V_mh[a_][ax[k]] - V_mh[b_][ax[k]]) / size
+    R_ = np.array([r[0] for r in refs]); W_ = np.array([r[1] for r in refs]); O_ = np.array([r[2] for r in refs])
+    Gm = (V_mh[R_] * W_[:, :, None]).sum(1) + O_ * svec
+    G = to_game(Gm)
+    Wg = (SW2[R_] * W_[:, :, None]).sum(1)
+    GN_ = np.zeros_like(G)
+    for f in gf:
+        idx = [c[0] for c in f]
+        for k in range(len(idx)):
+            a_, b_, c_ = G[idx[k]], G[idx[(k + 1) % len(idx)]], G[idx[k - 1]]; GN_[idx[k]] += np.cross(b_ - a_, c_ - a_)
+    GN_ /= np.maximum(np.linalg.norm(GN_, axis=1, keepdims=True), 1e-9)
+    GARM[gname] = dict(G=G, N=GN_, W=Wg, vt=vt, f=gf, refs=R_)
+    deleted |= dele
+    print(gname, len(G), 'verts', len(gf), 'faces', 'hides', len(dele), 'body verts')
+fullcov = np.zeros(n); fullcov[list(d for d in deleted if d < n)] = 1.0
+fullcov = np.maximum(fullcov, cov['socks'])
+LAYERS = {'skin': 0, 'shirt': 1, 'pants': 2, 'boots': 3, 'hair': 4, 'socks': 5}
+LAY = [P, GP['shirt'], GP['pants'], GP['boots'], PH, GP['socks']]; LN = [Nv, GN['shirt'], GN['pants'], GN['boots'], NH, GN['socks']]
+COV = [np.ones(n), cov['shirt'], cov['pants'], cov['boots'], hf, cov['socks']]
+REGOF = {1: 1, 2: 2, 3: 3, 4: 7, 5: 8}
 # ---- cloth simulation rig: the free parts of the garments hang from hoops of particles that the game simulates.
 # Shirt: two hoops of 12 round the trunk (at the waist and at the hem), the shirt pinned still above the chest line.
 # Jeans: two hoops of 8 round each leg (mid-shin and hem), pinned above the knee. Each garment vertex gets which set it
@@ -352,10 +438,10 @@ for si, sg in enumerate(SEGS):
     for f in fs:
         hidden = min(fullcov[i] for i in f) >= 0.999
         quad(f, 0, 6 if hidden else 0)
-        for g, L in (('shirt', 1), ('pants', 2), ('boots', 3)):
+        for g, L in (('socks', 5),):
             if max(cov[g][i] for i in f) > 0 and f in GF[g] if False else (max(cov[g][i] for i in f) > 0 and sg not in ('head',)):
                 reg = REGOF[L]
-                if g == 'boots' and max(P[i, 1] for i in f) < solY + 0.016: reg = 4
+                if g == 'boots' and max(P[i, 1] for i in f) < solY + 0.026: reg = 4   # rubber sole and welt
                 quad(f, L, reg)
     if sg == 'head':
         for f in hairF: quad(f, 4, 7)
@@ -369,28 +455,74 @@ for si, sg in enumerate(SEGS):
         p2[k] = XF[best](q)[0]
     ck = np.zeros(nk); cr = np.zeros(nk); ca = np.zeros(nk)
     for k, (v, L) in enumerate(keys): ck[k], cr[k], ca[k] = cloth_coord(v, L)
-    out[sg] = {'p': pos, 'n': nrm, 'fr': np.array(fr), 't': np.array(tris), 'q': p2, 'b': nb, 'w': nw, 'vid': np.array([v * 5 + L for v, L in keys]),
+    out[sg] = {'p': pos, 'n': nrm, 'fr': np.array(fr), 't': np.array(tris), 'q': p2, 'b': nb, 'w': nw, 'vid': np.array([v * 6 + L for v, L in keys]),
                'lock': np.zeros(nk, dtype=bool), 'h': cv_, 'ck': ck, 'cr': cr, 'ca': ca, 'keys': keys}
     print(sg, nk, 'verts', len(tris) // 3, 'tris', 'blend', (nw > 0.01).sum())
-# pick, for each particle, the garment vertex nearest its hoop height and angle; the game pins it to where that vertex is
-where = {}
-for sg, d in out.items():
-    for k, key in enumerate(d['keys']): where.setdefault(key, (sg, k))
+# ---- garments cut into the body segments like the body itself, with the same skinning and cloth coordinates
+def g_cloth(gname, G, uvv, k):
+    p = G[k]; wy = (p[1] - hip_anchor[1]) * s_tor + 0.95
+    if gname != 'suit': return 0, 0, 0
+    if uvv > 0.5:   # the T-shirt part of the outfit's texture: its lower part hangs from the shirt hoops
+        r = 0 if wy >= 1.30 else ((1.30 - wy) / 0.20 if wy >= 1.10 else 1 + (1.10 - wy) / 0.195)
+        return 1, min(r, 2.0), (np.arctan2(p[0], p[2] - hip_anchor[2]) / (2 * np.pi)) % 1.0 * 12
+    for S, kk in (('L', 2), ('R', 3)):
+        if (p[0] < 0) == (S == 'L') and wy < 0.62:
+            h0, ax_ = LEGAX[S]; rel = p - h0; rv = rel - rel.dot(ax_) * ax_
+            r = (0.62 - wy) / 0.27 if wy >= 0.35 else 1 + (0.35 - wy) / 0.27
+            return kk, min(r, 2.0), (np.arctan2(rv[0], rv[2]) / (2 * np.pi)) % 1.0 * 8
+    return 0, 0, 0
+gout = {}
+for gname, gd in GARM.items():
+    G, Ng, Wg, vt, gf = gd['G'], gd['N'], gd['W'], gd['vt'], gd['f']
+    wyg = (G[:, 1] - hip_anchor[1]) * s_tor + 0.95
+    def gseg(f):
+        idx = [c[0] for c in f]; w = Wg[idx].sum(0); w[HI] += w[SP]; w[SP] = 0
+        for hh in ('handL', 'handR'): w[SEGS.index('el' + hh[-1])] += w[SEGS.index(hh)]; w[SEGS.index(hh)] = 0
+        k = int(w.argmax())
+        if k == HI: k = HI if wyg[idx].mean() < 1.035 else SP
+        return k
+    FSg = [gseg(f) for f in gf]
+    gout[gname] = {}
+    for si, sg in enumerate(SEGS):
+        fs = [f for f, k in zip(gf, FSg) if k == si]
+        if not fs: continue
+        keys = []; kidx = {}
+        def K(v, t_):
+            if (v, t_) not in kidx: kidx[(v, t_)] = len(keys); keys.append((v, t_))
+            return kidx[(v, t_)]
+        tris = []
+        for f in fs:
+            ids = [K(v, t_) for v, t_ in f]
+            for j in range(1, len(ids) - 1): tris += [ids[0], ids[j], ids[j + 1]]
+        nk = len(keys); pos = np.zeros((nk, 3)); nrm = np.zeros((nk, 3)); uv = np.zeros((nk, 2)); nb = np.zeros(nk, dtype=np.int64); nw = np.zeros(nk); p2 = np.zeros((nk, 3)); cc = np.zeros((nk, 3)); tm = np.zeros(nk)
+        for k, (v, t_) in enumerate(keys):
+            q = G[v:v + 1]; pos[k] = XF[sg](q)[0]; uv[k] = vt[t_]
+            pr = XF[sg](q + Ng[v:v + 1] * 0.01)[0] - pos[k]; nrm[k] = pr / max(np.linalg.norm(pr), 1e-9)
+            tm[k] = 1.0 if gname == 'suit' and vt[t_][1] > 0.5 else 0.0
+            cc[k] = g_cloth(gname, G, vt[t_][1], v)
+            best = max(NB[sg], key=lambda m: Wg[v, SEGS.index(m)]); wn = Wg[v, SEGS.index(best)]; ws = Wg[v, si]
+            if wn <= 1e-4: continue
+            nb[k] = GSEG.index(best); nw[k] = wn / (ws + wn) if ws + wn > 0 else 0; p2[k] = XF[best](q)[0]
+        gout[gname][sg] = {'p': pos, 'n': nrm, 'uv': uv, 't': np.array(tris), 'q': p2, 'b': nb, 'w': nw, 'c': cc, 'tm': tm, 'keys': keys}
+        print(gname, sg, nk, 'verts', len(tris) // 3, 'tris')
+# ---- cloth particles: for each hoop and angle, the outfit vertex nearest it; the game pins the particle where it is
 rig = []
-for setk, L in ((1, 1), (2, 2), (3, 2)):
+for setk in (1, 2, 3):
     N = CLN[setk]
-    cand = [(v, cloth_coord(v, L)) for v in range(n) if (v, L) in where and cloth_coord(v, L)[0] == setk]
+    cand = [(sg, k, d['c'][k]) for sg, d in gout['suit'].items() for k in range(len(d['keys'])) if d['c'][k][0] == setk]
     for ring in (1, 2):
         for i in range(N):
             def cost(c):
                 da = abs(c[2] - i); da = min(da, N - da)
                 return abs(c[1] - ring) * 4 + da
-            v, c = min(cand, key=lambda vc: cost(vc[1]))
-            sg, k = where[(v, L)]; d = out[sg]
+            sg, k, c = min(cand, key=lambda x: cost(x[2])); d = gout['suit'][sg]
             rig.append({'s': sg, 'p': [round(float(x), 4) for x in d['p'][k]], 'n': [round(float(x), 3) for x in d['n'][k]],
                         'b': int(d['b'][k]), 'w': round(float(d['w'][k]), 3), 'q': [round(float(x), 4) for x in d['q'][k]]})
 print('cloth particles', len(rig))
 json.dump(rig, open('/home/claude/hb/clothrig.json', 'w'))
+for g in gout.values():
+    for d in g.values(): del d['keys']
+np.save('/home/claude/hb/garments.npy', gout, allow_pickle=True)
 for d in out.values(): del d['keys']
 np.save('/home/claude/hb/segs.npy', out, allow_pickle=True)
 for S in 'LR':

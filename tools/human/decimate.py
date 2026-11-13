@@ -39,12 +39,26 @@ for sg, d in segs.items():
                'c': e64(np.stack([np.round(Ck), np.round(np.clip(Cr, 0, 2) * 100), np.round(np.clip(Ca, 0, 12) * 20)], 1).astype(np.uint8))}
     print(sg, len(P), 'v', len(T) // 3, 't')
 print('total tris', tot)
+# the real garments (MakeHuman CC0 outfit and boots), per segment, with texture coordinates; textures in public/models/clothes
+GOUT = {}
+for gname, segs_ in np.load('/home/claude/hb/garments.npy', allow_pickle=True).item().items():
+    GOUT[gname] = {}
+    for sg, g in segs_.items():
+        c = g['c']
+        GOUT[gname][sg] = {'p': e64(np.round(g['p'] * 10000).astype(np.int16)), 'n': e64(np.round(g['n'] * 127).astype(np.int8)),
+                           'uv': e64(np.round(np.clip(g['uv'], 0, 1) * 65535).astype(np.uint16)), 't': e64(g['t'].astype(np.uint16)),
+                           'q': e64(np.round(g['q'] * 10000).astype(np.int16)), 'b': e64(g['b'].astype(np.uint8)), 'w': e64(np.round(np.clip(g['w'], 0, 1) * 255).astype(np.uint8)),
+                           'c': e64(np.stack([np.round(c[:, 0]), np.round(np.clip(c[:, 1], 0, 2) * 100), np.round(np.clip(c[:, 2], 0, 12) * 20)], 1).astype(np.uint8)),
+                           'tm': e64(np.round(g['tm']).astype(np.uint8))}
+        tot += len(g['t']) // 3
+print('with garments', tot)
 js = ('// The human body: MakeHuman base mesh (CC0, makehumancommunity.org), male, cut into the game\'s body segments and\n'
       '// skinned across the joints, built by tools/human. Per segment: positions (0.1 mm int16), normals (int8), paint region\n'
       '// per triangle, uint16 triangles, and for skinning each vertex\'s position in its neighbouring segment (q), which neighbour\n'
       '// (b, index into HUMAN_SEGS) and how much it follows it (w, 0-255).\n'
       'const HUMAN_SEGS = ' + json.dumps(['hips', 'spine', 'neck', 'head', 'shL', 'elL', 'shR', 'elR', 'lgL', 'knL', 'lgR', 'knR']) + ';\n'
       'const HUMAN_MESH = ' + json.dumps(out, separators=(',', ':')) + ';\n'
+      'const HUMAN_GARMENTS = ' + json.dumps(GOUT, separators=(',', ':')) + ';\n'
       '// cloth particles (shirt 2 hoops x 12, each jeans leg 2 x 8): where each is pinned on the body, skinned like a vertex\n'
       'const HUMAN_CLOTH = ' + json.dumps(json.load(open('/home/claude/hb/clothrig.json')), separators=(',', ':')) + ';\n')
 open(sys.argv[-1], 'w').write(js); print('bytes', len(js))

@@ -6,7 +6,7 @@ const sph = r => GC('sp' + r, () => new THREE.SphereGeometry(r, 14, 10));
 const hemi = r => GC('hm' + r, () => new THREE.SphereGeometry(r, 16, 7, 0, Math.PI * 2, 0, Math.PI * 0.5));
 const cylg = (r, h, s, r2) => GC('cy' + r + '_' + h + '_' + s + '_' + r2, () => new THREE.CylinderGeometry(r, r2 === undefined ? r : r2, h, s || 14));
 // the human body from HUMAN_MESH (02a-human-mesh.js): one segment's triangles of one paint region
-// regions: 0 skin, 1 shirt, 2 pants, 3 boots, 4 sole, 6 skin under the clothes, 7 hair
+// regions: 0 skin, 1 shirt, 2 pants, 3 boots, 4 sole, 6 skin under the clothes, 7 hair, 8 socks
 const _b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
 const _humSeg = {};
 function humSeg(seg) {
@@ -29,12 +29,40 @@ const humGeo = (seg, reg) => GC('hum' + seg + '_' + reg, () => {
   // coverage (where a garment or the hair ends: drawn only over 0.5) and the kind of surface for the fabric shader:
   // 0 skin, 1 cotton shirt, 2 trouser cotton, 3 boot leather, 4 sole, 5 hair
   g.setAttribute('hc', reg === 0 || reg === 6 ? new THREE.BufferAttribute(new Float32Array(S.hc.length).fill(1), 1) : new THREE.BufferAttribute(S.hc, 1));
-  g.setAttribute('fab', new THREE.BufferAttribute(new Float32Array(S.hc.length).fill({ 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 6: 0, 7: 5 }[reg]), 1));
+  g.setAttribute('fab', new THREE.BufferAttribute(new Float32Array(S.hc.length).fill({ 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 6: 0, 7: 5, 8: 1 }[reg]), 1));
   // which cloth hoops a vertex hangs from (see ClothSim)
   g.setAttribute('ck', new THREE.BufferAttribute(reg === 1 || reg === 2 ? S.ck : new Float32Array(S.hc.length), 1)); g.setAttribute('cr', new THREE.BufferAttribute(S.cr, 1)); g.setAttribute('ca', new THREE.BufferAttribute(S.ca, 1));
   if (reg === 7) { const n = S.pos.length / 3, tn = new Float32Array(n * 3); for (let i = 0; i < n; i++) { const h = Math.sin(i * 12.9898) * 43758.5453, k = 0.78 + 0.32 * (h - Math.floor(h)); tn[i * 3] = tn[i * 3 + 1] = tn[i * 3 + 2] = k; } g.setAttribute('tint', new THREE.BufferAttribute(tn, 3)); }
   return g;
 });
+// ---------------------------------------------------------------- real garments
+// The outfit (a T-shirt and straight jeans) and lace-up boots are MakeHuman 1.1 system assets (CC0), fitted to this body by
+// tools/human from their own .mhclo files: every garment vertex sits where the garment's maker tied it to the body, and
+// bends with the same skin weights as the body under it. They keep their textures (public/models/clothes); the shirt's
+// white is dyed per outfit.
+const _garm = {};
+const garmGeo = (g, seg) => {
+  const k = g + ':' + seg; if (k in _garm) return _garm[k];
+  const d = HUMAN_GARMENTS[g] && HUMAN_GARMENTS[g][seg]; if (!d) return (_garm[k] = null);
+  const p = new Int16Array(_b64(d.p)), n = new Int8Array(_b64(d.n)), uv = new Uint16Array(_b64(d.uv)), t = new Uint16Array(_b64(d.t)), q = new Int16Array(_b64(d.q)),
+    b = new Uint8Array(_b64(d.b)), w = new Uint8Array(_b64(d.w)), c = new Uint8Array(_b64(d.c)), tm = new Uint8Array(_b64(d.tm)), N = b.length;
+  const F = (n_) => new Float32Array(n_);
+  const pos = F(N * 3), nrm = F(N * 3), u = F(N * 2), p2 = F(N * 3), nb = F(N), nw = F(N), ck = F(N), cr = F(N), ca = F(N), tt = F(N);
+  for (let i = 0; i < N * 3; i++) { pos[i] = p[i] / 10000; nrm[i] = n[i] / 127; p2[i] = q[i] / 10000; }
+  for (let i = 0; i < N; i++) { u[i * 2] = uv[i * 2] / 65535; u[i * 2 + 1] = uv[i * 2 + 1] / 65535; nb[i] = b[i]; nw[i] = w[i] / 255; ck[i] = c[i * 3]; cr[i] = c[i * 3 + 1] / 100; ca[i] = c[i * 3 + 2] / 20; tt[i] = tm[i]; }
+  const G = new THREE.BufferGeometry(), A = (a, k_) => new THREE.BufferAttribute(a, k_);
+  G.setAttribute('position', A(pos, 3)); G.setAttribute('normal', A(nrm, 3)); G.setAttribute('uv', A(u, 2)); G.setAttribute('p2', A(p2, 3)); G.setAttribute('nb', A(nb, 1)); G.setAttribute('nw', A(nw, 1));
+  G.setAttribute('ck', A(ck, 1)); G.setAttribute('cr', A(cr, 1)); G.setAttribute('ca', A(ca, 1)); G.setAttribute('tm', A(tt, 1));
+  G.setIndex(A(t, 1)); G.computeBoundingSphere();
+  return (_garm[k] = G);
+};
+const GARM_MAT = (() => {
+  const L = new THREE.TextureLoader(), tex = (u, srgb) => { const t = L.load(u); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
+  return {
+    suit: new THREE.MeshStandardMaterial({ map: tex('/models/clothes/suit_col.jpg', true), normalMap: tex('/models/clothes/suit_nrm.jpg'), aoMap: tex('/models/clothes/suit_ao.jpg'), roughness: 0.95, metalness: 0, side: THREE.DoubleSide }),   // two-sided: the inside of the collar and sleeves shows
+    shoes: new THREE.MeshStandardMaterial({ map: tex('/models/clothes/shoes_col.jpg', true), roughness: 0.7, metalness: 0, side: THREE.DoubleSide }),
+  };
+})();
 // Skinning across the joints. A body is still one group per bone, but the skin near a joint follows both bones: each vertex
 // has its position in the neighbouring bone's frame (p2) and a weight (nw), and the vertex shader blends the two. segM[k]
 // takes bone k's frame into the frame of the group this mesh hangs in, every frame; segOK[k] is 0 if that bone isn't there.
@@ -136,7 +164,7 @@ function updateCloth(dt) {
 // half (so hems and the hairline are smooth curves), on both sides (the inside of the shirt shows at the neck, darker), with
 // a fabric relief from its rest position: soft folds that deepen at the joints, a ribbed crew neck, ripstop trousers with
 // a waistband, grained leather boots and hair with a direction to it.
-const CLOTH_VS = ['attribute float hc;\nattribute float fab;\nattribute float ck;\nattribute float cr;\nattribute float ca;\nuniform vec3 cD[56];\nvarying float vHc;\nvarying float vFab;\nvarying vec3 vCp;\nvarying float vWk;\n',
+const CLOTH_VS = ['attribute float hc;\nattribute float fab;\nvarying float vHc;\nvarying float vFab;\nvarying vec3 vCp;\nvarying float vWk;\n',
   'vHc = hc; vFab = fab; vCp = position; vWk = nw;\n'];
 const CLOTH_FS = `varying float vHc;
 varying float vFab;
@@ -175,8 +203,6 @@ const CLOTH_MOVE = `if (ck > 0.5) {
 }
 `;
 function clothShader(sh) {
-  sh.uniforms.cD = sh.uniforms.cD || { value: Array.from({ length: 56 }, () => new THREE.Vector3()) };
-  sh.vertexShader = sh.vertexShader.replace(SKIN_VS[2], SKIN_VS[2] + CLOTH_MOVE);
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + CLOTH_VS[0]).replace('#include <begin_vertex>', '#include <begin_vertex>\n' + CLOTH_VS[1]);
   sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + CLOTH_FS)
     .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (vHc < 0.5) discard;')
@@ -203,8 +229,22 @@ if (vFab > 0.5) {
 }`);
 }
 // every special material on a body part goes through here, so skinning, clothes and bullet holes stack on one mesh
-function bodyPatches(sh, mesh) { if (mesh._skin) { skinShader(sh, mesh._skin.U); if (mesh.geometry.attributes.fab) clothShader(sh); } }
-const bodyKey = mesh => (mesh._skin ? 'sk' : '') + (mesh._skin && mesh.geometry.attributes.fab ? 'c' : '');
+function clothMoveShader(sh) {
+  sh.uniforms.cD = sh.uniforms.cD || { value: Array.from({ length: 56 }, () => new THREE.Vector3()) };
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float ck;\nattribute float cr;\nattribute float ca;\nuniform vec3 cD[56];\n').replace(SKIN_VS[2], SKIN_VS[2] + CLOTH_MOVE);
+}
+// a garment's dyed part (the shirt): its white texture times the outfit's colour
+function tintShader(sh, mesh) {
+  sh.uniforms.gTint = mesh._tintU || (mesh._tintU = { value: new THREE.Color(mesh.userData.tint) });
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float tm;\nvarying float vTm;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvTm = tm;');
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 gTint;\nvarying float vTm;').replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= mix(vec3(1.0), gTint * 1.25, vTm);');
+}
+function bodyPatches(sh, mesh) {
+  if (!mesh._skin) return;
+  const a = mesh.geometry.attributes; skinShader(sh, mesh._skin.U);
+  if (a.ck) clothMoveShader(sh); if (a.fab) clothShader(sh); if (mesh.userData.tint !== undefined && a.tm) tintShader(sh, mesh);
+}
+const bodyKey = mesh => { const a = mesh.geometry.attributes; return (mesh._skin ? 'sk' : '') + (mesh._skin && a.ck ? 'm' : '') + (mesh._skin && a.fab ? 'c' : '') + (mesh._skin && a.tm && mesh.userData.tint !== undefined ? 't' : ''); };
 function attachSkin(root, at) {
   let sim = null;
   root.traverse(o => {
@@ -236,7 +276,7 @@ const PELVIS_PTS = [[0.0, -0.13], [0.09, -0.125], [0.15, -0.08], [0.165, -0.02],
 // merge each skeleton segment's meshes into one vertex-coloured mesh (one draw call per bone instead of dozens)
 const vcMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
 function mergeChildren(group, matl, pick) {
-  const parts = group.children.filter(pick || (c => c.isMesh && !c.isInstancedMesh && !c.userData.armor && !c.userData.keep && !c.userData.organ && !c.userData.inner && !c.userData.under));
+  const parts = group.children.filter(pick || (c => c.isMesh && !c.isInstancedMesh && !c.userData.armor && !c.userData.keep && !c.userData.organ && !c.userData.inner && !c.userData.under && !c.userData.tex));
   if (parts.length < 2) return parts[0] || null;
   const geos = []; let frame = null, hum = null;
   for (const m of parts) {
@@ -411,6 +451,12 @@ class Body {
     for (let r = 0; r < 6; r++) { const g = humGeo(seg, r); if (g) this.add(g, col[r], p, 0, y, 0, f); }
     // the skin under the clothes and hair: hidden (and free) until the clothes over it are shot open
     const hg = humGeo(seg, 7); if (hg) this.add(hg, c.hair, p, 0, y, 0, f);
+    const sk = humGeo(seg, 8); if (sk) this.add(sk, 0x3a3936, p, 0, y, 0, f);   // socks
+    for (const g of ['suit', 'shoes']) {
+      const geo = garmGeo(g, seg); if (!geo) continue;
+      const m = this.add(geo, GARM_MAT[g], p, 0, y, 0, f); m.userData.tex = true;
+      if (g === 'suit') m.userData.tint = c.shirt;            // the shirt part is dyed the outfit's colour
+    }
     const u = humGeo(seg, 6); if (u && this.M(0) !== shadowMat) { const m = this.add(u, c.skin, p, 0, y, 0, null); m.userData.under = true; m.visible = false; m.castShadow = false; }
   }
   pelvis(p, y, f) {
