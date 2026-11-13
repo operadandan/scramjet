@@ -216,6 +216,37 @@ function holeTube(slot, p, d, len, r0, r1, t0, t1, cap, colA, colB) {
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals();
   return g;
 }
+// the wall of a hole as N straight lines along the cone, each clipped to the skin where it enters and leaves the segment
+const _stR = new THREE.Raycaster(), _stM = new THREE.Matrix4();
+function solidTube(group, skin, slot, p, d, len, r0, r1, t0, t1, stop) {
+  group.updateMatrixWorld(true); const mw = group.matrixWorld, sc = mw.getMaxScaleOnAxis();
+  const ax = d.clone().normalize(), e1 = new V3().crossVectors(ax, Math.abs(ax.y) < 0.9 ? new V3(0, 1, 0) : new V3(1, 0, 0)).normalize(), e2 = new V3().crossVectors(ax, e1);
+  const N = 32, R = 4, A = [], B = [], ends = [];
+  for (let k = 0; k < N; k++) {
+    const a = k / N * Math.PI * 2 - Math.PI, j = holeJagJs(slot, a) * 0.995, o = e1.clone().multiplyScalar(Math.cos(a) * j).addScaledVector(e2, Math.sin(a) * j);
+    const pa = p.clone().addScaledVector(o, r0), pb = p.clone().addScaledVector(d, len).addScaledVector(o, r1);   // the line at t=0 and t=1
+    const wa = pa.clone().applyMatrix4(mw), wb = pb.clone().applyMatrix4(mw), wl = wb.clone().sub(wa), L = wl.length(); wl.multiplyScalar(1 / L);
+    // forward from well before the start: first skin crossing; backward from well past the end: last crossing
+    let ta = t0, tb = t1, hitEnd = false;
+    _stR.set(wa.clone().addScaledVector(wl, -0.5 * L), wl); _stR.far = L * 2;
+    const h0 = _stR.intersectObjects(skin, false)[0]; if (h0) ta = Math.max(t0, h0.distance / L - 0.5); else { A.push(pa); B.push(pb); ends.push([t0, t0, false]); continue; }   // misses the body: no wall
+    _stR.set(wb.clone().addScaledVector(wl, 0.5 * L), wl.clone().negate()); _stR.far = L * 2;
+    const h1 = _stR.intersectObjects(skin, false)[0]; if (h1) { const te = 1.5 - h1.distance / L; if (te < tb) { tb = te; hitEnd = true; } }
+    if (tb < ta) tb = ta;
+    A.push(pa); B.push(pb); ends.push([ta, tb, hitEnd]);
+  }
+  const pos = [], col = [], idx = [], cA = new THREE.Color(0x9c2a2a), cB = new THREE.Color(0x3a0204);
+  for (let j = 0; j <= R; j++) for (let k = 0; k < N; k++) {
+    const [ta, tb] = ends[k], t = lerp(ta, tb, j / R), q = A[k].clone().lerp(B[k], t), cc = cA.clone().lerp(cB, j / R);
+    pos.push(q.x, q.y, q.z); col.push(cc.r, cc.g, cc.b);
+  }
+  for (let j = 0; j < R; j++) for (let k = 0; k < N; k++) { const a = j * N + k, b = j * N + (k + 1) % N; idx.push(a, b, a + N, b, b + N, a + N); }
+  // a round that stopped inside: the bottom of the track is closed over
+  if (stop) { const ci = pos.length / 3; let cx = 0, cy = 0, cz = 0; for (let k = 0; k < N; k++) { const i = (R * N + k) * 3; cx += pos[i]; cy += pos[i + 1]; cz += pos[i + 2]; }
+    pos.push(cx / N, cy / N, cz / N); col.push(cB.r * 0.7, cB.g * 0.7, cB.b * 0.7); for (let k = 0; k < N; k++) idx.push(ci, R * N + (k + 1) % N, R * N + k); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
 // wound track walls: the same cut-flesh look as the body's inside (muscle bundles, fascia, fat, tendon), darkened deeper down
 // the track by the tube's vertex colour, wet
 const TUBE_FLESH = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0, envMapIntensity: 0.25, side: THREE.DoubleSide });
@@ -298,7 +329,7 @@ function holeInGroup(group, p, d, len, r0, r1, sk) {
     if (c.userData.inner) c.visible = true;
     c.updateMatrix(); _hm.copy(c.matrix).invert();
     const a = p.clone().applyMatrix4(_hm), dd = d.clone().transformDirection(_hm);
-    if (slot < 0 && c.userData.frame) slot = (c.userData.holeN || 0) % (c.material.userData && c.material.userData.hA ? c.material.userData.hA.value.length : (c.userData.holeMax || 20));
+    if (slot < 0 && !c.userData.inner) slot = (c.userData.holeN || 0) % (c.material.userData && c.material.userData.hA ? c.material.userData.hA.value.length : (c.userData.holeMax || 20));
     cutHole(c, a, dd, len, r0, r1, c.userData.inner ? c.userData.hIn : c.userData.armor === 'pack' ? FABRIC_IN : FLESH_IN);
   }
   for (const c of group.children) if (c.userData.organ) c.visible = true;
@@ -309,20 +340,14 @@ function holeInGroup(group, p, d, len, r0, r1, sk) {
     // into a hole shows meat all the way down instead of the hollow inside of the body
     // the tube never leaves the body: its ends are clipped to where the track actually crosses this segment's skin (a track
     // running past the far side drew a red cylinder sticking out of the body)
-    const skin = group.children.filter(c => c.isMesh && c.userData.frame && !c.userData.keep && !c.userData.organ && !c.userData.tube && !c.userData.inner);
-    let tIn = -Infinity, tOut = Infinity;
+    const skin = group.children.filter(c => c.isMesh && c.visible && !c.userData.keep && !c.userData.organ && !c.userData.tube && !c.userData.inner);
+    // every line along the wall of the hole is clipped to the skin on its own: the wall starts exactly at the ragged edge cut
+    // in the skin and ends where that line leaves the body (or at the bottom of the track), so there is no gap anywhere
+    // between the cut edge and the meat to see into the hollow shell through
     if (skin.length) {
-      group.updateMatrixWorld(true);
-      const wq = group.getWorldQuaternion(new THREE.Quaternion()), wd = d.clone().applyQuaternion(wq).normalize(), far = len + 0.6;
-      _tubeR.set(group.localToWorld(p.clone().addScaledVector(d, -0.6)), wd); _tubeR.far = far + 0.6;
-      const h0 = _tubeR.intersectObjects(skin, false)[0]; if (h0) tIn = h0.distance - 0.6;
-      _tubeR.set(group.localToWorld(p.clone().addScaledVector(d, far)), wd.clone().negate()); _tubeR.far = far + 0.6;
-      const h1 = _tubeR.intersectObjects(skin, false)[0]; if (h1) tOut = far - h1.distance;
+      const g = solidTube(group, skin, slot, p, d, len, r0, r1, sk[0] / len, sk[1] ? sk[1] / len : 0.97, !sk[1]);
+      if (g) { const t = new THREE.Mesh(g, TUBE_FLESH); t.userData.tube = true; t.userData.keep = true; group.add(t); }
     }
-    const mk = (a, b, cap) => {
-      a = Math.max(a, tIn); if (b > tOut) { b = tOut; cap = false; } if (b - a < 0.004) return;
-      const t = new THREE.Mesh(holeTube(slot, p, d, len, r0, r1, a / len, b / len, cap, 0x9c2a2a, 0x3a0204), TUBE_FLESH); t.userData.tube = true; t.userData.keep = true; group.add(t); };
-    if (sk[1]) mk(sk[0], sk[1], false); else mk(sk[0], len * 0.97, true);
   }
 }
 // wound size by calibre: entry and exit hole radius in metres. Rifle exits are wider (the round yaws), .50 BMG is huge.
@@ -357,7 +382,7 @@ function inHole(mesh, wp, pad) {
   return false;
 }
 const LIQ_GEO = new THREE.SphereGeometry(1, 10, 6);
-const LIQ_MAT = [0x6e070b, 0x52040a, 0x3a0206].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.25, metalness: 0, envMapIntensity: 0.35, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+const LIQ_MAT = [0x6e070b, 0x52040a, 0x3a0206].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.45, metalness: 0, envMapIntensity: 0.2, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
 const _lray = new THREE.Raycaster(), _lqL = new THREE.Quaternion(), _lqG = new THREE.Quaternion();
 const _lqM = new THREE.Matrix4();
 function liquidBlood(group, p, n, R, count, runs, hr) {

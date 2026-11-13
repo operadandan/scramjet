@@ -72,19 +72,19 @@ class Humanoid {
     this.chestMark = grp(this.spine, 0, 0.3, -0.14);
     this.pouch = grp(this.spine, -0.05, 0.24, -0.22);
     this.neck = grp(this.spine, 0, 0.55, 0);
-    B.add(cylg(0.046, 0.1, 14, 0.052), pl.skin, this.neck, 0, 0.03, 0.004, 'neck');
+    B.human('neck', this.neck, 0, 'neck');
     this.head = grp(this.neck, 0, 0.06, 0); B.head(this.head, 0.1, true);
     this.headMark = grp(this.head, 0, 0.1, 0);
     const arm = side => {
       const sx = side === 'L' ? -1 : 1;
-      const sh = grp(this.spine, 0.2 * sx, 0.5, 0.0); B.upperArm(sh, 0, 0.3, side);
+      const sh = grp(this.spine, 0.2 * sx, 0.4, -0.016); B.upperArm(sh, 0, 0.3, side);
       const el = grp(sh, 0, -0.3, 0); B.forearm(el, 0, 0.3, side);
       return [sh, el, grp(el, 0, -0.3, 0)];
     };
     [this.shL, this.elL, this.hdL] = arm('L');
     [this.shR, this.elR, this.hdR] = arm('R');
     const leg = side => {
-      const lg = grp(this.hips, 0.1 * (side === 'L' ? -1 : 1), -0.03, 0); B.thigh(lg, 0, 0.44, side);
+      const lg = grp(this.hips, 0.117 * (side === 'L' ? -1 : 1), -0.03, 0.01); B.thigh(lg, 0, 0.44, side);
       const kn = grp(lg, 0, -0.44, 0); B.shin(kn, 0, 0.44, side);
       return [lg, kn, grp(kn, 0, -0.44, 0)];
     };

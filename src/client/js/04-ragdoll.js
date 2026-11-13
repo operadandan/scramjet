@@ -69,12 +69,12 @@ class Ragdoll {
     this.torso = new THREE.Group(); this.group.add(this.torso); this.torso.userData.rf = 'torso';
     B.pelvis(this.torso, -0.31); B.chest(this.torso, -0.24);
     this.headG = new THREE.Group(); this.group.add(this.headG); this.headG.userData.rf = 'head';
-    B.head(this.headG, 0); B.add(cylg(0.046, 0.1, 14, 0.052), pl.skin, this.headG, 0, -0.13, 0);
+    B.head(this.headG, 0); B.human('neck', this.headG, -0.16);
     const limbCol = { upperArm: pl.shirt, forearm: pl.shirt, thigh: pl.pants, shin: pl.pants };
     this.limbs = [];
     for (const sg of this.segs) {
       if (sg.hidden) continue;
-      if (sg.mid < 0) { const g = new THREE.Group(); this.group.add(g); sg.g = g; g.userData.rf = { seg: sg.si, dy: -sg.L / 2 }; B[sg.fn](g, sg.L / 2, sg.L); this.limbs.push({ g, a: sg.a, b: sg.b, seg: sg.si, top: sg.L / 2, bot: -sg.L / 2, first: true }); }
+      if (sg.mid < 0) { const g = new THREE.Group(); this.group.add(g); sg.g = g; g.userData.rf = { seg: sg.si, dy: -sg.L / 2 }; B[sg.fn](g, sg.L / 2, sg.L, sg.si % 4 < 2 ? 'L' : 'R'); this.limbs.push({ g, a: sg.a, b: sg.b, seg: sg.si, top: sg.L / 2, bot: -sg.L / 2, first: true }); }
       else {
         const r = sg.fn === 'thigh' ? 0.075 : sg.fn === 'shin' ? 0.055 : 0.048, hL = sg.L / 2;
         for (const [x, y, end] of [[sg.a, sg.mid, false], [sg.mid, sg.b, true]]) {
@@ -445,8 +445,8 @@ function spawnLimb(hum, bit, dir, t, lowerGone) {
   const root = arm ? (upper ? hum['sh' + side] : hum['el' + side]) : (upper ? hum['lg' + side] : hum['kn' + side]);
   root.updateMatrixWorld(true);
   const g = new THREE.Group();
-  if (arm) { if (upper) { B.upperArm(g, 0, 0.3); if (!lowerGone) { const e = new THREE.Group(); e.position.copy(hum['el' + side].position); e.quaternion.copy(hum['el' + side].quaternion); g.add(e); B.forearm(e, 0, 0.3); } } else B.forearm(g, 0, 0.3); }
-  else { if (upper) { B.thigh(g, 0, 0.44); if (!lowerGone) { const k = new THREE.Group(); k.position.copy(hum['kn' + side].position); k.quaternion.copy(hum['kn' + side].quaternion); g.add(k); B.shin(k, 0, 0.44); } } else B.shin(g, 0, 0.44); }
+  if (arm) { if (upper) { B.upperArm(g, 0, 0.3, side); if (!lowerGone) { const e = new THREE.Group(); e.position.copy(hum['el' + side].position); e.quaternion.copy(hum['el' + side].quaternion); g.add(e); B.forearm(e, 0, 0.3, side); } } else B.forearm(g, 0, 0.3, side); }
+  else { if (upper) { B.thigh(g, 0, 0.44, side); if (!lowerGone) { const k = new THREE.Group(); k.position.copy(hum['kn' + side].position); k.quaternion.copy(hum['kn' + side].quaternion); g.add(k); B.shin(k, 0, 0.44, side); } } else B.shin(g, 0, 0.44, side); }
   mergeTree(g, vcMat);
   const cy = t ? -t * (arm ? 0.3 : 0.44) : 0;
   if (t) clipGroup(g, cy, true);

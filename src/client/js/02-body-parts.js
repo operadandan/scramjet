@@ -5,6 +5,24 @@ const rbox = (w, h, d, r) => GC('rb' + w + '_' + h + '_' + d + '_' + r, () => ne
 const sph = r => GC('sp' + r, () => new THREE.SphereGeometry(r, 14, 10));
 const hemi = r => GC('hm' + r, () => new THREE.SphereGeometry(r, 16, 7, 0, Math.PI * 2, 0, Math.PI * 0.5));
 const cylg = (r, h, s, r2) => GC('cy' + r + '_' + h + '_' + s + '_' + r2, () => new THREE.CylinderGeometry(r, r2 === undefined ? r : r2, h, s || 14));
+// the human body from HUMAN_MESH (02a-human-mesh.js): one segment's triangles of one paint region
+// regions: 0 skin, 1 shirt, 2 pants, 3 boots, 4 sole, 5 hair
+const _b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
+const _humSeg = {};
+function humSeg(seg) {
+  if (_humSeg[seg]) return _humSeg[seg];
+  const d = HUMAN_MESH[seg], p = new Int16Array(_b64(d.p)), n = new Int8Array(_b64(d.n)), r = new Uint8Array(_b64(d.r)), t = new Uint16Array(_b64(d.t));
+  const pos = new Float32Array(p.length), nrm = new Float32Array(n.length);
+  for (let i = 0; i < p.length; i++) { pos[i] = p[i] / 10000; nrm[i] = n[i] / 127; }
+  return (_humSeg[seg] = { pos, nrm, t, tr: r });   // r: paint region of each triangle
+}
+const humGeo = (seg, reg) => GC('hum' + seg + '_' + reg, () => {
+  const S = humSeg(seg), idx = [];
+  for (let k = 0; k < S.tr.length; k++) if (S.tr[k] === reg) idx.push(S.t[k * 3], S.t[k * 3 + 1], S.t[k * 3 + 2]);
+  if (!idx.length) return null;
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(S.pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(S.nrm, 3)); g.setIndex(idx);
+  return g;
+});
 // lathe profile [radius, y] pairs, bottom to top
 const latheG = (key, pts) => GC('la' + key, () => new THREE.LatheGeometry(pts.map(p => new THREE.Vector2(p[0], p[1])), 14));
 // tapered limb with rounded ends, from y=0 (top joint) down to y=-len
@@ -178,8 +196,8 @@ class Body {
       for (let i = 0; i < 6; i++) this.gut(GC('gut', () => new THREE.TorusGeometry(0.024, 0.011, 6, 12)), 0xc48a82, p, ((i % 3) - 1) * 0.045, y + 0.0 + Math.floor(i / 3) * 0.045, -0.02 + (i % 2) * 0.03, null, [Math.PI / 2 + i, i * 0.9, 0]);
     } else if (kind === 'head') {
       // skull shell (cut like skin, bone-coloured inside) and the brain
-      this.gut(GC('face', faceGeo), BONE, p, 0, y, 0, [0.92, 0.92, 0.92], null, 0xc9b8a0);
-      this.gut(GC('brain', brainGeo), 0xd4a3a3, p, 0, y + 0.028, 0.006, [0.062, 0.066, 0.08]);
+      this.gut(GC('face', faceGeo), BONE, p, 0, y + 0.005, -0.045, [0.9, 0.95, 0.92], null, 0xc9b8a0);
+      this.gut(GC('brain', brainGeo), 0xd4a3a3, p, 0, y + 0.03, -0.04, [0.062, 0.066, 0.08]);
     } else {
       // long bones down the middle of a limb segment (two in the forearm and shin)
       const two = kind === 'forearm' || kind === 'shin', r = kind === 'thigh' ? 0.017 : kind === 'upperArm' ? 0.013 : 0.009, len = L * 0.92;
@@ -187,55 +205,40 @@ class Body {
       this.gut(cylg(r * 0.55, len * 0.96, 6), MAR, p, two ? 0.012 : 0, y - L / 2, 0);
     }
   }
+  // a real human body segment (MakeHuman), painted: skin, shirt, pants, boots, sole, hair
+  human(seg, p, y, f) {
+    const c = this.c, col = [c.skin, c.shirt, c.pants, c.boots, c.sole, c.hair];
+    for (let r = 0; r < 6; r++) { const g = humGeo(seg, r); if (g) this.add(g, col[r], p, 0, y, 0, f); }
+  }
   pelvis(p, y, f) {
-    const c = this.c; f = f && 'hips';
+    f = f && 'hips';
     this.guts('pelvis', p, y);
-    this.add(latheG('pelvis', PELVIS_PTS), c.pants, p, 0, y, 0, f, [1, 1, 0.68]);
-    // battle belt with buckle and pistol magazine pouches
-    this.add(rbox(0.345, 0.055, 0.245, 0.018), c.belt, p, 0, y + 0.075, 0, f);
-    this.add(rbox(0.05, 0.04, 0.012, 0.004), c.dark, p, 0, y + 0.075, -0.125);
-    for (const sx of [-0.07, -0.115]) { this.add(rbox(0.036, 0.085, 0.03, 0.006), c.vest2, p, sx, y + 0.055, -0.128); this.add(rbox(0.024, 0.02, 0.02, 0.003), c.dark, p, sx, y + 0.103, -0.128); }
-    // dump pouch, rear medical pouch with red pull tab
-    this.add(rbox(0.07, 0.11, 0.06, 0.02), c.vest2, p, -0.185, y + 0.02, 0.03);
-    this.add(rbox(0.13, 0.085, 0.055, 0.015), c.vest2, p, 0, y + 0.05, 0.14); this.add(rbox(0.03, 0.012, 0.008, 0.002), 0xb02020, p, 0.03, y + 0.09, 0.168);
-    // holster on the right hip with the pistol grip showing
-    this.add(rbox(0.045, 0.15, 0.075, 0.012), c.dark, p, 0.185, y - 0.02, -0.01, null, null, [0.12, 0, 0]);
-    this.add(rbox(0.03, 0.075, 0.04, 0.008), 0x1a1a1a, p, 0.19, y + 0.075, 0.035, null, null, [-0.35, 0, 0]);
-    this.add(rbox(0.032, 0.03, 0.07, 0.006), 0x232427, p, 0.19, y + 0.065, -0.005);
-    this.add(rbox(0.012, 0.03, 0.02, 0.003), c.pants, p, 0, y - 0.03, -0.108);
+    this.human('hips', p, y, f);
   }
   chest(p, y, f) {
-    const c = this.c; f = f && 'spine';
+    f = f && 'spine';
     this.guts('chest', p, y);
-    this.add(latheG('torso', TORSO_PTS), c.shirt, p, 0, y, 0, f, [1, 1, 0.6]);
-    if (c.noRig) this.rk = { k: 0.84, y0: y + 0.3 };
-    // (no plate carrier: armor is out of the game for now)
-    // (no backpack: the 30-slot inventory is carried without one)
-    this.rk = null;
+    this.human('spine', p, y, f);
   }
   head(p, cy, f) {
-    const c = this.c; f = f && 'head';
-    // smooth featureless head, ears, cropped hair
-    this.add(GC('face', faceGeo), c.skin, p, 0, cy, 0, f);
+    f = f && 'head';
+    // the head segment's origin is the head joint (cy below the old head centre)
+    this.human('head', p, cy - 0.1, f);
     this.guts('head', p, cy);
-    for (const sx of [-1, 1]) this.add(sph(0.02), c.skin, p, sx * 0.0775, cy - 0.016, 0.008, null, [0.34, 1, 0.66], [0, sx * -0.25, 0]);
+    // eyes: white with a dark iris, set into the sockets
+    for (const sx of [-1, 1]) { this.add(sph(0.0118), 0xe8e2d8, p, sx * 0.0312, cy - 0.0587, -0.1315); this.add(sph(0.0058), 0x2a2018, p, sx * 0.0318, cy - 0.0597, -0.1413); }
   }
   upperArm(p, top, L, side) {
-    const c = this.c, f = side && 'sh' + side, sx = side === 'L' ? -1 : side === 'R' ? 1 : 0;
+    const f = side && 'sh' + side;
     this.guts('upperArm', p, top, L);
-    this.add(sph(0.066), c.shirt, p, 0, top - 0.015, 0, f, [1, 0.92, 1]);
-    this.add(limbG(L - 0.02, 0.054, 0.05, 0.042), c.shirt, p, 0, top - 0.01, 0, f);
-    // sleeve pocket with patch
-    this.add(rbox(0.016, 0.085, 0.07, 0.006), c.vest2, p, sx * 0.05, top - 0.1, 0);
-    this.add(rbox(0.006, 0.04, 0.05, 0.002), sx > 0 ? 0x6a2a2a : 0x2f3f5a, p, sx * 0.059, top - 0.095, 0);
-    this.add(rbox(0.018, 0.016, 0.072, 0.004), c.pants, p, sx * 0.05, top - 0.062, 0);
+    this.human('sh' + side, p, top, f);
+    // shoulder ball under the sleeve: fills the joint when the arm is raised
+    this.add(sph(0.05), this.c.shirt, p, (side === 'L' ? -1 : 1) * 0.004, top + 0.004, 0.0, f, [1, 1.05, 1]);
   }
   forearm(p, top, L, side) {
     const c = this.c, f = side && 'el' + side, sx = side === 'L' ? -1 : 1;
     this.guts('forearm', p, top, L);
-    this.add(limbG(L - 0.07, 0.045, 0.043, 0.033), c.shirt, p, 0, top, 0, f);
-    // elbow pad with strap
-    this.add(rbox(0.082, 0.085, 0.036, 0.016), c.pad, p, 0, top - 0.005, 0.04); this.add(cylg(0.049, 0.018, 12), c.dark, p, 0, top - 0.03, 0.0);
+    this.human('el' + side, p, top, f);
     // glove: cuff, back of the hand with knuckle guard, four curled fingers, thumb
     this.add(cylg(0.036, 0.04, 10, 0.034), c.glove, p, 0, top - L + 0.045, 0, f);
     this.add(rbox(0.074, 0.075, 0.03, 0.013), c.glove, p, 0, top - L - 0.002, 0, f);
@@ -249,32 +252,14 @@ class Body {
     if (side === 'L') { this.add(rbox(0.05, 0.022, 0.05, 0.008), c.dark, p, 0, top - L + 0.078, 0.0); this.add(cylg(0.019, 0.008, 10), 0x1b2a22, p, 0, top - L + 0.078, 0.03, null, null, [Math.PI / 2, 0, 0]); }
   }
   thigh(p, top, L, side) {
-    const c = this.c, f = side && 'lg' + side, sx = side === 'L' ? -1 : 1;
+    const f = side && 'lg' + side;
     this.guts('thigh', p, top, L);
-    this.add(limbG(L, 0.086, 0.078, 0.058), c.pants, p, 0, top, 0, f);
-    // cargo pocket with flap
-    this.add(rbox(0.04, 0.13, 0.11, 0.012), c.pants, p, sx * 0.072, top - L / 2 - 0.01, 0, f);
-    this.add(rbox(0.043, 0.035, 0.115, 0.008), c.vest2, p, sx * 0.073, top - L / 2 + 0.045, 0);
-    this.add(rbox(0.012, 0.012, 0.012, 0.003), c.dark, p, sx * 0.095, top - L / 2 + 0.036, 0);
-    if (side === 'R') this.add(cylg(0.089, 0.02, 12, 0.087), c.dark, p, 0, top - 0.11, 0);
+    this.human('lg' + side, p, top, f);
   }
   shin(p, top, L, side) {
-    const c = this.c, f = side && 'kn' + side;
+    const f = side && 'kn' + side;
     this.guts('shin', p, top, L);
-    // knee pad: hard cap on a soft pad, two straps
-    this.add(rbox(0.115, 0.13, 0.05, 0.022), c.pad, p, 0, top - 0.03, -0.058);
-    this.add(sph(0.05), c.dark, p, 0, top - 0.02, -0.07, null, [0.95, 1.1, 0.55]);
-    this.add(cylg(0.066, 0.016, 12), c.dark, p, 0, top + 0.012, 0.0); this.add(cylg(0.063, 0.016, 12), c.dark, p, 0, top - 0.075, 0.004);
-    this.add(limbG(L - 0.08, 0.056, 0.06, 0.04), c.pants, p, 0, top, 0.004, f);
-    this.add(cylg(0.052, 0.03, 10, 0.05), c.pants, p, 0, top - L + 0.135, 0.004);
-    // boot: shaft, foot, toe cap, laces, heel and treaded sole
-    this.add(cylg(0.05, 0.1, 10, 0.055), c.boots, p, 0, top - L + 0.075, 0.006, f);
-    this.add(rbox(0.105, 0.085, 0.24, 0.036), c.boots, p, 0, top - L + 0.018, -0.04, f);
-    this.add(sph(0.053), c.boots, p, 0, top - L + 0.012, -0.13, null, [0.98, 0.72, 1.0]);
-    for (let i = 0; i < 4; i++) this.add(rbox(0.05, 0.006, 0.008, 0.002), c.dark, p, 0, top - L + 0.062 - i * 0.012, -0.05 - i * 0.022, null, null, [0.6, 0, 0]);
-    this.add(rbox(0.112, 0.02, 0.27, 0.008), c.sole, p, 0, top - L - 0.03, -0.047, f);
-    this.add(rbox(0.108, 0.018, 0.08, 0.006), c.sole, p, 0, top - L - 0.043, 0.045);
-    for (let i = 0; i < 4; i++) this.add(rbox(0.108, 0.01, 0.022, 0.003), c.sole, p, 0, top - L - 0.043, -0.03 - i * 0.04);
+    this.human('kn' + side, p, top, f);
   }
 }
 
