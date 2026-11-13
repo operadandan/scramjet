@@ -192,7 +192,7 @@ function copySegment(g) {
     if (!c.isMesh || c.userData.keep || c.userData.tube) continue;
     const m = new THREE.Mesh(c.geometry, c.userData.baseMat || c.material); m.position.copy(c.position); m.quaternion.copy(c.quaternion); m.scale.copy(c.scale); m.castShadow = true; n.add(m);
     // a piece on its own has nothing to bend with: its skin stays as cut
-    if (c._skin) { const U = { segM: { value: Array.from({ length: 12 }, () => new THREE.Matrix4()) }, segOK: { value: new Array(12).fill(0) } }; m._skin = { U, at: {} }; m.userData.hair = c.userData.hair; const mm = m.material.clone(); mm.onBeforeCompile = sh => bodyPatches(sh, m); mm.customProgramCacheKey = () => 'body' + bodyKey(m); m.material = mm; }
+    if (c._skin) { const U = { segM: { value: Array.from({ length: 12 }, () => new THREE.Matrix4()) }, segOK: { value: new Array(12).fill(0) } }; m._skin = { U, at: {} }; const mm = m.material.clone(); if (m.geometry.attributes.fab) mm.side = THREE.DoubleSide; mm.onBeforeCompile = sh => bodyPatches(sh, m); mm.customProgramCacheKey = () => 'body' + bodyKey(m); m.material = mm; }
     if (c.userData.holeN !== undefined) { holeify(m, c.userData.holeMax, c.material.userData.hIn.value.getHex()); m.userData.holeN = c.userData.holeN; const a = c.material.userData, b = m.material.userData; for (let i = 0; i < a.hA.value.length; i++) { b.hA.value[i].copy(a.hA.value[i]); b.hB.value[i].copy(a.hB.value[i]); } }
   }
   return n;
@@ -255,7 +255,7 @@ const TUBE_FLESH = new THREE.MeshStandardMaterial({ vertexColors: true, roughnes
 TUBE_FLESH.onBeforeCompile = sh => {
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vTubePos;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvTubePos = position;');
   sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vTubePos;\n' + FLESH_CUT)
-    .replace('#include <color_fragment>', '#include <color_fragment>\n{ float dk = clamp(dot(diffuseColor.rgb, vec3(0.6, 0.3, 0.1)) / 0.45, 0.25, 1.0); diffuseColor.rgb = fleshCut(vTubePos) * dk * 0.8; }')
+    .replace('#include <color_fragment>', '#include <color_fragment>\n{ float dk = clamp(dot(diffuseColor.rgb, vec3(0.6, 0.3, 0.1)) / 0.45, 0.25, 1.0); diffuseColor.rgb = fleshCut(vTubePos) * dk * 0.6; }')
     .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * 0.1;');
 };
 TUBE_FLESH.customProgramCacheKey = () => 'tubeflesh';

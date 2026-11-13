@@ -178,64 +178,6 @@ for f in hairF:
     a_, b_, c_, d_ = (PH[i] for i in f); nn = np.cross(c_ - a_, d_ - b_)
     for i in f: NH[i] += nn
 NH /= np.maximum(np.linalg.norm(NH, axis=1, keepdims=True), 1e-9)
-# ---- clothes are their own layer over the skin
-# How far each kind of layer sits off the skin (fabric over a fit body, boot leather and sole) and the least it may
-# come in after smoothing. Hair is a short crop: about 8 mm on top, thinning to almost nothing at the hairline.
-OFF = {1: (0.006, 0.0035), 2: (0.007, 0.0045), 3: (0.010, 0.008), 4: (0.012, 0.010)}
-clothF = [f for f in body if FREG[tuple(f)] != 0]
-cv = sorted(set(i for f in clothF for i in f))
-off = np.zeros(n); mino = np.zeros(n)
-for f in clothF:
-    r = FREG[tuple(f)]
-    if r == 5: continue
-    # trousers sit loose over the seat and hips instead of hugging them
-    o0, o1 = OFF[r]
-    if r == 2 and SEGS[FS[tuple(f)]] == 'hips': o0, o1 = 0.016, 0.009
-    for i in f: off[i] = max(off[i], o0); mino[i] = max(mino[i], o1)
-hv = set()
-PC = P + Nv * off[:, None]
-# fabric drapes: smooth the layer (it bridges the hollows of the body, like the cleft of the buttocks or along the spine),
-# then make sure nothing came closer to the skin than the fabric allows
-cadj = {}
-for f in clothF:
-    for k in range(4): a_, b_ = f[k], f[(k + 1) % 4]; cadj.setdefault(a_, set()).add(b_); cadj.setdefault(b_, set()).add(a_)
-cvl = np.array(cv); nbrs = [np.array(sorted(cadj[i])) for i in cv]
-ishair = np.isin(cvl, list(hv))
-for it in range(45):
-    avg = np.array([PC[nb_].mean(0) for nb_ in nbrs])
-    lam = np.where(ishair, 0.25 if it < 10 else 0.0, 0.6)[:, None]
-    PC[cvl] = PC[cvl] + lam * (avg - PC[cvl])
-    d = ((PC[cvl] - P[cvl]) * Nv[cvl]).sum(1); lo = mino[cvl]
-    PC[cvl] += Nv[cvl] * np.maximum(0, lo - d)[:, None]
-# the seat: trousers hang over the buttocks instead of following the cleft and the fold under them
-seatY = (P[cvl, 1] - hip_anchor[1]) * s_tor + 0.95
-seat = (~ishair) & (seatY > 0.68) & (seatY < 1.04) & (P[cvl, 2] > hip_anchor[2] - 0.02)
-si_ = np.where(seat)[0]
-for it in range(220):
-    avg = np.array([PC[nbrs[k]].mean(0) for k in si_])
-    v_ = cvl[si_]; PC[v_] = PC[v_] + 0.6 * (avg - PC[v_])
-    d = ((PC[v_] - P[v_]) * Nv[v_]).sum(1); PC[v_] += Nv[v_] * np.maximum(0, mino[v_] - d)[:, None]
-# fill the cleft and the fold across the back of the seat: each back-facing point comes out to near the highest point
-# of the fabric within a few centimetres (cloth spans a hollow, it doesn't sink into it), then a light smoothing pass
-back = si_[(Nv[cvl[si_], 2] > 0.2)]
-bv_ = cvl[back]; XY = P[bv_][:, :2]; Z = PC[bv_, 2].copy(); Zn = Z.copy()
-for k in range(len(bv_)):
-    m_ = ((XY - XY[k]) ** 2).sum(1) < 0.035 ** 2
-    Zn[k] = max(Z[k], Z[m_].max() - 0.006)
-PC[bv_, 2] = Zn
-for it in range(30):
-    avg = np.array([PC[nbrs[k]].mean(0) for k in si_])
-    v_ = cvl[si_]; PC[v_] = PC[v_] + 0.5 * (avg - PC[v_])
-    d = ((PC[v_] - P[v_]) * Nv[v_]).sum(1); PC[v_] += Nv[v_] * np.maximum(0, mino[v_] - d)[:, None]
-# layer normals from the smoothed layer itself
-NC = np.zeros_like(P)
-for f in clothF:
-    a_, b_, c_, d_ = (PC[i] for i in f); nn = np.cross(c_ - a_, d_ - b_)
-    for i in f: NC[i] += nn
-NC /= np.maximum(np.linalg.norm(NC, axis=1, keepdims=True), 1e-9)
-P2 = P   # (the skin itself is no longer pushed out)
-LAY = [P, PC, PH]; LN = [Nv, NC, NH]
-
 # skinning: every vertex follows its own segment and, near a joint, partly the neighbouring one. A vertex on the line
 # between two segments is in both meshes with the same pair of weights, so both copies land on the same spot in any pose
 GSEG = ['hips', 'spine', 'neck', 'head', 'shL', 'elL', 'shR', 'elR', 'lgL', 'knL', 'lgR', 'knR']
@@ -246,49 +188,139 @@ for S in 'LR': SW2[:, SEGS.index('el' + S)] += SW2[:, SEGS.index('hand' + S)]
 # the trunk bends between hips and chest over a band at the waist (MakeHuman's own pelvis weights are a sliver)
 tr = SW2[:, HI] + SW2[:, SP]; bl = np.clip((wyv - 0.99) / 0.1, 0, 1); bl = bl * bl * (3 - 2 * bl)
 SW2[:, HI] = np.where(tr > 0, tr * (1 - bl), SW2[:, HI]); SW2[:, SP] = np.where(tr > 0, tr * bl, SW2[:, SP])
-edgeF = {}
+
+# ---- garments: each one is its own sheet of cloth over the body (and over the garment under it), with its own edge.
+# Where a garment ends is a smooth line given by a coverage value per vertex (1 inside, 0 outside, the line at 0.5): the
+# sheet is drawn only where coverage is over 0.5, so hems are smooth curves through the triangles, and since the sheet is
+# drawn on both sides the inside of the shirt shows at the neck, like real cloth.
+#   shirt: crew neck, long sleeves (the cuff goes under the glove), worn untucked: its hem hangs over the trousers
+#   trousers: waistband just above the hips, tucked into the boots
+#   boots: shaft to about 12 cm above the ankle bone, over the trousers
+def ss(x): t = np.clip(x, 0, 1); return t * t * (3 - 2 * t)
+segv = np.array([SEGS[k] for k in SW2[:, :len(SEGS)].argmax(1)]) if False else None
+vseg = {}
 for f in body:
-    for k in range(4): a_, b_ = f[k], f[(k + 1) % 4]; edgeF.setdefault((min(a_, b_), max(a_, b_)), []).append(f)
+    for i in f: vseg.setdefault(i, set()).add(SEGS[FS[tuple(f)]])
+solY = P[bv, 1].min()
+def collar_y(x, z):  # world height of the crew neck line round the base of the neck (lower at the front)
+    return 1.497 + 0.03 * np.clip((z + 0.02) / 0.08, 0, 1) - 0.4 * x * x
+GW = {}   # garment -> coverage per vertex
+TRUNK = {'spine', 'hips', 'neck'}; ARM = {'shL', 'shR', 'elL', 'elR', 'handL', 'handR'}; LEG = {'lgL', 'lgR', 'knL', 'knR'}
+cov = {g: np.zeros(n) for g in ('shirt', 'pants', 'boots')}
+bootTop = ankleY + 0.115
+for i in range(n):
+    sg = vseg.get(i, set()); x, y, z = P[i]; wy = wyv[i]
+    if not sg: continue
+    if sg & (TRUNK | ARM) and not sg & {'head'}:
+        c_col = (collar_y(x, z) - wy) / 0.012          # >0 below the collar line
+        c_hem = (wy - 0.905) / 0.012                    # >0 above the shirt hem
+        c = min(c_col, c_hem) if sg & TRUNK or sg & {'shL', 'shR'} else 9
+        if sg & {'handL', 'handR'} and not sg & {'elL', 'elR'}: c = -9
+        cov['shirt'][i] = np.clip(0.5 + 0.5 * c, 0, 1)
+    if sg & ({'hips'} | LEG) or (sg & {'spine'} and wy < 1.08):
+        c = (1.045 - wy) / 0.012                        # >0 below the waistband
+        cov['pants'][i] = np.clip(0.5 + 0.5 * c, 0, 1)
+    if sg & {'knL', 'knR'}:
+        c = (bootTop - y) / 0.012
+        cov['boots'][i] = np.clip(0.5 + 0.5 * c, 0, 1)
+for g in cov: cov[g][list(set(range(n)) - set(bv))] = 0
+# which faces each garment covers (any part of)
+GF = {g: [f for f in body if max(cov[g][i] for i in f) > 0.0 and SEGS[FS[tuple(f)]] not in ('handL', 'handR', 'head')] for g in cov}
+# how far each sits off whatever is under it, and the least it may come in to after smoothing
+ORDER = ['pants', 'boots', 'shirt']    # inside to outside where they overlap
+BASE = {'pants': (0.0055, 0.0035), 'boots': (0.0035, 0.0025), 'shirt': (0.0055, 0.0035)}
+GP = {}; GN = {}
+under_off = np.zeros(n)          # how far the outermost garment so far sits off the skin, per vertex
+for g in ORDER:
+    vs_ = sorted(set(i for f in GF[g] for i in f)); vl = np.array(vs_)
+    o0, o1 = BASE[g]
+    off = np.full(n, 0.0); mino_ = np.full(n, 0.0)
+    off[vl] = under_off[vl] * (under_off[vl] > 0) + o0 + (under_off[vl] > 0) * 0.002
+    mino_[vl] = under_off[vl] + o1
+    if g == 'pants':    # trousers hang loose over the seat and the hips
+        seatm = (wyv[vl] > 0.7) & (wyv[vl] < 1.05)
+        off[vl[seatm]] += 0.008; mino_[vl[seatm]] += 0.003
+    if g == 'boots':    # leather: stiff and a little thicker round the foot
+        off[vl] += 0.004 * (P[vl, 1] < ankleY + 0.04)
+    PCg = P + Nv * off[:, None]
+    gad = {}
+    for f in GF[g]:
+        for k in range(4): a_, b_ = f[k], f[(k + 1) % 4]; gad.setdefault(a_, set()).add(b_); gad.setdefault(b_, set()).add(a_)
+    nbr = [np.array(sorted(gad[i])) for i in vs_]
+    its = {'pants': 45, 'shirt': 45, 'boots': 12}[g]
+    for it in range(its):
+        avg = np.array([PCg[nb_].mean(0) for nb_ in nbr])
+        PCg[vl] += 0.55 * (avg - PCg[vl])
+        d = ((PCg[vl] - P[vl]) * Nv[vl]).sum(1); PCg[vl] += Nv[vl] * np.maximum(0, mino_[vl] - d)[:, None]
+    if g == 'pants':
+        # fill the cleft and the fold across the back of the seat
+        back = vl[(Nv[vl, 2] > 0.2) & (wyv[vl] > 0.68) & (wyv[vl] < 1.04)]
+        XY = P[back][:, :2]; Z = PCg[back, 2].copy(); Zn = Z.copy()
+        for k in range(len(back)):
+            m_ = ((XY - XY[k]) ** 2).sum(1) < 0.035 ** 2; Zn[k] = max(Z[k], Z[m_].max() - 0.006)
+        PCg[back, 2] = Zn
+        for it in range(25):
+            avg = np.array([PCg[nb_].mean(0) for nb_ in nbr]); PCg[vl] += 0.5 * (avg - PCg[vl])
+            d = ((PCg[vl] - P[vl]) * Nv[vl]).sum(1); PCg[vl] += Nv[vl] * np.maximum(0, mino_[vl] - d)[:, None]
+    if g == 'shirt':
+        # the shirt hangs from the chest and shoulder blades: below the chest it falls straight instead of following the
+        # waist in, and it stands off the trousers at the hem
+        tv = vl[(wyv[vl] > 0.88) & (wyv[vl] < 1.36) & np.array([bool(vseg[i] & TRUNK) for i in vl])]
+        for it in range(60):
+            avg = np.array([PCg[np.array(sorted(gad[i]))].mean(0) for i in tv]); PCg[tv] += 0.6 * (avg - PCg[tv])
+            d = ((PCg[tv] - P[tv]) * Nv[tv]).sum(1); PCg[tv] += Nv[tv] * np.maximum(0, mino_[tv] - d)[:, None]
+    dd = ((PCg[vl] - P[vl]) * Nv[vl]).sum(1)
+    # only where this garment really covers does it become the "under" for the next one
+    cm = cov[g][vl] > 0.5
+    under_off[vl[cm]] = np.maximum(under_off[vl[cm]], dd[cm])
+    NCg = np.zeros_like(P)
+    for f in GF[g]:
+        a_, b_, c_, d_ = (PCg[i] for i in f); nn = np.cross(c_ - a_, d_ - b_)
+        for i in f: NCg[i] += nn
+    NCg /= np.maximum(np.linalg.norm(NCg, axis=1, keepdims=True), 1e-9)
+    GP[g] = PCg; GN[g] = NCg
+    print(g, 'faces', len(GF[g]), 'off mm', round(float(dd.min() * 1000), 1), round(float(np.median(dd) * 1000), 1), round(float(dd.max() * 1000), 1))
+# skin faces fully inside a garment are hidden until the garment is shot open; the rest (near any hem) stay drawn
+# skin under the shirt stays drawn near the shirt's open ends (you can see up under the hem and down the collar)
+shirt_closed = cov['shirt'] * (wyv > 1.12) * (wyv < np.array([collar_y(x, z) for x, y, z in P]) - 0.06)
+fullcov = np.maximum.reduce([cov['pants'], cov['boots'], shirt_closed])
+LAYERS = {'skin': 0, 'shirt': 1, 'pants': 2, 'boots': 3, 'hair': 4}
+LAY = [P, GP['shirt'], GP['pants'], GP['boots'], PH]; LN = [Nv, GN['shirt'], GN['pants'], GN['boots'], NH]
+COV = [np.ones(n), cov['shirt'], cov['pants'], cov['boots'], hf]
+REGOF = {1: 1, 2: 2, 3: 3, 4: 7}   # layer -> paint region (shirt, pants, boots, hair); boot soles get region 4
 out = {}
 for si, sg in enumerate(SEGS):
     if sg.startswith('hand'): continue    # the game keeps its own gloved hands (fingers curl round the grip)
     fs = [f for f in body if FS[tuple(f)] == si]
-    # vertices are (model vertex, layer): layer 0 the skin, layer 1 the clothes or hair over it
     keys = []; kidx = {}
     def K(v, L):
         k = (v, L)
         if k not in kidx: kidx[k] = len(keys); keys.append(k)
         return kidx[k]
-    tris = []; fr = []; lock = set()
+    tris = []; fr = []
+    def quad(f, L, reg):
+        global tris, fr
+        a_, b_, c_, d_ = (K(i, L) for i in f); tris += [a_, b_, c_, a_, c_, d_]; fr += [reg] * 2
     for f in fs:
-        r = FREG[tuple(f)]
-        if r == 0: L, rr = 0, [0]
-        else: L, rr = None, [6, r]      # 6: skin under the clothes (shown only once the clothes are shot open)
-        for j, reg in enumerate(rr):
-            lay = 1 if reg != 6 and r != 0 else 0
-            a_, b_, c_, d_ = (K(i, lay) for i in f); tris += [a_, b_, c_, a_, c_, d_]; fr += [reg] * 2
-    # hems: where clothes or hair end on bare skin, a strip joins the edge of the layer to the skin, so the fabric shows its
-    # thickness instead of an open gap into the body
-    for f in fs:
-        r = FREG[tuple(f)]
-        if r == 0: continue
-        for k in range(4):
-            a_, b_ = f[k], f[(k + 1) % 4]
-            if any(FREG[tuple(g)] == 0 and a_ in g and b_ in g for g in edgeF[(min(a_, b_), max(a_, b_))]):
-                A1, B1, A0, B0 = K(a_, 1), K(b_, 1), K(a_, 0), K(b_, 0)
-                tris += [A1, B1, B0, A1, B0, A0, A1, B0, B1, A1, A0, B0]; fr += [r] * 4; lock.update((A1, B1, A0, B0))
+        hidden = min(fullcov[i] for i in f) >= 0.999
+        quad(f, 0, 6 if hidden else 0)
+        for g, L in (('shirt', 1), ('pants', 2), ('boots', 3)):
+            if max(cov[g][i] for i in f) > 0 and f in GF[g] if False else (max(cov[g][i] for i in f) > 0 and sg not in ('head',)):
+                reg = REGOF[L]
+                if g == 'boots' and max(P[i, 1] for i in f) < solY + 0.016: reg = 4
+                quad(f, L, reg)
     if sg == 'head':
-        for f in hairF:
-            a_, b_, c_, d_ = (K(i, 2) for i in f); tris += [a_, b_, c_, a_, c_, d_]; fr += [7] * 2
-    nk = len(keys); pos = np.zeros((nk, 3)); nrm = np.zeros((nk, 3)); nb = np.zeros(nk, dtype=np.int64); nw = np.zeros(nk); p2 = np.zeros((nk, 3))
+        for f in hairF: quad(f, 4, 7)
+    nk = len(keys); pos = np.zeros((nk, 3)); nrm = np.zeros((nk, 3)); nb = np.zeros(nk, dtype=np.int64); nw = np.zeros(nk); p2 = np.zeros((nk, 3)); cv_ = np.zeros(nk)
     for k, (v, L) in enumerate(keys):
-        q = LAY[L][v:v + 1]; pos[k] = XF[sg](q)[0]
+        q = LAY[L][v:v + 1]; pos[k] = XF[sg](q)[0]; cv_[k] = COV[L][v]
         pr = XF[sg](q + LN[L][v:v + 1] * 0.01)[0] - pos[k]; nrm[k] = pr / max(np.linalg.norm(pr), 1e-9)
         best = max(NB[sg], key=lambda m: SW2[v, SEGS.index(m)]); wn = SW2[v, SEGS.index(best)]; ws = SW2[v, si]
         if wn <= 1e-4: continue
         nb[k] = GSEG.index(best); nw[k] = wn / (ws + wn) if ws + wn > 0 else 0
         p2[k] = XF[best](q)[0]
-    out[sg] = {'p': pos, 'n': nrm, 'fr': np.array(fr), 't': np.array(tris), 'q': p2, 'b': nb, 'w': nw, 'vid': np.array([v * 3 + L for v, L in keys]), 'lock': np.array([k in lock for k in range(len(keys))]), 'h': np.array([hf[v] if L == 2 else 0 for v, L in keys])}
+    out[sg] = {'p': pos, 'n': nrm, 'fr': np.array(fr), 't': np.array(tris), 'q': p2, 'b': nb, 'w': nw, 'vid': np.array([v * 5 + L for v, L in keys]),
+               'lock': np.zeros(nk, dtype=bool), 'h': cv_}
     print(sg, nk, 'verts', len(tris) // 3, 'tris', 'blend', (nw > 0.01).sum())
 np.save('/home/claude/hb/segs.npy', out, allow_pickle=True)
 for S in 'LR':
