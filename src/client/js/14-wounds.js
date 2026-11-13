@@ -285,6 +285,12 @@ function cutHole(mesh, p, d, len, r0, r1, inner) {
 const FLESH_IN = 0x4a0306, FABRIC_IN = 0x22211b, _hm = new THREE.Matrix4(), _hp = new V3();
 // a hole through every mesh of one body segment (segment-local coordinates)
 const _tubeR = new THREE.Raycaster();
+// blood drops sitting where a hole has since been cut away would hang in the air over it: drop them
+function pruneLiquid(group) {
+  group.updateMatrixWorld(true); const gone = [], w = new V3();
+  group.traverse(o => { if (o.userData.liquid && o._on && inHole(o._on, o.getWorldPosition(w), 1.05)) gone.push(o); });
+  for (const o of gone) o.parent.remove(o);
+}
 function holeInGroup(group, p, d, len, r0, r1, sk) {
   let slot = -1;
   for (const c of group.children) {
@@ -296,6 +302,7 @@ function holeInGroup(group, p, d, len, r0, r1, sk) {
     cutHole(c, a, dd, len, r0, r1, c.userData.inner ? c.userData.hIn : c.userData.armor === 'pack' ? FABRIC_IN : FLESH_IN);
   }
   for (const c of group.children) if (c.userData.organ) c.visible = true;
+  pruneLiquid(group);
   // the channel through skin and muscle at each opening, so the wound has walls instead of a paper-thin edge
   if (slot >= 0 && sk) {
     // the whole wound track is walled with torn muscle (and closed off at the bottom when the round stopped inside), so looking
@@ -338,8 +345,19 @@ function addStump(parent, pos, dir, r) {
 // ---------------------------------------------------------------- liquid blood on the body
 // Not a flat picture: glossy beads of blood placed by casting rays onto the body's own surface around the wound, so they sit on
 // whatever shape is there and move with it. A big wound gets a wide wet patch and runs heading downhill.
+// is a world point inside one of the holes cut into this mesh (blood must never sit over empty space)
+const _ihI = new THREE.Matrix4(), _ihP = new V3(), _ihA = new V3(), _ihB = new V3();
+function inHole(mesh, wp, pad) {
+  const u = mesh.material && mesh.material.userData; if (!u || !u.hA) return false;
+  _ihP.copy(wp).applyMatrix4(_ihI.copy(mesh.matrixWorld).invert());
+  for (let i = 0; i < u.hA.value.length; i++) { const A = u.hA.value[i], B = u.hB.value[i]; if (!(A.w > 0)) continue;
+    _ihA.set(_ihP.x - A.x, _ihP.y - A.y, _ihP.z - A.z); _ihB.set(B.x, B.y, B.z); const L2 = Math.max(_ihB.lengthSq(), 1e-8), t = _ihA.dot(_ihB) / L2;
+    if (t < -0.1 || t > 1) continue; const ct = clamp(t, 0, 1), r = lerp(A.w, B.w, ct) * (pad || 1.15);
+    if (_ihA.addScaledVector(_ihB, -ct).length() < r) return true; }
+  return false;
+}
 const LIQ_GEO = new THREE.SphereGeometry(1, 10, 6);
-const LIQ_MAT = [0x6e070b, 0x52040a, 0x3a0206].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.18, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+const LIQ_MAT = [0x6e070b, 0x52040a, 0x3a0206].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.25, metalness: 0, envMapIntensity: 0.35, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
 const _lray = new THREE.Raycaster(), _lqL = new THREE.Quaternion(), _lqG = new THREE.Quaternion();
 const _lqM = new THREE.Matrix4();
 function liquidBlood(group, p, n, R, count, runs, hr) {
@@ -353,7 +371,7 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
   const gq = group.getWorldQuaternion(_lqG).invert();
   // the triangles near the wound, gathered once in world space: every drop is then a ray test against a few dozen of them
   // instead of a full raycast through the whole body mesh (dozens of those per wound was the hitch when shooting bodies)
-  const tris = [], rr2 = Math.pow(R * 2.6 + 0.12, 2), _ta = new V3(), _tb = new V3(), _tc = new V3();
+  const tris = [], tm = [], rr2 = Math.pow(R * 2.6 + 0.12, 2), _ta = new V3(), _tb = new V3(), _tc = new V3();
   for (const m of targets) {
     const P = m.geometry.attributes.position, I = m.geometry.index, mw = m.matrixWorld, nT = I ? I.count / 3 : P.count / 3;
     const ctr = _ta.copy(wp).applyMatrix4(_lqM.copy(mw).invert()); if (m.geometry.boundingSphere === null) m.geometry.computeBoundingSphere();
@@ -362,20 +380,21 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
       const i0 = I ? I.getX(t * 3) : t * 3, i1 = I ? I.getX(t * 3 + 1) : t * 3 + 1, i2 = I ? I.getX(t * 3 + 2) : t * 3 + 2;
       _ta.fromBufferAttribute(P, i0).applyMatrix4(mw); if (_ta.distanceToSquared(wp) > rr2) { _tb.fromBufferAttribute(P, i1).applyMatrix4(mw); if (_tb.distanceToSquared(wp) > rr2) continue; }
       const a = _ta.clone(), b = new V3().fromBufferAttribute(P, i1).applyMatrix4(mw), c = new V3().fromBufferAttribute(P, i2).applyMatrix4(mw);
-      tris.push(a, b, c);
+      tris.push(a, b, c); tm.push(m);
     }
   }
-  const _hp2 = new V3(), _tn = new V3(), _e1 = new V3(), _e2 = new V3();
+  const _hp2 = new V3(), _tn = new V3(), _e1 = new V3(), _e2 = new V3(); let b_mesh = null;
   const drop = (o, r, stretch, along) => {
     _lray.ray.set(o.clone().addScaledVector(wn, 0.12), wn.clone().negate());
-    let best = 0.26, hp = null, hn = null;
+    let best = 0.26, hp = null, hn = null, hm = null;
     for (let t = 0; t < tris.length; t += 3) {
       const q = _lray.ray.intersectTriangle(tris[t], tris[t + 1], tris[t + 2], false, _hp2); if (!q) continue;
-      const d = q.distanceTo(_lray.ray.origin); if (d < best) { best = d; hp = q.clone(); hn = _tn.crossVectors(_e1.subVectors(tris[t + 1], tris[t]), _e2.subVectors(tris[t + 2], tris[t])).normalize().clone(); }
+      const d = q.distanceTo(_lray.ray.origin); if (d < best) { best = d; hp = q.clone(); hm = tm[t / 3]; hn = _tn.crossVectors(_e1.subVectors(tris[t + 1], tris[t]), _e2.subVectors(tris[t + 2], tris[t])).normalize().clone(); }
     }
-    if (!hp) return null; if (hn.dot(wn) < 0) hn.negate();
+    if (!hp || inHole(hm, hp)) return null; if (hn.dot(wn) < 0) hn.negate();
+    b_mesh = hm;
     const h = { point: hp };
-    const b = new THREE.Mesh(LIQ_GEO, LIQ_MAT[Math.floor(Math.random() * LIQ_MAT.length)]); b.userData.keep = true; b.userData.liquid = true;
+    const b = new THREE.Mesh(LIQ_GEO, LIQ_MAT[Math.floor(Math.random() * LIQ_MAT.length)]); b.userData.keep = true; b.userData.liquid = true; b._on = b_mesh;
     _lqL.setFromUnitVectors(_Y, hn); if (along) { const a = along.clone().addScaledVector(hn, -along.dot(hn)).normalize(), x0 = new V3(0, 0, 1).applyQuaternion(_lqL); _lqL.premultiply(new THREE.Quaternion().setFromUnitVectors(x0, a)); } else _lqL.multiply(new THREE.Quaternion().setFromAxisAngle(_Y, Math.random() * 6.28));
     b.quaternion.copy(gq).multiply(_lqL); b.position.copy(out.worldToLocal(h.point.clone().addScaledVector(hn, r * 0.08)));
     b.scale.set(r, r * rnd(0.045, 0.075), r * stretch); out.add(b); return h.point;

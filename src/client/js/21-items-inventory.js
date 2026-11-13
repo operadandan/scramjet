@@ -177,12 +177,11 @@ function renderInv() {
     const it = { kind: 'gun', w: wi, att: attOf(wi) };
     return slot(id, label, mini(it, i ? pw * 0.36 : pw * 0.62) + '<button class="attb" data-wi="' + wi + '">ATTACHMENTS</button>', tipAttr(WEAPONS[wi].name, (attSummary2(it.att) || 'No attachments') + '. Drag into the backpack to stow, or onto the ground.'), ' data-drag="1" data-kind="eqgun" data-s="' + id + '" data-w="' + wi + '"');
   };
-  const tool = (i) => { const t = P.tools[i]; return slot('t' + i, 'TOOL ' + (i + 3), t ? mini({ kind: t }, 70) + '<b class="cnt">x' + toolCount(t) + '</b>' : '', tipAttr(t ? TOOL_NAME[t] : 'Empty tool slot', t ? 'Key ' + (i + 3) + ' uses this. Drag another tool here to change it.' : 'Drag a medkit or plate here.')); };
+  const tool = (i) => { const t = P.tools[i]; return slot('t' + i, 'TOOL ' + (i + 3), t ? mini({ kind: t }, 70) + '<b class="cnt">x' + toolCount(t) + '</b>' : '', tipAttr(t ? TOOL_NAME[t] : 'Empty tool slot', t ? 'Key ' + (i + 3) + ' uses this. Drag another tool here to change it.' : 'Drag a medkit here.')); };
   const pw = innerWidth * 0.25 - 34;
   $('invL').innerHTML = '<div class="ihd"><b>INVENTORY</b><span>' + (S.names && S.myId && S.names[S.myId] || 'OPERATOR') + '</span></div>' +
     '<div class="sec">LOADOUT</div><div class="eqg">' + gunSlot(0).replace('class="eq"', 'class="eq wide"') + gunSlot(1) +
-    slot('plateF', 'PLATE', mini({ kind: 'plate' }, 40) + condBar(A.plateF) + prog, tipAttr('Plate carrier', (A.plateF <= 0 ? 'Plate broken.' : 'Plate at ' + Math.round(A.plateF) + '%.') + ' Protects the front only. Drag a spare plate here to replace it.')) +
-    tool(0) + tool(1) + '</div>';
+    tool(0) + '</div>';
   const cards = L.list.filter(it => it.pos).map(it => {
     const G = P.guns[it.w], nx = it.kind === 'mag' && it.k !== undefined && G && G.next === it.k;
     let data = 'data-drag="1" data-key="' + it.key + '" data-kind="' + it.kind + '" data-r="' + (it.r || 0) + '"';
@@ -342,8 +341,7 @@ function updateToolbar() {
   tb.style.display = 'flex';
   const lo = P.activeLo, gr = i => lo[i] == null ? [i + 1, 'Empty', '', false] : [i + 1, WEAPONS[lo[i]].name, attSummary(lo[i]), P.slot === i];
   const rows = [gr(0), gr(1),
-    [3, P.tools[0] ? TOOL_NAME[P.tools[0]] : 'Empty', P.tools[0] ? 'x' + toolCount(P.tools[0]) : '', P.slot === toolSlotIndex(0)],
-    [4, P.tools[1] ? TOOL_NAME[P.tools[1]] : 'Empty', P.tools[1] ? 'x' + toolCount(P.tools[1]) : '', P.slot === toolSlotIndex(1)]];
+    [3, P.tools[0] ? TOOL_NAME[P.tools[0]] : 'Empty', P.tools[0] ? 'x' + toolCount(P.tools[0]) : '', P.slot === toolSlotIndex(0)]];
   const key = JSON.stringify(rows);
   if (key === tbKey) return; tbKey = key;
   tb.innerHTML = rows.map(r => '<div class="tb' + (r[3] ? ' on' : '') + (r[1] === 'Empty' ? ' empty' : '') + '"><b>' + r[0] + '</b><div><span>' + r[1] + '</span><small>' + r[2] + '</small></div></div>').join('');

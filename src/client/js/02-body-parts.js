@@ -174,7 +174,7 @@ class Body {
       this.gut(sph(1), 0xb87a74, p, 0.06, y + 0.2, -0.02, [0.05, 0.04, 0.04]);
       for (let i = 0; i < 6; i++) this.gut(GC('gut', () => new THREE.TorusGeometry(0.024, 0.011, 6, 12)), 0xc48a82, p, ((i % 3) - 1) * 0.045, y + 0.06 + Math.floor(i / 3) * 0.05, -0.01 + (i % 2) * 0.03, null, [Math.PI / 2 + i, i * 0.7, 0]);
     } else if (kind === 'pelvis') {
-      this.gut(GC('pbone', () => new THREE.TorusGeometry(0.1, 0.022, 5, 14, Math.PI * 1.3)), BONE, p, 0, y - 0.03, 0, [1, 1, 0.7], [Math.PI / 2, 0, Math.PI * 0.85]);
+      this.gut(GC('pbone', () => new THREE.TorusGeometry(0.1, 0.022, 5, 14, Math.PI * 1.3)), BONE, p, 0, y - 0.03, 0, [0.85, 0.72, 0.7], [Math.PI / 2, 0, Math.PI * 0.85]);
       for (let i = 0; i < 6; i++) this.gut(GC('gut', () => new THREE.TorusGeometry(0.024, 0.011, 6, 12)), 0xc48a82, p, ((i % 3) - 1) * 0.045, y + 0.0 + Math.floor(i / 3) * 0.045, -0.02 + (i % 2) * 0.03, null, [Math.PI / 2 + i, i * 0.9, 0]);
     } else if (kind === 'head') {
       // skull shell (cut like skin, bone-coloured inside) and the brain
@@ -209,29 +209,7 @@ class Body {
     this.guts('chest', p, y);
     this.add(latheG('torso', TORSO_PTS), c.shirt, p, 0, y, 0, f, [1, 1, 0.6]);
     if (c.noRig) this.rk = { k: 0.84, y0: y + 0.3 };
-    // plate carrier: the front plate bag is the only armour; soft back panel, cummerbund, shoulder straps
-    this.add(GC('plate', plateGeo), c.vest, p, 0, y + 0.19, -0.15, f, null, [0.05, 0, 0], 'plateF');
-    this.add(rbox(0.29, 0.31, 0.03, 0.014), c.vest, p, 0, y + 0.345, 0.122, f, null, [-0.04, 0, 0]);
-    for (const sx of [-1, 1]) {
-      this.add(rbox(0.035, 0.14, 0.23, 0.014), c.vest, p, sx * 0.176, y + 0.27, 0, f);
-      for (let i = 0; i < 3; i++) this.add(rbox(0.037, 0.012, 0.2, 0.004), c.vest2, p, sx * 0.177, y + 0.225 + i * 0.045, 0);
-      this.add(rbox(0.07, 0.03, 0.14, 0.012), c.vest, p, sx * 0.1, y + 0.525, -0.06, f, null, [0.5, 0, 0]);
-      this.add(rbox(0.07, 0.03, 0.15, 0.012), c.vest, p, sx * 0.1, y + 0.53, 0.06, f, null, [-0.45, 0, 0]);
-      this.add(rbox(0.078, 0.036, 0.1, 0.014), c.vest2, p, sx * 0.1, y + 0.556, 0.0);
-    }
-    for (let i = 0; i < 4; i++) this.add(rbox(0.26, 0.014, 0.006, 0.002), c.vest2, p, 0, y + 0.24 + i * 0.05, 0.139, null, null, [-0.04, 0, 0]);
-    // front: three rifle magazine pouches, admin pouch with patches, radio with antenna, tourniquet
-    for (let i = -1; i <= 1; i++) {
-      this.add(rbox(0.076, 0.115, 0.04, 0.01), c.vest2, p, i * 0.084, y + 0.255, -0.172, null, null, [0.05, 0, 0]);
-      this.add(rbox(0.06, 0.05, 0.022, 0.004), 0x232427, p, i * 0.084, y + 0.325, -0.174, null, null, [0.05, 0, 0]);
-      this.add(rbox(0.012, 0.09, 0.046, 0.003), c.dark, p, i * 0.084, y + 0.29, -0.173);
-    }
-    this.add(rbox(0.16, 0.075, 0.03, 0.01), c.vest2, p, 0, y + 0.43, -0.168, null, null, [0.05, 0, 0]);
-    this.add(rbox(0.06, 0.035, 0.004, 0.001), c.patch || 0x3d5a3a, p, 0.04, y + 0.432, -0.1845);
-    this.add(rbox(0.045, 0.012, 0.004, 0.001), 0xc8c0a8, p, -0.04, y + 0.44, -0.1845);
-    this.add(rbox(0.05, 0.12, 0.04, 0.008), c.dark, p, -0.15, y + 0.39, -0.1); this.add(cylg(0.004, 0.11, 6), c.dark, p, -0.16, y + 0.5, -0.1);
-    this.add(rbox(0.03, 0.04, 0.02, 0.005), c.dark, p, 0.11, y + 0.47, -0.162);
-    this.add(cylg(0.016, 0.1, 8), c.dark, p, 0.137, y + 0.36, -0.135, null, null, [0, 0, 0.2]); this.add(cylg(0.0165, 0.015, 8), 0xb02020, p, 0.147, y + 0.405, -0.135, null, null, [0, 0, 0.2]);
+    // (no plate carrier: armor is out of the game for now)
     // (no backpack: the 30-slot inventory is carried without one)
     this.rk = null;
   }

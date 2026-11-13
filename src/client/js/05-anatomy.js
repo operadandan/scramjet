@@ -108,7 +108,7 @@ class Anatomy {
     this.wounds = []; this.blood = 5000; this.dead = false; this.cause = ''; this.paralyzed = false;
     this.o2 = 1; this.lost = {}; this.cut = {}; this.breath = 1; this.pain = 0; this.concussion = 0; this.lastBy = 0; this.lastDir = new V3(0, 0, -1); this.lastRegion = 'chest'; this.lastDist = 0;
     this.version = 0;
-    this.armor = { helmet: 0, plateF: 100 }; this.helmetOn = false; this.shock = 0; this.morphine = 0; this.painDown = false; this.painLvl = 0;
+    this.armor = { helmet: 0, plateF: 0 }; this.helmetOn = false; this.shock = 0; this.morphine = 0; this.painDown = false; this.painLvl = 0;
   }
   // frame: skeleton group name, e/d: entry point and direction in that frame, v: impact velocity (m/s), w: weapon index, armor: 'plate'|'helmet'|undefined
   hit(frame, e, d, v, w, armor, pd) {
@@ -122,6 +122,7 @@ class Anatomy {
     // armor: plates are rated by energy and wear down with every hit, any helmet hit knocks the helmet off
     const Ein = 0.5 * m * vel * vel;
     let helmetOff = false, armorHit = '';
+    armor = '';   // armor is out of the game for now: every round reaches the body
     if (armor === 'plate' || armor === 'plateB') armor = e.z > 0 ? '' : 'plateF';
     if (armor === 'plateF' && d.z < 0) armor = '';
     if (armor === 'plateF' && this.armor[armor] > 0) {
@@ -367,7 +368,6 @@ function hitToFrame(hum, mesh, point, dir) {
   const q = F.getWorldQuaternion(new THREE.Quaternion()).invert();
   let armor = mesh.userData.armor;
   // plate coverage: anything inside the plate's outline counts as hitting the plate, even through the torso mesh
-  if (!armor && frame === 'spine' && Math.abs(e.x) < 0.14 && e.y > 0.19 && e.y < 0.5 && e.z < 0) armor = 'plateF';
   if (armor === 'helmet' && hum.helmetOff) armor = undefined;
   return { frame, e, d: dir.clone().applyQuaternion(q).normalize(), armor };
 }
@@ -427,8 +427,7 @@ function makeBodyPanel(container, title) {
       const pct = Math.max(0, Math.round(an.blood / 50));
       stats.innerHTML = '<span style="color:' + (pct < 70 ? '#ff6a40' : '#e8e8e8') + '">Blood ' + pct + '%</span>' +
         (rate > 0 ? ' &nbsp;<span style="color:#ff4a3a">bleeding ' + rate.toFixed(1) + ' ml/s</span>' : '') + (extra ? '<br>' + extra : '') +
-        '<div class="bp-pain"><span>PAIN</span><i><b style="width:' + clamp(an.painLvl, 0, 100) + '%;background:' + (an.painLvl > 70 ? '#ff3b30' : an.painLvl > 40 ? '#ffb020' : '#e8d26a') + '"></b></i></div>' +
-        '<div class="bp-arm">Front plate ' + armPct(an.armor.plateF) + '</div>';
+        '<div class="bp-pain"><span>PAIN</span><i><b style="width:' + clamp(an.painLvl, 0, 100) + '%;background:' + (an.painLvl > 70 ? '#ff3b30' : an.painLvl > 40 ? '#ffb020' : '#e8d26a') + '"></b></i></div>';
       list.innerHTML = an.injuries().slice(0, 7).map(i => '<div style="color:' + i[2] + '">' + i[1] + '</div>').join('');
     }
   };

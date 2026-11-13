@@ -13,7 +13,7 @@ const P = {
   inspecting: false, inspectT: 0, inspectShown: false,
   lastShot: 0, semiReady: true, deviceOn: true, switchT: 0, ads: 0, kick: 0, recoilPitch: 0, bobT: 0, swayX: 0, swayY: 0, aimOX: 0, aimOY: 0,
   slideBack: 0, headDeath: false, rag: null, flashT: 0,
-  slot: 0, stance: 0, prone: 0, anat: new Anatomy(), medUses: 3, platesInv: 2, tools: ['medkit', 'plate'], packGuns: [], loose: [], packPos: {}, supp: 0, activeLo: [0, 1], lookX: 0, lookY: 0, healing: false, healT: 0
+  slot: 0, stance: 0, prone: 0, anat: new Anatomy(), medUses: 3, platesInv: 0, tools: ['medkit', null], packGuns: [], loose: [], packPos: {}, supp: 0, activeLo: [0, 1], lookX: 0, lookY: 0, healing: false, healT: 0
 };
 const keys = {}, mouse = { left: false };
 const localBody = new Humanoid({}, true); scene.add(localBody.root);

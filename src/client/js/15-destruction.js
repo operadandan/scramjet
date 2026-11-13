@@ -393,7 +393,6 @@ function ragHitInfo(hit, dir) {
   if (rf === 'torso') { if (lp.y + 0.24 >= -0.02) lp.y += 0.24; else { frame = 'hips'; lp.y += 0.31; } }
   else if (rf === 'head') { if (lp.y >= -0.085) { frame = 'head'; lp.y += 0.1; } else { frame = 'neck'; lp.y += 0.16; } }
   else if (rf) { frame = ['shL', 'elL', 'shR', 'elR', 'lgL', 'knL', 'lgR', 'knR'][rf.seg]; lp.y += rf.dy; }
-  if (!armor && frame === 'spine' && Math.abs(lp.x) < 0.14 && lp.y > 0.19 && lp.y < 0.5 && lp.z < 0) armor = 'plateF';
   return { frame, e: lp, d, armor };
 }
 function updateFx(dt) {
