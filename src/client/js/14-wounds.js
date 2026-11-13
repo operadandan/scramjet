@@ -32,7 +32,7 @@ function feedPool(x, y, z, ml) {
   if (sd.vol >= 6) { seeds.splice(seeds.indexOf(sd), 1); makePool(sd.x, sd.y, sd.z, sd.vol); }
 }
 function makePool(x, y, z, vol) {
-  const m = new THREE.Mesh(splatGeo, pick(POOL_MAT)); m.rotation.set(-Math.PI / 2, 0, rnd(0, 6.28)); m.position.set(x, y + 0.002 + pools.length % 7 * 0.0002, z); m.scale.setScalar(0.001); m.receiveShadow = true; scene.add(m);
+  const m = new THREE.Mesh(splatGeo, pick(POOL_MAT)); m.rotation.set(-Math.PI / 2, 0, rnd(0, 6.28)); m.userData.aspect = rnd(0.7, 1.3); m.position.set(x, y + 0.002 + pools.length % 7 * 0.0002, z); m.scale.setScalar(0.001); m.receiveShadow = true; scene.add(m);
   pools.push({ m, x, y, z, vol, r: 0.02, e: rnd(0.8, 1.25) });
   if (pools.length > 60) { const o = pools.shift(); scene.remove(o.m); }
 }
@@ -216,7 +216,37 @@ function holeTube(slot, p, d, len, r0, r1, t0, t1, cap, colA, colB) {
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals();
   return g;
 }
-const TUBE_FLESH = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, side: THREE.DoubleSide });
+// wound track walls: the same cut-flesh look as the body's inside (muscle bundles, fascia, fat, tendon), darkened deeper down
+// the track by the tube's vertex colour, wet
+const TUBE_FLESH = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0, envMapIntensity: 0.25, side: THREE.DoubleSide });
+TUBE_FLESH.onBeforeCompile = sh => {
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vTubePos;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvTubePos = position;');
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vTubePos;\n' + FLESH_CUT)
+    .replace('#include <color_fragment>', '#include <color_fragment>\n{ float dk = clamp(dot(diffuseColor.rgb, vec3(0.6, 0.3, 0.1)) / 0.45, 0.25, 1.0); diffuseColor.rgb = fleshCut(vTubePos) * dk * 0.8; }')
+    .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * 0.1;');
+};
+TUBE_FLESH.customProgramCacheKey = () => 'tubeflesh';
+// what solid flesh looks like cut through: dark red muscle in bundles of fibres, pale fascia (the sheaths round each muscle),
+// a streak of tendon here and there and yellow fat marbled through, all fixed to the body (object space) so it doesn't swim
+const FLESH_CUT = `
+float fcH(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float fcN(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(fcH(i), fcH(i + vec3(1,0,0)), f.x), mix(fcH(i + vec3(0,1,0)), fcH(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(fcH(i + vec3(0,0,1)), fcH(i + vec3(1,0,1)), f.x), mix(fcH(i + vec3(0,1,1)), fcH(i + vec3(1,1,1)), f.x), f.y), f.z); }
+vec3 fleshCut(vec3 p) {
+  vec3 q = p * 60.0;
+  float bundle = fcN(q * vec3(0.6, 0.18, 0.6));                      // muscle bundles, long along the limb (y)
+  float fib = fcN(q * vec3(5.0, 0.6, 5.0));                          // fibres inside them
+  float sheath = smoothstep(0.47, 0.5, bundle) * (1.0 - smoothstep(0.5, 0.53, bundle));   // fascia between bundles
+  float fat = smoothstep(0.66, 0.74, fcN(q * 0.45 + 7.0));
+  float tendon = smoothstep(0.82, 0.86, fcN(q * vec3(1.6, 0.25, 1.6) + 3.0));
+  vec3 muscle = mix(vec3(0.16, 0.008, 0.01), vec3(0.32, 0.025, 0.022), fib * 0.7 + bundle * 0.3);
+  vec3 c = mix(muscle, vec3(0.42, 0.22, 0.17), sheath * 0.7);
+  c = mix(c, vec3(0.55, 0.36, 0.12), fat * 0.55);
+  c = mix(c, vec3(0.6, 0.52, 0.42), tendon * 0.6);
+  return c;
+}
+`;
 function holeify(mesh, max, inner) {
   if (mesh.userData.holeN !== undefined) return;
   mesh.userData.baseMat = mesh.material; const m = mesh.material.clone(); mesh.material = m; mesh.userData.holeN = 0; mesh.userData.holeMax = max;
@@ -224,19 +254,23 @@ function holeify(mesh, max, inner) {
   m.side = THREE.DoubleSide;
   m.userData.hA = { value: Array.from({ length: max }, () => new THREE.Vector4(0, 0, 0, 0)) };
   m.userData.hB = { value: Array.from({ length: max }, () => new THREE.Vector4(0, 1, 0, 0)) };
-  m.userData.hIn = { value: new THREE.Color(inner) };
+  m.userData.hIn = { value: new THREE.Color(inner) }; m.userData.hFl = { value: inner === FLESH_IN ? 1 : 0 };
   m.onBeforeCompile = sh => {
-    sh.uniforms.hA = m.userData.hA; sh.uniforms.hB = m.userData.hB; sh.uniforms.hIn = m.userData.hIn; sh.uniforms.hCut = m.userData.hCut;
+    sh.uniforms.hA = m.userData.hA; sh.uniforms.hB = m.userData.hB; sh.uniforms.hIn = m.userData.hIn; sh.uniforms.hFl = m.userData.hFl; sh.uniforms.hCut = m.userData.hCut;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vHolePos;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvHolePos = position;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vHolePos;\nuniform vec4 hA[' + max + '];\nuniform vec4 hB[' + max + '];\nuniform vec3 hIn;\nuniform vec4 hCut;\nfloat holeRim = 0.0;\n' + HOLE_JAG)
+      .replace('#include <common>', '#include <common>\nvarying vec3 vHolePos;\nuniform vec4 hA[' + max + '];\nuniform vec4 hB[' + max + '];\nuniform vec3 hIn;\nuniform float hFl;\nuniform vec4 hCut;\nfloat holeRim = 0.0;\n' + HOLE_JAG + FLESH_CUT)
       .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (dot(vHolePos, hCut.xyz) > hCut.w) discard;\n' +
         'for (int i = 0; i < ' + max + '; i++) { if (hA[i].w > 0.0) {\n' +
         '  vec3 hq = vHolePos - hA[i].xyz; float L2 = max(dot(hB[i].xyz, hB[i].xyz), 1e-8); float t = dot(hq, hB[i].xyz) / L2;\n' +
         '  if (t > -0.05 && t < 1.0) { vec3 hp = hq - hB[i].xyz * t; float ct = clamp(t, 0.0, 1.0);\n' +
         '    float rr = mix(hA[i].w, hB[i].w, ct) * holeJag(i, hp, hB[i].xyz);\n' +
         '    float dd = length(hp); if (dd < rr && t > 0.0) discard; holeRim = max(holeRim, 1.0 - smoothstep(rr, rr * 1.7, dd)); } } }')
-      .replace('#include <color_fragment>', '#include <color_fragment>\nif (!gl_FrontFacing) diffuseColor.rgb = hIn; else diffuseColor.rgb = mix(diffuseColor.rgb, hIn * 0.6, holeRim * 0.75);');
+      .replace('#include <color_fragment>', '#include <color_fragment>\nif (!gl_FrontFacing) diffuseColor.rgb = hFl > 0.5 ? fleshCut(vHolePos) : hIn; else diffuseColor.rgb = mix(diffuseColor.rgb, hIn * 0.6, holeRim * 0.75);')
+      // the inside never reads as an empty shell: it is lit as if it faced you, a little self-lit, so the far side of a body
+      // seen through a hole looks like the cut face of solid meat rather than a dark cavity
+      .replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\nif (!gl_FrontFacing) normal = normalize(vViewPosition);')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\nif (!gl_FrontFacing) totalEmissiveRadiance += diffuseColor.rgb * 0.15;');
   };
   m.customProgramCacheKey = () => 'holes' + max;
 }

@@ -182,8 +182,7 @@ function renderInv() {
   $('invL').innerHTML = '<div class="ihd"><b>INVENTORY</b><span>' + (S.names && S.myId && S.names[S.myId] || 'OPERATOR') + '</span></div>' +
     '<div class="sec">LOADOUT</div><div class="eqg">' + gunSlot(0).replace('class="eq"', 'class="eq wide"') + gunSlot(1) +
     slot('plateF', 'PLATE', mini({ kind: 'plate' }, 40) + condBar(A.plateF) + prog, tipAttr('Plate carrier', (A.plateF <= 0 ? 'Plate broken.' : 'Plate at ' + Math.round(A.plateF) + '%.') + ' Protects the front only. Drag a spare plate here to replace it.')) +
-    tool(0) + tool(1) +
-    slot('pack', 'PACK', '<div class="nm">' + L.used + ' / 30</div>' + condBar(100 - L.used / 30 * 100), tipAttr('Assault pack', '30 slots. Bigger items take more cells. Press R while dragging to turn an item.')) + '</div>';
+    tool(0) + tool(1) + '</div>';
   const cards = L.list.filter(it => it.pos).map(it => {
     const G = P.guns[it.w], nx = it.kind === 'mag' && it.k !== undefined && G && G.next === it.k;
     let data = 'data-drag="1" data-key="' + it.key + '" data-kind="' + it.kind + '" data-r="' + (it.r || 0) + '"';
@@ -193,7 +192,7 @@ function renderInv() {
     const full = it.kind === 'gun' ? Object.assign({ att: P.packGuns[it.ref].att }, it) : it;
     return '<div class="pit ' + it.kind + (nx ? ' next' : '') + '" ' + data + tipAttr(itemName(it) + (nx ? ' (loads next)' : ''), itemDesc(full)) + ' style="left:' + it.pos[0] * CS + 'px;top:' + it.pos[1] * CS + 'px;width:' + it.cw * CS + 'px;height:' + it.ch * CS + 'px">' + iconHtml(it, it.r, CS) + '</div>';
   }).join('');
-  $('invR').innerHTML = '<div class="sec">BACKPACK <i>' + L.used + ' / 30</i></div>' +
+  $('invR').innerHTML = '<div class="sec">STORAGE <i>' + L.used + ' / 30</i></div>' +
     '<div class="pack" data-slot="packgrid" style="width:' + PACK_COLS * CS + 'px;height:' + PACK_ROWS * CS + 'px;background-size:' + CS + 'px ' + CS + 'px">' + cards + '<div id="pghost"></div></div><div class="eq gdrop" data-slot="ground">DROP ON GROUND</div><div class="ihint">Drag to move · R rotates while dragging · G closes</div>';
   $('inv').querySelectorAll('.attb').forEach(b => { b.addEventListener('mousedown', e => e.stopPropagation()); b.addEventListener('click', () => openAttMenu(+b.dataset.wi)); });
 }

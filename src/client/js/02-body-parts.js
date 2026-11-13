@@ -232,14 +232,7 @@ class Body {
     this.add(rbox(0.05, 0.12, 0.04, 0.008), c.dark, p, -0.15, y + 0.39, -0.1); this.add(cylg(0.004, 0.11, 6), c.dark, p, -0.16, y + 0.5, -0.1);
     this.add(rbox(0.03, 0.04, 0.02, 0.005), c.dark, p, 0.11, y + 0.47, -0.162);
     this.add(cylg(0.016, 0.1, 8), c.dark, p, 0.137, y + 0.36, -0.135, null, null, [0, 0, 0.2]); this.add(cylg(0.0165, 0.015, 8), 0xb02020, p, 0.147, y + 0.405, -0.135, null, null, [0, 0, 0.2]);
-    // assault pack with lid, front pocket, compression straps and grab handle
-    const pk = c.pack || c.vest2;
-    this.add(rbox(0.27, 0.36, 0.13, 0.045), pk, p, 0, y + 0.31, 0.205, f, null, null, 'pack');
-    this.add(rbox(0.21, 0.2, 0.05, 0.02), pk, p, 0, y + 0.25, 0.285, f, null, null, 'pack');
-    this.add(rbox(0.25, 0.05, 0.12, 0.02), c.vest, p, 0, y + 0.485, 0.2, f, null, null, 'pack');
-    for (const sx of [-1, 1]) { this.add(rbox(0.012, 0.3, 0.02, 0.003), c.dark, p, sx * 0.137, y + 0.3, 0.2); this.add(rbox(0.02, 0.012, 0.14, 0.003), c.dark, p, sx * 0.13, y + 0.2, 0.21); this.add(rbox(0.02, 0.012, 0.14, 0.003), c.dark, p, sx * 0.13, y + 0.4, 0.21); }
-    this.add(rbox(0.06, 0.016, 0.02, 0.005), c.dark, p, 0, y + 0.52, 0.17);
-    for (let i = 0; i < 3; i++) this.add(rbox(0.19, 0.012, 0.006, 0.002), c.dark, p, 0, y + 0.19 + i * 0.05, 0.311);
+    // (no backpack: the 30-slot inventory is carried without one)
     this.rk = null;
   }
   head(p, cy, f) {

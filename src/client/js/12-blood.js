@@ -89,11 +89,33 @@ const BLOOD_TEX = {
   exit: fieldTex(256, ({ blob, run, s, c }) => { blob(c, c, s * 0.26); for (let i = 0; i < 9; i++) { const a = Math.random() * 6.28; run(c, c, c + Math.cos(a) * s * 0.36, c + Math.sin(a) * s * 0.36, s * 0.08, s * 0.025, 6); } }, { th: 0.3, c0: [150, 18, 16], c1: [60, 0, 2],
     post: (g, s) => { const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s * 0.16); gr.addColorStop(0, 'rgba(12,0,0,1)'); gr.addColorStop(1, 'rgba(50,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); } })
 };
-// pools: several shapes, wet and glossy, thin bright edges and a dark thick middle
-const POOL_MAT = [0, 1, 2].map(() => { const m = wetMat(fieldTex(512, ({ blob, run, s, c }) => {
-  for (let i = 0; i < 16; i++) { const a = Math.random() * 6.28, d = rnd(0, 0.19) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d * 0.85, s * rnd(0.13, 0.21)); }
-  for (let i = 0; i < 4; i++) { const a = Math.random() * 6.28, L = rnd(0.26, 0.33) * s; run(c + Math.cos(a) * s * 0.15, c + Math.sin(a) * s * 0.15, c + Math.cos(a) * L, c + Math.sin(a) * L, s * 0.13, s * 0.09, 6); }
-}, { th: 0.42, soft: 0.04, c0: [120, 8, 12], c1: [36, 0, 3], alpha: 0.97 }), -3); m.roughness = 0.05; m.metalness = 0.15; return m; });
+// pools: twelve shapes in six styles, wet and glossy, thin bright edges and a dark thick middle. Each pool also gets its own
+// turn, stretch and (for some) a darker clotting centre, so no two injuries leave the same mark
+const POOL_STYLES = [
+  // round, settled
+  ({ blob, s, c }) => { for (let i = 0; i < 14; i++) { const a = Math.random() * 6.28, d = rnd(0, 0.16) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.13, 0.2)); } },
+  // lobed, spreading out in fingers along the ground
+  ({ blob, run, s, c }) => { for (let i = 0; i < 10; i++) { const a = Math.random() * 6.28, d = rnd(0, 0.12) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.12, 0.17)); }
+    const n = 4 + (Math.random() * 4 | 0); for (let i = 0; i < n; i++) { const a = Math.random() * 6.28, L = rnd(0.25, 0.42) * s; run(c + Math.cos(a) * s * 0.12, c + Math.sin(a) * s * 0.12, c + Math.cos(a) * L, c + Math.sin(a) * L, s * rnd(0.08, 0.12), s * rnd(0.03, 0.06), 9); } },
+  // a long flow running off one way (a slope, or the body was moving)
+  ({ blob, run, s, c }) => { blob(c - s * 0.12, c, s * 0.17); blob(c - s * 0.05, c + s * 0.03, s * 0.14); run(c - s * 0.08, c, c + s * 0.38, c + rnd(-0.08, 0.08) * s, s * 0.12, s * 0.05, 14);
+    for (let i = 0; i < 3; i++) run(c + s * rnd(0, 0.2), c, c + s * rnd(0.2, 0.42), c + rnd(-0.18, 0.18) * s, s * 0.06, s * 0.025, 7); },
+  // pool with a spatter of satellite drops round it (it hit the floor fast)
+  ({ blob, s, c }) => { for (let i = 0; i < 9; i++) { const a = Math.random() * 6.28, d = rnd(0, 0.12) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.12, 0.16)); }
+    for (let i = 0; i < 40; i++) { const a = Math.random() * 6.28, d = rnd(0.26, 0.46) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.01, 0.035)); } },
+  // smear: dragged through it
+  ({ run, blob, s, c }) => { const a = rnd(-0.3, 0.3); for (let k = -2; k <= 2; k++) run(c - s * 0.38, c + k * s * 0.035 + Math.sin(a) * -0.38 * s, c + s * 0.36, c + k * s * 0.035 + Math.sin(a) * 0.36 * s, s * rnd(0.03, 0.05), s * rnd(0.01, 0.03), 16);
+    blob(c - s * 0.3, c, s * 0.15); blob(c - s * 0.22, c + s * 0.04, s * 0.12); },
+  // two pools that ran together
+  ({ blob, run, s, c }) => { const o = rnd(0.12, 0.2) * s; for (const sg of [-1, 1]) for (let i = 0; i < 7; i++) { const a = Math.random() * 6.28, d = rnd(0, 0.09) * s; blob(c + sg * o + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.1, 0.15)); }
+    run(c - o, c, c + o, c, s * 0.07, s * 0.07, 8); }
+];
+const POOL_MAT = [];
+for (let i = 0; i < 12; i++) {
+  const st = POOL_STYLES[i % POOL_STYLES.length], clot = i % 3 === 2;
+  const m = wetMat(fieldTex(512, st, { th: rnd(0.38, 0.45), soft: rnd(0.03, 0.06), c0: [rnd(105, 135) | 0, 8, 12], c1: clot ? [22, 0, 2] : [rnd(32, 44) | 0, 0, 3], alpha: 0.97 }), -3);
+  m.roughness = rnd(0.03, 0.12); m.metalness = 0.15; POOL_MAT.push(m);
+}
 const BLOOD_MAT = {}; for (const k in BLOOD_TEX) BLOOD_MAT[k] = wetMat(BLOOD_TEX[k], k === 'stain' ? -3 : /entry|exit|rim/.test(k) ? -5 : -4);
 BLOOD_MAT.soak.side = THREE.DoubleSide; BLOOD_MAT.soak.roughness = 0.5;
 BLOOD_MAT.stain.roughness = 0.5; BLOOD_MAT.entry.roughness = BLOOD_MAT.exit.roughness = 0.3;

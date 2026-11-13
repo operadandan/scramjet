@@ -236,7 +236,10 @@ function onBulletHit(b, hit, dir, dist) {
     else if (b.w === 2 && info.frame === 'head' && rag.headG.visible && b.local) { rag.gibHead(dir); cont = null; }
     else if (cont && (info.frame === 'head' || info.frame === 'neck')) wallSpatter(cont.point, dir, rnd(0.55, 0.8), true);
     let ni = 1, nd = 1e9; for (let i = 0; i < 16; i++) { const dd = rag.p[i].distanceToSquared(hit.point); if (dd < nd) { nd = dd; ni = i; } }
-    rag.kick(dir, (0.35 + v / 1500) * (b.w === 2 ? 3 : 1) * (cont ? 0.5 : 1), ni);
+    // the shove is the momentum the round actually leaves in the body (a round that goes through leaves about a third), on
+    // the mass of the part it hits and what it is joined to: a rifle round barely moves a torso but flicks a hand, a .50
+    // throws a limb. No film-style flying back.
+    { const dp = (WEAPONS[b.w].mass || 0.004) * v * (cont ? 0.35 : 1); rag.kick(dir, clamp(dp / (RAG_MASS[ni] * 2.2), 0.04, 14), ni); }
     if (!b.local) return cont;
     if (own.dummy) { own.dummy.shot(info, v, b.w, dir, dist); if (own.dummy.anat.gibHead && rag.headG.visible) rag.gibHead(dir); }
     else if (own.remote) net.send({ t: 'hit', id: own.remote, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
