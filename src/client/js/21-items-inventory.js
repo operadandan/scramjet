@@ -82,10 +82,30 @@ function itemIcon(it) { return it.kind === 'gun' ? ICO[WEAPONS[it.w].id] : it.ki
 const itemDesc = it => it.kind === 'gun' ? (attSummary2(it.att) || 'No attachments') + '. Drag onto a weapon slot to equip.' : it.kind === 'mag' && isShotgun(it.w) ? it.n + ' of 8 shells of 00 buckshot. Shells are fed from here one at a time.' : it.kind === 'mag' ? magEstimate(it.n, WEAPONS[it.w].cap) + '. Click to load it on the next reload.' : it.kind === 'medkit' ? 'Stops bleeding, splints fractures, dulls pain.' : 'Level IV ceramic plate. Drag onto the plate carrier to swap it in.';
 // ---- item pictures: each item's own 3D model, rendered from the side into a small picture (cached), and spun live as a 3D
 // model in place of the picture while the mouse is over it
-const ICON_R = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); ICON_R.setPixelRatio(1); ICON_R.setClearColor(0x000000, 0);
-const SPIN_R = new THREE.WebGLRenderer({ antialias: true, alpha: true }); SPIN_R.setPixelRatio(Math.min(2, devicePixelRatio || 1)); SPIN_R.setClearColor(0x000000, 0);
-SPIN_R.domElement.style.cssText = 'position:fixed;pointer-events:none;z-index:40;display:none';
-document.body.appendChild(SPIN_R.domElement);
+// Both are drawn by the game's own renderer into an offscreen target and copied into a plain 2D canvas (two extra WebGL
+// contexts just for item pictures cost memory and start-up time). Drawn at twice the size and scaled down: smooth edges.
+const ICON_RT = { rt: null, buf: null, c: document.createElement('canvas') };
+const _icc = new THREE.Color();
+function iconDraw(W, H, out) {
+  const w = W * 2, h = H * 2;
+  if (!ICON_RT.rt || ICON_RT.rt.width !== w || ICON_RT.rt.height !== h) {
+    if (ICON_RT.rt) ICON_RT.rt.dispose();
+    ICON_RT.rt = new THREE.WebGLRenderTarget(w, h); ICON_RT.rt.texture.colorSpace = THREE.SRGBColorSpace; ICON_RT.buf = new Uint8Array(w * h * 4);
+  }
+  const prev = renderer.getRenderTarget(), cc = renderer.getClearColor(_icc).getHex(), ca = renderer.getClearAlpha();
+  renderer.setRenderTarget(ICON_RT.rt); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(ICON_S, ICON_C);
+  renderer.readRenderTargetPixels(ICON_RT.rt, 0, 0, w, h, ICON_RT.buf);
+  renderer.setRenderTarget(prev); renderer.setClearColor(cc, ca);
+  const t = ICON_RT.c; t.width = w; t.height = h; const tx = t.getContext('2d'), im = tx.createImageData(w, h), b = ICON_RT.buf;
+  for (let y = 0; y < h; y++) im.data.set(b.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4);   // GL rows run bottom up
+  tx.putImageData(im, 0, 0);
+  const k = Math.min(2, devicePixelRatio || 1); out.width = Math.round(W * k); out.height = Math.round(H * k);
+  const ox = out.getContext('2d'); ox.imageSmoothingQuality = 'high'; ox.clearRect(0, 0, out.width, out.height); ox.drawImage(t, 0, 0, out.width, out.height);
+}
+const SPIN_C = document.createElement('canvas');
+SPIN_C.style.cssText = 'position:fixed;pointer-events:none;z-index:40;display:none';
+document.body.appendChild(SPIN_C);
+const ICON_OUT = document.createElement('canvas');
 const ICON_S = new THREE.Scene();
 ICON_S.add(new THREE.HemisphereLight(0xe8eef5, 0x2a2f36, 1.25));
 { const k = new THREE.DirectionalLight(0xffffff, 1.6); k.position.set(2, 3, 2.5); ICON_S.add(k); const r = new THREE.DirectionalLight(0x9fb4c8, 0.7); r.position.set(-2, 1, -3); ICON_S.add(r); }
@@ -118,7 +138,7 @@ function iconPic(it, W, H) {
   const k = iconKey(it) + '@' + W + 'x' + H; let u = iconPics.get(k);
   if (!u) {
     const g = iconMesh(it); g.rotation.set(0, 0, 0); ICON_S.add(g); frameIcon(g, W, H, false);
-    ICON_R.setSize(W * 2, H * 2, false); ICON_R.render(ICON_S, ICON_C); u = ICON_R.domElement.toDataURL('image/png'); ICON_S.remove(g);
+    iconDraw(W, H, ICON_OUT); u = ICON_OUT.toDataURL('image/png'); ICON_S.remove(g);
     iconPics.set(k, u);
   }
   return u;
@@ -134,21 +154,20 @@ function iconHtml(it, r, cs) {
 // hover: the picture is replaced by the model turning on the spot
 let spinIt = null, spinEl = null, spinYaw = 0;
 function spinUpdate(dt) {
-  const c = SPIN_R.domElement;
+  const c = SPIN_C;
   if (!S.inv || drag || !spinEl || !spinEl.isConnected) { c.style.display = 'none'; spinIt = null; spinEl = null; return; }
   const rc = spinEl.getBoundingClientRect(), box = spinEl.closest('.pit, .mini') || spinEl, rb = box.getBoundingClientRect();
   const W = Math.round(rb.width), H = Math.round(rb.height); if (W < 4 || H < 4) return;
   c.style.display = 'block'; c.style.left = rb.left + 'px'; c.style.top = rb.top + 'px'; c.style.width = W + 'px'; c.style.height = H + 'px';
-  SPIN_R.setSize(W, H, false);
   spinYaw += dt * 1.8;
   const g = iconMesh(spinIt); ICON_S.add(g); g.rotation.set(0.18 * Math.sin(spinYaw * 0.7), spinYaw, 0); frameIcon(g, W, H, true);
-  SPIN_R.render(ICON_S, ICON_C); ICON_S.remove(g); g.rotation.set(0, 0, 0);
+  iconDraw(W, H, SPIN_C); ICON_S.remove(g); g.rotation.set(0, 0, 0);
 }
 document.addEventListener('mouseover', e => {
   const im = e.target.closest && (e.target.closest('.pit, .mini') || null);
   const pic = im ? im.querySelector('.icimg') : null;
   if (pic && iconItems.has(pic.dataset.ic)) { if (spinEl !== pic) { spinEl = pic; spinIt = iconItems.get(pic.dataset.ic); spinYaw = 0; } pic.style.visibility = 'hidden'; }
-  else if (spinEl) { spinEl.style.visibility = ''; spinEl = null; spinIt = null; SPIN_R.domElement.style.display = 'none'; }
+  else if (spinEl) { spinEl.style.visibility = ''; spinEl = null; spinIt = null; SPIN_C.style.display = 'none'; }
 });
 // backpack cell size: the panel is a quarter of the screen wide and the 6-column grid fills it
 let CS = 52;
@@ -361,7 +380,7 @@ function openInv() {
   if (document.pointerLockElement) document.exitPointerLock();
 }
 function closeInv() {
-  S.inv = false; drag = null; spinEl = null; SPIN_R.domElement.style.display = 'none'; $('dragghost').style.display = 'none'; $('tip').style.display = 'none'; $('inv').style.display = 'none'; $('attm').style.display = 'none';
+  S.inv = false; drag = null; spinEl = null; SPIN_C.style.display = 'none'; $('dragghost').style.display = 'none'; $('tip').style.display = 'none'; $('inv').style.display = 'none'; $('attm').style.display = 'none';
   if (S.mode) renderer.domElement.requestPointerLock();
 }
 function updateInv(dt) {

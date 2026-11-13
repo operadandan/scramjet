@@ -1,37 +1,47 @@
-# Decimates each body segment in Blender (bpy), keeps the paint regions, and writes the game's mesh file
-import numpy as np, bpy, bmesh, base64, json, sys
+# Decimates the dense head in Blender (bpy) without touching the vertices it shares with the neck, keeps paint regions,
+# skin weights and normals, and writes the game's mesh file
+import numpy as np, bpy, base64, json, sys
 segs = np.load('/home/claude/hb/segs.npy', allow_pickle=True).item()
-RATIO = {'head': 0.4, 'knL': 0.6, 'knR': 0.6}
-NREG = 6
-def dec(p, t, fr, ratio):
+RATIO = {'head': 0.4, 'knL': 0.45, 'knR': 0.45, 'spine': 0.75}
+allv = {}
+for sg, d in segs.items():
+    for v in d['vid']: allv[v] = allv.get(v, 0) + 1
+def run(sg, d, ratio):
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    me = bpy.data.meshes.new('m'); me.from_pydata(p.tolist(), [], t.reshape(-1, 3).tolist()); me.update()
-    a = me.attributes.new('fr', 'INT', 'FACE'); a.data.foreach_set('value', fr.astype(np.int32))
+    me = bpy.data.meshes.new('m'); me.from_pydata(d['p'].tolist(), [], d['t'].reshape(-1, 3).tolist()); me.update()
+    a = me.attributes.new('fr', 'INT', 'FACE'); a.data.foreach_set('value', d['fr'].astype(np.int32))
+    for k, arr, typ in (('nn', d['n'], 'FLOAT_VECTOR'), ('qq', d['q'], 'FLOAT_VECTOR'), ('ww', d['w'], 'FLOAT'), ('hh', d['h'], 'FLOAT'), ('bb', d['b'], 'INT')):
+        a = me.attributes.new(k, typ, 'POINT'); a.data.foreach_set('vector' if typ == 'FLOAT_VECTOR' else 'value', np.asarray(arr, dtype=np.int32 if typ == 'INT' else np.float32).ravel())
     ob = bpy.data.objects.new('o', me); bpy.context.scene.collection.objects.link(ob); bpy.context.view_layer.objects.active = ob
     if ratio < 1:
-        md = ob.modifiers.new('d', 'DECIMATE'); md.decimate_type = 'COLLAPSE'; md.ratio = ratio; md.use_collapse_triangulate = True
+        # only vertices that belong to this segment alone and don't bend with a neighbour may be merged away
+        vg = ob.vertex_groups.new(name='free'); free = [k for k, v in enumerate(d['vid']) if allv[v] == 1 and d['w'][k] < 0.001 and not d['lock'][k]]
+        vg.add(free, 1.0, 'REPLACE')
+        md = ob.modifiers.new('d', 'DECIMATE'); md.decimate_type = 'COLLAPSE'; md.ratio = ratio; md.use_collapse_triangulate = True; md.vertex_group = 'free'
         bpy.ops.object.modifier_apply(modifier='d')
     me = ob.data; nv = len(me.vertices)
     P = np.zeros(nv * 3); me.vertices.foreach_get('co', P); P = P.reshape(-1, 3)
     me.calc_loop_triangles(); T = np.zeros(len(me.loop_triangles) * 3, dtype=np.int64); me.loop_triangles.foreach_get('vertices', T)
     TP = np.zeros(len(me.loop_triangles), dtype=np.int64); me.loop_triangles.foreach_get('polygon_index', TP)
     FR = np.zeros(len(me.polygons), dtype=np.int32); me.attributes['fr'].data.foreach_get('value', FR)
-    return P, T, FR[TP]
+    def g(k, n):
+        a = np.zeros(nv * n, dtype=np.int32 if k == 'bb' else np.float64)
+        me.attributes[k].data.foreach_get('vector' if n == 3 else 'value', a); return a
+    N = g('nn', 3).reshape(-1, 3); N /= np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-9)
+    return P, T, FR[TP], N, g('qq', 3).reshape(-1, 3), g('bb', 1), g('ww', 1), g('hh', 1)
 out = {}; tot = 0
+e64 = lambda a: base64.b64encode(a.tobytes()).decode()
 for sg, d in segs.items():
-    P, T, R = dec(d['p'], d['t'], d['fr'], RATIO.get(sg, 1))
-    # smooth vertex normals from the decimated surface
-    N = np.zeros_like(P); tri = T.reshape(-1, 3); fn = np.cross(P[tri[:, 1]] - P[tri[:, 0]], P[tri[:, 2]] - P[tri[:, 0]])
-    for k in range(3): np.add.at(N, tri[:, k], fn)
-    N /= np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-9)
-    tot += len(tri)
-    q = np.round(P * 10000).astype(np.int16)                        # 0.1 mm steps
-    nq = np.round(N * 127).astype(np.int8)
-    out[sg] = {'p': base64.b64encode(q.tobytes()).decode(), 'n': base64.b64encode(nq.tobytes()).decode(),
-               'r': base64.b64encode(R.astype(np.uint8).tobytes()).decode(), 't': base64.b64encode(T.astype(np.uint16).tobytes()).decode()}
-    print(sg, len(P), 'v', len(tri), 't')
+    P, T, R, N, Q, Bn, Wn, Hc = run(sg, d, RATIO.get(sg, 1))
+    tot += len(T) // 3
+    out[sg] = {'p': e64(np.round(P * 10000).astype(np.int16)), 'n': e64(np.round(N * 127).astype(np.int8)), 'r': e64(R.astype(np.uint8)),
+               't': e64(T.astype(np.uint16)), 'q': e64(np.round(Q * 10000).astype(np.int16)), 'b': e64(Bn.astype(np.uint8)), 'w': e64(np.round(np.clip(Wn, 0, 1) * 255).astype(np.uint8)), 'h': e64(np.round(np.clip(Hc, 0, 1) * 255).astype(np.uint8))}
+    print(sg, len(P), 'v', len(T) // 3, 't')
 print('total tris', tot)
 js = ('// The human body: MakeHuman base mesh (CC0, makehumancommunity.org), male, cut into the game\'s body segments and\n'
-      '// decimated in Blender by tools/build_human.py. Positions in 0.1 mm int16, normals int8, paint region per triangle, uint16 triangles.\n'
+      '// skinned across the joints, built by tools/human. Per segment: positions (0.1 mm int16), normals (int8), paint region\n'
+      '// per triangle, uint16 triangles, and for skinning each vertex\'s position in its neighbouring segment (q), which neighbour\n'
+      '// (b, index into HUMAN_SEGS) and how much it follows it (w, 0-255).\n'
+      'const HUMAN_SEGS = ' + json.dumps(['hips', 'spine', 'neck', 'head', 'shL', 'elL', 'shR', 'elR', 'lgL', 'knL', 'lgR', 'knR']) + ';\n'
       'const HUMAN_MESH = ' + json.dumps(out, separators=(',', ':')) + ';\n')
 open(sys.argv[-1], 'w').write(js); print('bytes', len(js))

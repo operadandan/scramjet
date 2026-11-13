@@ -104,7 +104,7 @@ $('leave').onclick = () => leave();
 
 // ---------------------------------------------------------------- main loop
 buildArena(); setTimeout(warmShaders, 300);
-let last = performance.now();
+let last = performance.now(), frameN = 0;
 const focus = new V3();
 // ---------------------------------------------------------------- retro pixelation: the frame is drawn at a fixed number of lines and
 // blown up with hard pixel edges, so every pixel is the same size on screen whatever the distance, window size or display
@@ -138,7 +138,14 @@ function frame(now, hidden) {
   if (S.mode) {
     updatePlayer(dt); updateWeapons(dt);
     for (const r of S.remotes.values()) r.update(dt);
-    for (const d of dummies) d.update(wdt);
+    // far bodies are stepped less often (every 2nd frame past 40 m, every 3rd past 80 m) with the time they missed: nobody
+    // can see a 20 Hz animation at that range, and the AI and animation of a range full of targets was a big part of each frame
+    frameN++;
+    for (let i = 0; i < dummies.length; i++) {
+      const d = dummies[i], r = d.hum && d.hum.root, far = r ? r.position.distanceToSquared(camera.position) : 0, k = far > 6400 ? 3 : far > 1600 ? 2 : 1;
+      d._acc = (d._acc || 0) + wdt;
+      if (k === 1 || (frameN + i) % k === 0) { d.update(Math.min(d._acc, 0.12)); d._acc = 0; }
+    }
     netSend(dt); updateHUD(); updateToolbar(); updateInv(dt); updatePickup();
   }
   updateBullets(wdt);

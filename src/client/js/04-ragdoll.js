@@ -97,7 +97,7 @@ class Ragdoll {
     }
     if (masks.gib) B.add(sph(0.052), 0x6a0505, this.torso, 0, 0.315, 0, null, [1, 0.6, 1]);
     if (masks.nh) this.group.traverse(o => { if (o.userData.armor === 'helmet') o.visible = false; });
-    mergeTree(this.group, vcMat);
+    mergeTree(this.group, vcMat); attachSkin(this.group, B.segAt);
     this.group.traverse(o => { if (o.isMesh) o.userData.rag = this; });
     if (masks.gib) this.headG.visible = false;
     if (masks.h) for (const h of masks.h) { const [g, dy] = this.frameGroup(h.frame, h.p.y + h.d.y * h.len * 0.5); if (g) holeInGroup(g, h.p.clone().setY(h.p.y + dy), h.d, h.len, h.r0, h.r1, h.sk); }
@@ -447,7 +447,7 @@ function spawnLimb(hum, bit, dir, t, lowerGone) {
   const g = new THREE.Group();
   if (arm) { if (upper) { B.upperArm(g, 0, 0.3, side); if (!lowerGone) { const e = new THREE.Group(); e.position.copy(hum['el' + side].position); e.quaternion.copy(hum['el' + side].quaternion); g.add(e); B.forearm(e, 0, 0.3, side); } } else B.forearm(g, 0, 0.3, side); }
   else { if (upper) { B.thigh(g, 0, 0.44, side); if (!lowerGone) { const k = new THREE.Group(); k.position.copy(hum['kn' + side].position); k.quaternion.copy(hum['kn' + side].quaternion); g.add(k); B.shin(k, 0, 0.44, side); } } else B.shin(g, 0, 0.44, side); }
-  mergeTree(g, vcMat);
+  mergeTree(g, vcMat); attachSkin(g, B.segAt);
   const cy = t ? -t * (arm ? 0.3 : 0.44) : 0;
   if (t) clipGroup(g, cy, true);
   addStump(g, new V3(0, cy, 0), new V3(0, 1, 0), arm ? 0.042 : 0.065);

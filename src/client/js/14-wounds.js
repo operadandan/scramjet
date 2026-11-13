@@ -191,6 +191,8 @@ function copySegment(g) {
   for (const c of g.children) {
     if (!c.isMesh || c.userData.keep || c.userData.tube) continue;
     const m = new THREE.Mesh(c.geometry, c.userData.baseMat || c.material); m.position.copy(c.position); m.quaternion.copy(c.quaternion); m.scale.copy(c.scale); m.castShadow = true; n.add(m);
+    // a piece on its own has nothing to bend with: its skin stays as cut
+    if (c._skin) { const U = { segM: { value: Array.from({ length: 12 }, () => new THREE.Matrix4()) }, segOK: { value: new Array(12).fill(0) } }; m._skin = { U, at: {} }; m.userData.hair = c.userData.hair; const mm = m.material.clone(); mm.onBeforeCompile = sh => bodyPatches(sh, m); mm.customProgramCacheKey = () => 'body' + bodyKey(m); m.material = mm; }
     if (c.userData.holeN !== undefined) { holeify(m, c.userData.holeMax, c.material.userData.hIn.value.getHex()); m.userData.holeN = c.userData.holeN; const a = c.material.userData, b = m.material.userData; for (let i = 0; i < a.hA.value.length; i++) { b.hA.value[i].copy(a.hA.value[i]); b.hB.value[i].copy(a.hB.value[i]); } }
   }
   return n;
@@ -287,6 +289,7 @@ function holeify(mesh, max, inner) {
   m.userData.hB = { value: Array.from({ length: max }, () => new THREE.Vector4(0, 1, 0, 0)) };
   m.userData.hIn = { value: new THREE.Color(inner) }; m.userData.hFl = { value: inner === FLESH_IN ? 1 : 0 };
   m.onBeforeCompile = sh => {
+    bodyPatches(sh, mesh);
     sh.uniforms.hA = m.userData.hA; sh.uniforms.hB = m.userData.hB; sh.uniforms.hIn = m.userData.hIn; sh.uniforms.hFl = m.userData.hFl; sh.uniforms.hCut = m.userData.hCut;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vHolePos;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvHolePos = position;');
     sh.fragmentShader = sh.fragmentShader
@@ -303,7 +306,7 @@ function holeify(mesh, max, inner) {
       .replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\nif (!gl_FrontFacing) normal = normalize(vViewPosition);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\nif (!gl_FrontFacing) totalEmissiveRadiance += diffuseColor.rgb * 0.15;');
   };
-  m.customProgramCacheKey = () => 'holes' + max;
+  m.customProgramCacheKey = () => 'holes' + max + bodyKey(mesh);
 }
 // cut a cone hole into one mesh. p, d in the mesh's own coordinates; d unit; len along d
 function cutHole(mesh, p, d, len, r0, r1, inner) {
@@ -323,13 +326,13 @@ function pruneLiquid(group) {
   for (const o of gone) o.parent.remove(o);
 }
 function holeInGroup(group, p, d, len, r0, r1, sk) {
-  let slot = -1;
+  let slot = -1, slotF = false;
   for (const c of group.children) {
     if (!c.isMesh || c.userData.keep || c.userData.organ || c.userData.tube) continue;
-    if (c.userData.inner) c.visible = true;
+    if (c.userData.inner || c.userData.under) c.visible = true;
     c.updateMatrix(); _hm.copy(c.matrix).invert();
     const a = p.clone().applyMatrix4(_hm), dd = d.clone().transformDirection(_hm);
-    if (slot < 0 && !c.userData.inner) slot = (c.userData.holeN || 0) % (c.material.userData && c.material.userData.hA ? c.material.userData.hA.value.length : (c.userData.holeMax || 20));
+    if ((slot < 0 || c.userData.frame) && !c.userData.inner && !c.userData.under && !(slot >= 0 && slotF)) { slotF = !!c.userData.frame; slot = (c.userData.holeN || 0) % (c.material.userData && c.material.userData.hA ? c.material.userData.hA.value.length : (c.userData.holeMax || 20)); }
     cutHole(c, a, dd, len, r0, r1, c.userData.inner ? c.userData.hIn : c.userData.armor === 'pack' ? FABRIC_IN : FLESH_IN);
   }
   for (const c of group.children) if (c.userData.organ) c.visible = true;
@@ -484,7 +487,7 @@ function updateWounds(hum, dt) {
 function clearWounds(hum) {
   if (hum.wounds) for (const w of hum.wounds) { w.m.removeFromParent(); w.st.removeFromParent(); if (w.tr) w.tr.removeFromParent(); if (w.more) for (const x of w.more) x.removeFromParent(); } hum.wounds = []; hum.holes = [];
   const tubes = [];
-  hum.root.traverse(o => { if (o.isMesh && o.userData.holeN) { for (const v of o.material.userData.hA.value) v.w = 0; o.userData.holeN = 0; } if (o.userData.tube) tubes.push(o); if (o.userData.organ || o.userData.inner) o.visible = false; });
+  hum.root.traverse(o => { if (o.isMesh && o.userData.holeN) { for (const v of o.material.userData.hA.value) v.w = 0; o.userData.holeN = 0; } if (o.userData.tube) tubes.push(o); if (o.userData.organ || o.userData.inner || o.userData.under) o.visible = false; });
   for (const t of tubes) { t.removeFromParent(); t.geometry.dispose(); }
 }
 // ---------------------------------------------------------------- penetration

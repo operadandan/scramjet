@@ -6,23 +6,73 @@ const sph = r => GC('sp' + r, () => new THREE.SphereGeometry(r, 14, 10));
 const hemi = r => GC('hm' + r, () => new THREE.SphereGeometry(r, 16, 7, 0, Math.PI * 2, 0, Math.PI * 0.5));
 const cylg = (r, h, s, r2) => GC('cy' + r + '_' + h + '_' + s + '_' + r2, () => new THREE.CylinderGeometry(r, r2 === undefined ? r : r2, h, s || 14));
 // the human body from HUMAN_MESH (02a-human-mesh.js): one segment's triangles of one paint region
-// regions: 0 skin, 1 shirt, 2 pants, 3 boots, 4 sole, 5 hair
+// regions: 0 skin, 1 shirt, 2 pants, 3 boots, 4 sole, 6 skin under the clothes, 7 hair
 const _b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
 const _humSeg = {};
 function humSeg(seg) {
   if (_humSeg[seg]) return _humSeg[seg];
   const d = HUMAN_MESH[seg], p = new Int16Array(_b64(d.p)), n = new Int8Array(_b64(d.n)), r = new Uint8Array(_b64(d.r)), t = new Uint16Array(_b64(d.t));
-  const pos = new Float32Array(p.length), nrm = new Float32Array(n.length);
-  for (let i = 0; i < p.length; i++) { pos[i] = p[i] / 10000; nrm[i] = n[i] / 127; }
-  return (_humSeg[seg] = { pos, nrm, t, tr: r });   // r: paint region of each triangle
+  const q = new Int16Array(_b64(d.q)), b = new Uint8Array(_b64(d.b)), w = new Uint8Array(_b64(d.w)), h = new Uint8Array(_b64(d.h));
+  const pos = new Float32Array(p.length), nrm = new Float32Array(n.length), p2 = new Float32Array(q.length), nb = new Float32Array(b.length), nw = new Float32Array(w.length);
+  for (let i = 0; i < p.length; i++) { pos[i] = p[i] / 10000; nrm[i] = n[i] / 127; p2[i] = q[i] / 10000; }
+  const hc = new Float32Array(h.length);
+  for (let i = 0; i < b.length; i++) { nb[i] = b[i]; nw[i] = w[i] / 255; hc[i] = h[i] / 255; }
+  return (_humSeg[seg] = { pos, nrm, p2, nb, nw, hc, t, tr: r });   // r: paint region of each triangle
 }
 const humGeo = (seg, reg) => GC('hum' + seg + '_' + reg, () => {
   const S = humSeg(seg), idx = [];
   for (let k = 0; k < S.tr.length; k++) if (S.tr[k] === reg) idx.push(S.t[k * 3], S.t[k * 3 + 1], S.t[k * 3 + 2]);
   if (!idx.length) return null;
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(S.pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(S.nrm, 3)); g.setIndex(idx);
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(S.pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(S.nrm, 3));
+  g.setAttribute('p2', new THREE.BufferAttribute(S.p2, 3)); g.setAttribute('nb', new THREE.BufferAttribute(S.nb, 1)); g.setAttribute('nw', new THREE.BufferAttribute(S.nw, 1));
+  g.setIndex(idx);
+  if (reg === 7) g.setAttribute('hc', new THREE.BufferAttribute(S.hc, 1));
+  if (reg === 7) { const n = S.pos.length / 3, tn = new Float32Array(n * 3); for (let i = 0; i < n; i++) { const h = Math.sin(i * 12.9898) * 43758.5453, k = 0.78 + 0.32 * (h - Math.floor(h)); tn[i * 3] = tn[i * 3 + 1] = tn[i * 3 + 2] = k; } g.setAttribute('tint', new THREE.BufferAttribute(tn, 3)); }
   return g;
 });
+// Skinning across the joints. A body is still one group per bone, but the skin near a joint follows both bones: each vertex
+// has its position in the neighbouring bone's frame (p2) and a weight (nw), and the vertex shader blends the two. segM[k]
+// takes bone k's frame into the frame of the group this mesh hangs in, every frame; segOK[k] is 0 if that bone isn't there.
+const SKIN_VS = ['attribute vec3 p2;\nattribute float nb;\nattribute float nw;\nuniform mat4 segM[12];\nuniform float segOK[12];\n',
+  'int skI = int(nb + 0.5); float skW = nw * segOK[skI]; mat4 skM = segM[skI];\nobjectNormal = normalize(mix(objectNormal, mat3(skM) * objectNormal, skW));\n',
+  'transformed = mix(transformed, (skM * vec4(p2, 1.0)).xyz, skW);\n'];
+function skinShader(sh, U) {
+  sh.uniforms.segM = U.segM; sh.uniforms.segOK = U.segOK;
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + SKIN_VS[0])
+    .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\n' + SKIN_VS[1])
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + SKIN_VS[2]);
+}
+const _skI = new THREE.Matrix4(), _skT = new THREE.Matrix4();
+function skinUpdate() {
+  const sk = this._skin, P = this.parent; if (!sk || !P) return;
+  _skI.copy(P.matrixWorld).invert();
+  for (let k = 0; k < 12; k++) {
+    const at = sk.at[HUMAN_SEGS[k]];
+    if (!at || !at[0].parent && at[0] !== P) { sk.U.segOK.value[k] = 0; continue; }
+    sk.U.segOK.value[k] = 1;
+    sk.U.segM.value[k].multiplyMatrices(_skI, at[0].matrixWorld).multiply(_skT.makeTranslation(0, at[1], 0));
+  }
+  if (this.material) this.material.uniformsNeedUpdate = true;
+}
+// after the body's meshes are merged: every mesh with skin weights gets its own material and the per-frame bone matrices
+// hair: drawn only where its coverage is over one half, so the hairline is a smooth curve; a little rougher than skin
+function hairShader(sh) {
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float hc;\nvarying float vHc;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvHc = hc;');
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vHc;').replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (vHc < 0.5) discard;');
+}
+// every special material on a body part goes through here, so skinning, hair and bullet holes stack on one mesh
+function bodyPatches(sh, mesh) { if (mesh._skin) skinShader(sh, mesh._skin.U); if (mesh.userData.hair) hairShader(sh); }
+const bodyKey = mesh => (mesh._skin ? 'sk' : '') + (mesh.userData.hair ? 'h' : '');
+function hairMat(o) { if (o.material === shadowMat) return; const m = o.material.clone(); m.roughness = 0.95; m.onBeforeCompile = sh => bodyPatches(sh, o); m.customProgramCacheKey = () => 'body' + bodyKey(o); o.material = m; }
+function attachSkin(root, at) {
+  root.traverse(o => {
+    if (!o.isMesh || !o.geometry.attributes.nw || o.material === shadowMat || o._skin) return;
+    const U = { segM: { value: Array.from({ length: 12 }, () => new THREE.Matrix4()) }, segOK: { value: new Array(12).fill(0) } };
+    o._skin = { U, at };
+    const m = o.material.clone(); m.onBeforeCompile = sh => bodyPatches(sh, o); m.customProgramCacheKey = () => 'body' + bodyKey(o); o.material = m;
+    o.onBeforeRender = skinUpdate;
+  });
+}
 // lathe profile [radius, y] pairs, bottom to top
 const latheG = (key, pts) => GC('la' + key, () => new THREE.LatheGeometry(pts.map(p => new THREE.Vector2(p[0], p[1])), 14));
 // tapered limb with rounded ends, from y=0 (top joint) down to y=-len
@@ -43,7 +93,7 @@ const PELVIS_PTS = [[0.0, -0.13], [0.09, -0.125], [0.15, -0.08], [0.165, -0.02],
 // merge each skeleton segment's meshes into one vertex-coloured mesh (one draw call per bone instead of dozens)
 const vcMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
 function mergeChildren(group, matl, pick) {
-  const parts = group.children.filter(pick || (c => c.isMesh && !c.isInstancedMesh && !c.userData.armor && !c.userData.keep && !c.userData.organ && !c.userData.inner));
+  const parts = group.children.filter(pick || (c => c.isMesh && !c.isInstancedMesh && !c.userData.armor && !c.userData.keep && !c.userData.organ && !c.userData.inner && !c.userData.under && !c.userData.hair));
   if (parts.length < 2) return parts[0] || null;
   const geos = []; let frame = null, hum = null;
   for (const m of parts) {
@@ -51,7 +101,7 @@ function mergeChildren(group, matl, pick) {
     const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
     g.applyMatrix4(m.matrix);
     const tn = g.attributes.tint ? g.attributes.tint.array : null;
-    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') g.deleteAttribute(k);
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv' && k !== 'p2' && k !== 'nb' && k !== 'nw' && k !== 'hc') g.deleteAttribute(k);
     if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
     const col = m.material.color || new THREE.Color(1, 1, 1), n = g.attributes.position.count, arr = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { arr[i * 3] = col.r * (tn ? tn[i * 3] : 1); arr[i * 3 + 1] = col.g * (tn ? tn[i * 3 + 1] : 1); arr[i * 3 + 2] = col.b * (tn ? tn[i * 3 + 2] : 1); }
@@ -60,13 +110,15 @@ function mergeChildren(group, matl, pick) {
     if (m.userData.frame) { frame = m.userData.frame; hum = m.userData.hum; }
     group.remove(m);
   }
+  // skinned and plain parts merge together: plain parts get zero skin weight
+  if (geos.some(g => g.attributes.nw)) for (const g of geos) if (!g.attributes.nw) { const n = g.attributes.position.count; g.setAttribute('p2', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('nb', new THREE.BufferAttribute(new Float32Array(n), 1)); g.setAttribute('nw', new THREE.BufferAttribute(new Float32Array(n), 1)); }
   const merged = new THREE.Mesh(mergeGeometries(geos), matl);
   merged.castShadow = true; merged.receiveShadow = matl !== shadowMat;
   if (frame) { merged.userData.frame = frame; merged.userData.hum = hum; }
   group.add(merged);
   return merged;
 }
-function mergeTree(root, matl) { const groups = []; root.traverse(o => { if (!o.isMesh && !o.isSprite) groups.push(o); }); for (const g of groups) { mergeChildren(g, matl); const o = mergeChildren(g, matl, c => c.isMesh && c.userData.organ); if (o) { o.userData.organ = true; o.castShadow = false; o.visible = false; } } }
+function mergeTree(root, matl) { const groups = []; root.traverse(o => { if (!o.isMesh && !o.isSprite) groups.push(o); }); for (const g of groups) { mergeChildren(g, matl); const un = mergeChildren(g, matl, c => c.isMesh && c.userData.under); if (un) { un.userData.under = true; un.visible = false; un.castShadow = false; un.receiveShadow = true; } const hr = mergeChildren(g, matl, c => c.isMesh && c.userData.hair); if (hr) { hr.userData.hair = true; hairMat(hr); } const o = mergeChildren(g, matl, c => c.isMesh && c.userData.organ); if (o) { o.userData.organ = true; o.castShadow = false; o.visible = false; } } }
 const capg = (r, l) => GC('cp' + r + '_' + l, () => new THREE.CapsuleGeometry(r, l, 2, 6));
 const hemiBack = r => GC('hb' + r, () => new THREE.SphereGeometry(r, 12, 4, Math.PI * 0.08, Math.PI * 0.84, Math.PI * 0.5, Math.PI * 0.2));
 const plateGeo = () => { const g = new THREE.ExtrudeGeometry(polyShape([[-0.122, 0], [0.122, 0], [0.135, 0.02], [0.135, 0.2], [0.085, 0.31], [-0.085, 0.31], [-0.135, 0.2], [-0.135, 0.02]], 0.018), { depth: 0.026, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.006, bevelOffset: -0.006, bevelSegments: 2, curveSegments: 4 }); return g; };
@@ -208,7 +260,11 @@ class Body {
   // a real human body segment (MakeHuman), painted: skin, shirt, pants, boots, sole, hair
   human(seg, p, y, f) {
     const c = this.c, col = [c.skin, c.shirt, c.pants, c.boots, c.sole, c.hair];
+    (this.segAt = this.segAt || {})[seg] = [p, y];
     for (let r = 0; r < 6; r++) { const g = humGeo(seg, r); if (g) this.add(g, col[r], p, 0, y, 0, f); }
+    // the skin under the clothes and hair: hidden (and free) until the clothes over it are shot open
+    const hg = humGeo(seg, 7); if (hg) { const m = this.add(hg, c.hair, p, 0, y, 0, f); m.userData.hair = true; }
+    const u = humGeo(seg, 6); if (u && this.M(0) !== shadowMat) { const m = this.add(u, c.skin, p, 0, y, 0, null); m.userData.under = true; m.visible = false; m.castShadow = false; }
   }
   pelvis(p, y, f) {
     f = f && 'hips';
@@ -232,8 +288,6 @@ class Body {
     const f = side && 'sh' + side;
     this.guts('upperArm', p, top, L);
     this.human('sh' + side, p, top, f);
-    // shoulder ball under the sleeve: fills the joint when the arm is raised
-    this.add(sph(0.05), this.c.shirt, p, (side === 'L' ? -1 : 1) * 0.004, top + 0.004, 0.0, f, [1, 1.05, 1]);
   }
   forearm(p, top, L, side) {
     const c = this.c, f = side && 'el' + side, sx = side === 'L' ? -1 : 1;

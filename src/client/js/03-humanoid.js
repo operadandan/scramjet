@@ -101,6 +101,7 @@ class Humanoid {
     this.handMagR.visible = this.handMagP.visible = false;
     this.handMagR.userData.keep = this.handMagP.userData.keep = true;
     mergeTree(this.root, this.shadowOnly ? shadowMat : vcMat);
+    if (!this.shadowOnly) attachSkin(this.root, B.segAt);
     this.hitMeshes = []; this.root.traverse(o => { if (o.isMesh && o.userData.frame) this.hitMeshes.push(o); });
     this._t = new V3(); this._p1 = new V3(); this._p2 = new V3();
   }
@@ -109,7 +110,7 @@ class Humanoid {
     const key = mask + ':' + (cuts ? cuts.join(',') : '');
     if (key === this.lostKey) return;
     this.lostKey = key; this.lostMask = mask;
-    const show = (g, v) => g.traverse(o => { if (o.isMesh && (!v || !(o.userData.organ || o.userData.inner))) o.visible = v; });
+    const show = (g, v) => g.traverse(o => { if (o.isMesh && (!v || !(o.userData.organ || o.userData.inner || o.userData.under))) o.visible = v; });
     this.handMagR.visible = this.handMagP.visible = false;
     this.stumps = this.stumps || {};
     const LIMBS = [['armL', 1, 2, this.shL, this.elL, 0.3, 0.3, 0.05, 0.04, [this.spine, this.shL.position, [-1, -0.5, 0]]], ['armR', 4, 8, this.shR, this.elR, 0.3, 0.3, 0.05, 0.04, [this.spine, this.shR.position, [1, -0.5, 0]]],
