@@ -12,12 +12,12 @@ const _humSeg = {};
 function humSeg(seg) {
   if (_humSeg[seg]) return _humSeg[seg];
   const d = HUMAN_MESH[seg], p = new Int16Array(_b64(d.p)), n = new Int8Array(_b64(d.n)), r = new Uint8Array(_b64(d.r)), t = new Uint16Array(_b64(d.t));
-  const q = new Int16Array(_b64(d.q)), b = new Uint8Array(_b64(d.b)), w = new Uint8Array(_b64(d.w)), h = new Uint8Array(_b64(d.h));
+  const q = new Int16Array(_b64(d.q)), b = new Uint8Array(_b64(d.b)), w = new Uint8Array(_b64(d.w)), h = new Uint8Array(_b64(d.h)), cc = new Uint8Array(_b64(d.c));
   const pos = new Float32Array(p.length), nrm = new Float32Array(n.length), p2 = new Float32Array(q.length), nb = new Float32Array(b.length), nw = new Float32Array(w.length);
   for (let i = 0; i < p.length; i++) { pos[i] = p[i] / 10000; nrm[i] = n[i] / 127; p2[i] = q[i] / 10000; }
-  const hc = new Float32Array(h.length);
-  for (let i = 0; i < b.length; i++) { nb[i] = b[i]; nw[i] = w[i] / 255; hc[i] = h[i] / 255; }
-  return (_humSeg[seg] = { pos, nrm, p2, nb, nw, hc, t, tr: r });   // r: paint region of each triangle
+  const hc = new Float32Array(h.length), ck = new Float32Array(h.length), cr = new Float32Array(h.length), ca = new Float32Array(h.length);
+  for (let i = 0; i < b.length; i++) { nb[i] = b[i]; nw[i] = w[i] / 255; hc[i] = h[i] / 255; ck[i] = cc[i * 3]; cr[i] = cc[i * 3 + 1] / 100; ca[i] = cc[i * 3 + 2] / 20; }
+  return (_humSeg[seg] = { pos, nrm, p2, nb, nw, hc, ck, cr, ca, t, tr: r });   // r: paint region of each triangle
 }
 const humGeo = (seg, reg) => GC('hum' + seg + '_' + reg, () => {
   const S = humSeg(seg), idx = [];
@@ -30,6 +30,8 @@ const humGeo = (seg, reg) => GC('hum' + seg + '_' + reg, () => {
   // 0 skin, 1 cotton shirt, 2 trouser cotton, 3 boot leather, 4 sole, 5 hair
   g.setAttribute('hc', reg === 0 || reg === 6 ? new THREE.BufferAttribute(new Float32Array(S.hc.length).fill(1), 1) : new THREE.BufferAttribute(S.hc, 1));
   g.setAttribute('fab', new THREE.BufferAttribute(new Float32Array(S.hc.length).fill({ 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 6: 0, 7: 5 }[reg]), 1));
+  // which cloth hoops a vertex hangs from (see ClothSim)
+  g.setAttribute('ck', new THREE.BufferAttribute(reg === 1 || reg === 2 ? S.ck : new Float32Array(S.hc.length), 1)); g.setAttribute('cr', new THREE.BufferAttribute(S.cr, 1)); g.setAttribute('ca', new THREE.BufferAttribute(S.ca, 1));
   if (reg === 7) { const n = S.pos.length / 3, tn = new Float32Array(n * 3); for (let i = 0; i < n; i++) { const h = Math.sin(i * 12.9898) * 43758.5453, k = 0.78 + 0.32 * (h - Math.floor(h)); tn[i * 3] = tn[i * 3 + 1] = tn[i * 3 + 2] = k; } g.setAttribute('tint', new THREE.BufferAttribute(tn, 3)); }
   return g;
 });
@@ -40,12 +42,12 @@ const SKIN_VS = ['attribute vec3 p2;\nattribute float nb;\nattribute float nw;\n
   'int skI = int(nb + 0.5); float skW = nw * segOK[skI]; mat4 skM = segM[skI];\nobjectNormal = normalize(mix(objectNormal, mat3(skM) * objectNormal, skW));\n',
   'transformed = mix(transformed, (skM * vec4(p2, 1.0)).xyz, skW);\n'];
 function skinShader(sh, U) {
-  sh.uniforms.segM = U.segM; sh.uniforms.segOK = U.segOK;
+  sh.uniforms.segM = U.segM; sh.uniforms.segOK = U.segOK; if (U.cD) sh.uniforms.cD = U.cD;
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + SKIN_VS[0])
     .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\n' + SKIN_VS[1])
     .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + SKIN_VS[2]);
 }
-const _skI = new THREE.Matrix4(), _skT = new THREE.Matrix4();
+const _skI = new THREE.Matrix4(), _skT = new THREE.Matrix4(), _skN = new THREE.Matrix3();
 function skinUpdate() {
   const sk = this._skin, P = this.parent; if (!sk || !P) return;
   _skI.copy(P.matrixWorld).invert();
@@ -55,14 +57,86 @@ function skinUpdate() {
     sk.U.segOK.value[k] = 1;
     sk.U.segM.value[k].multiplyMatrices(_skI, at[0].matrixWorld).multiply(_skT.makeTranslation(0, at[1], 0));
   }
+  if (sk.U.cD && sk.sim) { _skN.setFromMatrix4(_skI); const D = sk.sim.d, out = sk.U.cD.value; for (let k = 0; k < 56; k++) out[k].copy(D[k]).applyMatrix3(_skN); }
   if (this.material) this.material.uniformsNeedUpdate = true;
+}
+// ---------------------------------------------------------------- cloth
+// The free parts of the clothes are simulated: hoops of particles round the lower shirt and each jeans leg (HUMAN_CLOTH).
+// Each particle is pinned to where its bit of cloth sits on the body, but only by a soft pull: it has inertia (Verlet),
+// gravity and drag, keeps its distance to its neighbours round the hoop and to the hoop above, can swing out only so far,
+// and can't go into the body. So a hem swings and settles when a body runs, turns or stops, trousers sway, and on a body
+// lying down the cloth falls the way gravity pulls. The garments' vertices follow their hoops in the vertex shader.
+const CLOTH_SIMS = [];
+const _cA = new V3(), _cB = new V3(), _cT = new V3();
+class ClothSim {
+  constructor(root, at) {
+    const n = HUMAN_CLOTH.length; this.root = root; this.at = at; this.n = n; this.on = false; this.idle = 0;
+    this.x = Array.from({ length: n }, () => new V3()); this.xp = Array.from({ length: n }, () => new V3()); this.tg = Array.from({ length: n }, () => new V3());
+    this.nr = Array.from({ length: n }, () => new V3()); this.ok = new Uint8Array(n); this.d = Array.from({ length: 56 }, () => new V3()); this.rl = null;
+    CLOTH_SIMS.push(this);
+  }
+  // where each particle's bit of cloth sits on the body now (skinned like a vertex)
+  targets() {
+    for (let i = 0; i < this.n; i++) {
+      const r = HUMAN_CLOTH[i], A = this.at[r.s]; if (!A) { this.ok[i] = 0; continue; }
+      this.ok[i] = 1; const m = A[0].matrixWorld;
+      this.tg[i].set(r.p[0], r.p[1] + A[1], r.p[2]).applyMatrix4(m);
+      if (r.w > 0) { const B = this.at[HUMAN_SEGS[r.b]]; if (B) this.tg[i].lerp(_cB.set(r.q[0], r.q[1] + B[1], r.q[2]).applyMatrix4(B[0].matrixWorld), r.w); }
+      this.nr[i].set(r.n[0], r.n[1], r.n[2]).transformDirection(m);
+    }
+  }
+  reset() { for (let i = 0; i < this.n; i++) { this.x[i].copy(this.tg[i]); this.xp[i].copy(this.tg[i]); this.d[i].set(0, 0, 0); } }
+  step(dt) {
+    let p = this.root; while (p.parent) p = p.parent;
+    if (p !== scene || !this.root.visible) { this.idle++; this.on = false; return; }
+    this.idle = 0;
+    // only near bodies are simulated (nobody sees a hem swing at 40 m); far ones wear their clothes at rest
+    _cA.setFromMatrixPosition(this.root.matrixWorld);
+    if (_cA.distanceToSquared(camera.position) > 1600) { if (this.on) { for (const d of this.d) d.set(0, 0, 0); this.on = false; } return; }
+    this.root.updateMatrixWorld(true); this.targets();
+    if (!this.on || this.x[0].distanceToSquared(this.tg[0]) > 0.36) {
+      this.reset(); this.on = true;
+      // rest lengths: round each hoop, and from each particle of the first hoop to the one below it
+      this.rl = [];
+      for (const [base, N] of [[0, 12], [24, 8], [40, 8]]) for (let ring = 0; ring < 2; ring++) for (let i = 0; i < N; i++) {
+        const a = base + ring * N + i, b = base + ring * N + (i + 1) % N; this.rl.push([a, b, this.tg[a].distanceTo(this.tg[b])]);
+        if (ring === 0) { const c = base + N + i; this.rl.push([a, c, this.tg[a].distanceTo(this.tg[c])]); }
+      }
+    }
+    const h = Math.min(dt, 0.05) / 2, g = 9.8 * h * h;
+    for (let sub = 0; sub < 2; sub++) {
+      for (let i = 0; i < this.n; i++) {
+        if (!this.ok[i]) continue;
+        const x = this.x[i], xp = this.xp[i]; _cT.subVectors(x, xp).multiplyScalar(0.93); xp.copy(x); x.add(_cT); x.y -= g;
+      }
+      for (let it = 0; it < 3; it++) {
+        for (const [a, b, L] of this.rl) {
+          if (!this.ok[a] || !this.ok[b]) continue;
+          _cT.subVectors(this.x[b], this.x[a]); const l = _cT.length(); if (l < 1e-6) continue;
+          _cT.multiplyScalar((l - L) / l * 0.25); this.x[a].add(_cT); this.x[b].sub(_cT);
+        }
+        for (let i = 0; i < this.n; i++) {
+          if (!this.ok[i]) continue;
+          const shirt = i < 24, ring2 = shirt ? i >= 12 : (i - 24) % 16 >= 8, x = this.x[i], t = this.tg[i];
+          x.lerp(t, ring2 ? 0.1 : 0.22);                                          // soft pin
+          _cT.subVectors(x, t); const max = shirt ? (ring2 ? 0.07 : 0.035) : (ring2 ? 0.045 : 0.025), l = _cT.length();
+          if (l > max) x.copy(t).addScaledVector(_cT, max / l);                   // cloth can only swing out so far
+          const dn = _cT.subVectors(x, t).dot(this.nr[i]); if (dn < -0.002) x.addScaledVector(this.nr[i], -0.002 - dn);   // not into the body
+        }
+      }
+    }
+    for (let i = 0; i < 56; i++) if (this.ok[i]) this.d[i].subVectors(this.x[i], this.tg[i]); else this.d[i].set(0, 0, 0);
+  }
+}
+function updateCloth(dt) {
+  for (let i = CLOTH_SIMS.length - 1; i >= 0; i--) { const s = CLOTH_SIMS[i]; s.step(dt); if (s.idle > 600) CLOTH_SIMS.splice(i, 1); }
 }
 // after the body's meshes are merged: every mesh with skin weights gets its own material and the per-frame bone matrices
 // Clothes and hair: each garment is its own sheet over the body. The sheet is drawn only where its coverage is over one
 // half (so hems and the hairline are smooth curves), on both sides (the inside of the shirt shows at the neck, darker), with
 // a fabric relief from its rest position: soft folds that deepen at the joints, a ribbed crew neck, ripstop trousers with
 // a waistband, grained leather boots and hair with a direction to it.
-const CLOTH_VS = ['attribute float hc;\nattribute float fab;\nvarying float vHc;\nvarying float vFab;\nvarying vec3 vCp;\nvarying float vWk;\n',
+const CLOTH_VS = ['attribute float hc;\nattribute float fab;\nattribute float ck;\nattribute float cr;\nattribute float ca;\nuniform vec3 cD[56];\nvarying float vHc;\nvarying float vFab;\nvarying vec3 vCp;\nvarying float vWk;\n',
   'vHc = hc; vFab = fab; vCp = position; vWk = nw;\n'];
 const CLOTH_FS = `varying float vHc;
 varying float vFab;
@@ -91,7 +165,18 @@ float clothH(vec3 p, float fb, float c, float wk) {
   return h;
 }
 `;
+// the cloth simulation moves a garment vertex by its hoops' particles: between the pin line (cr 0) and the first hoop
+// (cr 1) it follows that hoop more and more, between the hoops it blends from the first to the second
+const CLOTH_MOVE = `if (ck > 0.5) {
+  int base = ck < 1.5 ? 0 : (ck < 2.5 ? 24 : 40); int N = ck < 1.5 ? 12 : 8;
+  float fa = ca - floor(ca); int i0 = int(floor(ca)); if (i0 >= N) i0 -= N; int i1 = i0 + 1; if (i1 >= N) i1 -= N;
+  vec3 r1 = mix(cD[base + i0], cD[base + i1], fa), r2 = mix(cD[base + N + i0], cD[base + N + i1], fa);
+  transformed += cr <= 1.0 ? r1 * cr : mix(r1, r2, cr - 1.0);
+}
+`;
 function clothShader(sh) {
+  sh.uniforms.cD = sh.uniforms.cD || { value: Array.from({ length: 56 }, () => new THREE.Vector3()) };
+  sh.vertexShader = sh.vertexShader.replace(SKIN_VS[2], SKIN_VS[2] + CLOTH_MOVE);
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + CLOTH_VS[0]).replace('#include <begin_vertex>', '#include <begin_vertex>\n' + CLOTH_VS[1]);
   sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + CLOTH_FS)
     .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (vHc < 0.5) discard;')
@@ -121,10 +206,12 @@ if (vFab > 0.5) {
 function bodyPatches(sh, mesh) { if (mesh._skin) { skinShader(sh, mesh._skin.U); if (mesh.geometry.attributes.fab) clothShader(sh); } }
 const bodyKey = mesh => (mesh._skin ? 'sk' : '') + (mesh._skin && mesh.geometry.attributes.fab ? 'c' : '');
 function attachSkin(root, at) {
+  let sim = null;
   root.traverse(o => {
     if (!o.isMesh || !o.geometry.attributes.nw || o.material === shadowMat || o._skin) return;
     const U = { segM: { value: Array.from({ length: 12 }, () => new THREE.Matrix4()) }, segOK: { value: new Array(12).fill(0) } };
-    o._skin = { U, at };
+    if (o.geometry.attributes.ck) { U.cD = { value: Array.from({ length: 56 }, () => new THREE.Vector3()) }; sim = sim || new ClothSim(root, at); }
+    o._skin = { U, at, sim };
     const m = o.material.clone(); if (o.geometry.attributes.fab) m.side = THREE.DoubleSide; m.onBeforeCompile = sh => bodyPatches(sh, o); m.customProgramCacheKey = () => 'body' + bodyKey(o); o.material = m;
     o.onBeforeRender = skinUpdate;
   });
@@ -157,7 +244,7 @@ function mergeChildren(group, matl, pick) {
     const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
     g.applyMatrix4(m.matrix);
     const tn = g.attributes.tint ? g.attributes.tint.array : null;
-    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv' && k !== 'p2' && k !== 'nb' && k !== 'nw' && k !== 'hc' && k !== 'fab') g.deleteAttribute(k);
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv' && k !== 'p2' && k !== 'nb' && k !== 'nw' && k !== 'hc' && k !== 'fab' && k !== 'ck' && k !== 'cr' && k !== 'ca') g.deleteAttribute(k);
     if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
     const col = m.material.color || new THREE.Color(1, 1, 1), n = g.attributes.position.count, arr = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { arr[i * 3] = col.r * (tn ? tn[i * 3] : 1); arr[i * 3 + 1] = col.g * (tn ? tn[i * 3 + 1] : 1); arr[i * 3 + 2] = col.b * (tn ? tn[i * 3 + 2] : 1); }
@@ -168,7 +255,7 @@ function mergeChildren(group, matl, pick) {
   }
   // skinned and plain parts merge together: plain parts get zero skin weight
   if (geos.some(g => g.attributes.nw)) for (const g of geos) if (!g.attributes.nw) { const n = g.attributes.position.count; g.setAttribute('p2', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('nb', new THREE.BufferAttribute(new Float32Array(n), 1)); g.setAttribute('nw', new THREE.BufferAttribute(new Float32Array(n), 1)); }
-  if (geos.some(g => g.attributes.fab)) for (const g of geos) if (!g.attributes.fab) { const n = g.attributes.position.count; g.setAttribute('hc', new THREE.BufferAttribute(new Float32Array(n).fill(1), 1)); g.setAttribute('fab', new THREE.BufferAttribute(new Float32Array(n), 1)); }
+  if (geos.some(g => g.attributes.fab)) for (const g of geos) if (!g.attributes.fab) { const n = g.attributes.position.count; g.setAttribute('hc', new THREE.BufferAttribute(new Float32Array(n).fill(1), 1)); g.setAttribute('fab', new THREE.BufferAttribute(new Float32Array(n), 1)); for (const k of ['ck', 'cr', 'ca']) g.setAttribute(k, new THREE.BufferAttribute(new Float32Array(n), 1)); }
   const merged = new THREE.Mesh(mergeGeometries(geos), matl);
   merged.castShadow = true; merged.receiveShadow = matl !== shadowMat;
   if (frame) { merged.userData.frame = frame; merged.userData.hum = hum; }
@@ -305,8 +392,9 @@ class Body {
       for (let i = 0; i < 6; i++) this.gut(GC('gut', () => new THREE.TorusGeometry(0.024, 0.011, 6, 12)), 0xc48a82, p, ((i % 3) - 1) * 0.045, y + 0.0 + Math.floor(i / 3) * 0.045, -0.02 + (i % 2) * 0.03, null, [Math.PI / 2 + i, i * 0.9, 0]);
     } else if (kind === 'head') {
       // skull shell (cut like skin, bone-coloured inside) and the brain
-      this.gut(GC('face', faceGeo), BONE, p, 0, y + 0.005, -0.045, [0.9, 0.95, 0.92], null, 0xc9b8a0);
-      this.gut(GC('brain', brainGeo), 0xd4a3a3, p, 0, y + 0.03, -0.04, [0.062, 0.066, 0.08]);
+      // skull and brain fitted inside the head: at least ~1 cm under the scalp everywhere
+      this.gut(GC('face', faceGeo), BONE, p, 0, y - 0.081, -0.063, [0.85, 0.925, 0.78], null, 0xc9b8a0);
+      this.gut(GC('brain', brainGeo), 0xd4a3a3, p, 0, y - 0.06, -0.06, [0.058, 0.068, 0.072]);
     } else {
       // long bones down the middle of a limb segment (two in the forearm and shin)
       const two = kind === 'forearm' || kind === 'shin', r = kind === 'thigh' ? 0.017 : kind === 'upperArm' ? 0.013 : 0.009, len = L * 0.92;

@@ -188,6 +188,11 @@ for S in 'LR': SW2[:, SEGS.index('el' + S)] += SW2[:, SEGS.index('hand' + S)]
 # the trunk bends between hips and chest over a band at the waist (MakeHuman's own pelvis weights are a sliver)
 tr = SW2[:, HI] + SW2[:, SP]; bl = np.clip((wyv - 0.99) / 0.1, 0, 1); bl = bl * bl * (3 - 2 * bl)
 SW2[:, HI] = np.where(tr > 0, tr * (1 - bl), SW2[:, HI]); SW2[:, SP] = np.where(tr > 0, tr * bl, SW2[:, SP])
+# the pelvis itself doesn't bend with the thighs: above the crotch the legs' pull fades out (MakeHuman's thigh weights
+# reach up over the hip bones, which made the hips and seat slide off the pelvis when a leg swung)
+pf = np.clip((0.95 - wyv) / 0.11, 0, 1); pf = pf * pf * (3 - 2 * pf)
+for S in 'LR':
+    li = SEGS.index('lg' + S); mv = SW2[:, li] * (1 - pf); SW2[:, li] -= mv; SW2[:, HI] += mv
 
 # ---- garments: each one is its own sheet of cloth over the body (and over the garment under it), with its own edge.
 # Where a garment ends is a smooth line given by a coverage value per vertex (1 inside, 0 outside, the line at 0.5): the
@@ -307,7 +312,30 @@ fullcov = np.maximum.reduce([cov['pants'], cov['boots'], shirt_closed])
 LAYERS = {'skin': 0, 'shirt': 1, 'pants': 2, 'boots': 3, 'hair': 4}
 LAY = [P, GP['shirt'], GP['pants'], GP['boots'], PH]; LN = [Nv, GN['shirt'], GN['pants'], GN['boots'], NH]
 COV = [np.ones(n), cov['shirt'], cov['pants'], cov['boots'], hf]
-REGOF = {1: 1, 2: 2, 3: 3, 4: 7}   # layer -> paint region (shirt, pants, boots, hair); boot soles get region 4
+REGOF = {1: 1, 2: 2, 3: 3, 4: 7}
+# ---- cloth simulation rig: the free parts of the garments hang from hoops of particles that the game simulates.
+# Shirt: two hoops of 12 round the trunk (at the waist and at the hem), the shirt pinned still above the chest line.
+# Jeans: two hoops of 8 round each leg (mid-shin and hem), pinned above the knee. Each garment vertex gets which set it
+# follows (ck: 1 shirt, 2 left leg, 3 right leg), where between the pin line and the hoops it sits (cr: 0 pinned, 1 first
+# hoop, 2 second) and its angle round the hoop (ca, in particle steps).
+CLN = {1: 12, 2: 8, 3: 8}
+LEGAX = {}
+for S in 'LR':
+    h0 = mj('upperleg01.' + S); a0 = mj('foot.' + S); LEGAX[S] = (h0, (a0 - h0) / np.linalg.norm(a0 - h0))
+def cloth_coord(v, L):
+    sg_ = vseg.get(v, set()); wy = wyv[v]
+    if L == 1 and sg_ & {'spine', 'hips'} and not sg_ & {'shL', 'shR', 'elL', 'elR', 'neck'}:
+        r = 0 if wy >= 1.30 else ((1.30 - wy) / 0.20 if wy >= 1.10 else 1 + (1.10 - wy) / 0.195)
+        a = (np.arctan2(P[v, 0], P[v, 2] - hip_anchor[2]) / (2 * np.pi)) % 1.0 * 12
+        return 1, min(r, 2.0), a
+    if L == 2:
+        for S, k in (('L', 2), ('R', 3)):
+            if sg_ & {'lg' + S, 'kn' + S} and wy < 0.62:
+                h0, ax = LEGAX[S]; rel = P[v] - h0; rv = rel - rel.dot(ax) * ax
+                r = (0.62 - wy) / 0.27 if wy >= 0.35 else 1 + (0.35 - wy) / 0.27
+                a = (np.arctan2(rv[0], rv[2]) / (2 * np.pi)) % 1.0 * 8
+                return k, min(r, 2.0), a
+    return 0, 0, 0   # layer -> paint region (shirt, pants, boots, hair); boot soles get region 4
 out = {}
 for si, sg in enumerate(SEGS):
     if sg.startswith('hand'): continue    # the game keeps its own gloved hands (fingers curl round the grip)
@@ -339,9 +367,31 @@ for si, sg in enumerate(SEGS):
         if wn <= 1e-4: continue
         nb[k] = GSEG.index(best); nw[k] = wn / (ws + wn) if ws + wn > 0 else 0
         p2[k] = XF[best](q)[0]
+    ck = np.zeros(nk); cr = np.zeros(nk); ca = np.zeros(nk)
+    for k, (v, L) in enumerate(keys): ck[k], cr[k], ca[k] = cloth_coord(v, L)
     out[sg] = {'p': pos, 'n': nrm, 'fr': np.array(fr), 't': np.array(tris), 'q': p2, 'b': nb, 'w': nw, 'vid': np.array([v * 5 + L for v, L in keys]),
-               'lock': np.zeros(nk, dtype=bool), 'h': cv_}
+               'lock': np.zeros(nk, dtype=bool), 'h': cv_, 'ck': ck, 'cr': cr, 'ca': ca, 'keys': keys}
     print(sg, nk, 'verts', len(tris) // 3, 'tris', 'blend', (nw > 0.01).sum())
+# pick, for each particle, the garment vertex nearest its hoop height and angle; the game pins it to where that vertex is
+where = {}
+for sg, d in out.items():
+    for k, key in enumerate(d['keys']): where.setdefault(key, (sg, k))
+rig = []
+for setk, L in ((1, 1), (2, 2), (3, 2)):
+    N = CLN[setk]
+    cand = [(v, cloth_coord(v, L)) for v in range(n) if (v, L) in where and cloth_coord(v, L)[0] == setk]
+    for ring in (1, 2):
+        for i in range(N):
+            def cost(c):
+                da = abs(c[2] - i); da = min(da, N - da)
+                return abs(c[1] - ring) * 4 + da
+            v, c = min(cand, key=lambda vc: cost(vc[1]))
+            sg, k = where[(v, L)]; d = out[sg]
+            rig.append({'s': sg, 'p': [round(float(x), 4) for x in d['p'][k]], 'n': [round(float(x), 3) for x in d['n'][k]],
+                        'b': int(d['b'][k]), 'w': round(float(d['w'][k]), 3), 'q': [round(float(x), 4) for x in d['q'][k]]})
+print('cloth particles', len(rig))
+json.dump(rig, open('/home/claude/hb/clothrig.json', 'w'))
+for d in out.values(): del d['keys']
 np.save('/home/claude/hb/segs.npy', out, allow_pickle=True)
 for S in 'LR':
     e = XF['head'](J[sk['bones']['eye.' + S]['head']]); print('eye', S, e.round(4), 'tail', XF['head'](J[sk['bones']['eye.' + S]['tail']]).round(4), 'headjoint', XF['head'](mj('head')).round(4))

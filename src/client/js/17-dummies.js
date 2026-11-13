@@ -68,7 +68,10 @@ function reactStart(B, kind) {
     B.react = R; B.stag = 1; B.stagT = 0; R.home = B.hum.root.position.clone(); R.yaw0 = B.baseYaw;
     if (B.dropGun) B.dropGun(d.clone().multiplyScalar(0.8).add(new V3(rnd(-0.4, 0.4), 0.6, rnd(-0.4, 0.4))));
     // which wound to clutch, and with which hand: the free arm on the same side, the other one for a wound on an arm
-    const w = B.hum.wounds && B.hum.wounds.length ? B.hum.wounds[B.hum.wounds.length - 1] : null;
+    // the hand goes to where the round went in (the newest entry wound), not to the exit wound made a moment after it
+    const W = B.hum.wounds || []; let w = null;
+    for (let i = W.length - 1; i >= 0; i--) if (W[i].kind !== 'rimX') { w = W[i]; break; }
+    if (!w && W.length) w = W[W.length - 1];
     R.wound = w; R.wf = w ? w.frame : null; let side = 'R';
     if (w) { if (/^(sh|el)L$/.test(w.frame)) side = 'R'; else if (/^(sh|el)R$/.test(w.frame)) side = 'L'; else { const lp = B.hum.spine.worldToLocal(w.m.getWorldPosition(new V3())); side = lp.x < 0 ? 'L' : 'R'; } }
     if (an.armBroken(side) || an.lost['arm' + side]) side = side === 'L' ? 'R' : 'L';

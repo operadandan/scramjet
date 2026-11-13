@@ -154,6 +154,7 @@ function frame(now, hidden) {
   updateCamera(dt); if (S.mode && P.alive && !P.downed) tpCamera();
   if (S.mode) { updateViewmodel(dt); vmCamera.updateMatrixWorld(true); updateDevices(); } else updateDevices();
   updateTPBody(dt);
+  updateCloth(wdt);
   if (S.tp) { $('scope').style.display = 'none'; $('acog').style.display = 'none'; $('vigads').style.opacity = '0'; }
   $('tpdot').style.display = S.tp && S.mode && P.alive && !P.downed && !S.inv ? 'block' : 'none';
   focus.copy(S.mode && P.alive ? P.pos : (P.rag ? P.rag.p[2] : new V3()));
