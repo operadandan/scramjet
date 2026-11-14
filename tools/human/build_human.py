@@ -184,6 +184,19 @@ NH /= np.maximum(np.linalg.norm(NH, axis=1, keepdims=True), 1e-9)
 GSEG = ['hips', 'spine', 'neck', 'head', 'shL', 'elL', 'shR', 'elR', 'lgL', 'knL', 'lgR', 'knR']
 NB = {'hips': ['spine', 'lgL', 'lgR'], 'spine': ['hips', 'neck', 'shL', 'shR'], 'neck': ['spine', 'head'], 'head': ['neck'],
       'shL': ['spine', 'elL'], 'elL': ['shL'], 'shR': ['spine', 'elR'], 'elR': ['shR'], 'lgL': ['hips', 'knL'], 'knL': ['lgL'], 'lgR': ['hips', 'knR'], 'knR': ['lgR']}
+
+# A vertex's two strongest bones are chosen once for the vertex, not per mesh: a vertex on the line between two meshes is in
+# both, and both copies must land on the same spot in any pose, or the surface tears (it did at the shoulders and crotch).
+# In a mesh whose own bone is one of the two, the other goes in slot 1; otherwise both go in the slots and the own bone
+# gets no weight. Slot positions are in the slot bone's frame.
+_GI = [SEGS.index(b) for b in GSEG]
+def pick2(Wrow, sg):
+    ws = np.array([Wrow[i] for i in _GI]); o = np.argsort(-ws)[:2]; o = [k for k in o if ws[k] > 1e-4]
+    tot = sum(ws[k] for k in o)
+    if not o: return []
+    own = GSEG.index(sg)
+    if own in o: return [(k, ws[k] / tot) for k in o if k != own]
+    return [(k, ws[k] / tot) for k in o]
 SW2 = SW.copy()
 for S in 'LR': SW2[:, SEGS.index('el' + S)] += SW2[:, SEGS.index('hand' + S)]
 # the trunk bends between hips and chest over a band at the waist (MakeHuman's own pelvis weights are a sliver)
@@ -398,6 +411,14 @@ for gname, base in (('suit', 'male_casualsuit06/male_casualsuit06'), ('shoes', '
 # arms go up): grow them over neighbouring skin that a garment still covers (a garment point within 2.2 cm, outside the
 # skin, facing the same way)
 from scipy.spatial import cKDTree as _KD
+# every garment point stays at least 5 mm outside the skin under it (the MakeHuman collar and armholes are fitted to the
+# skin and dip into it where the neck and shoulders meet: skin then showed through in teeth along the neckline)
+_bt = _KD(P[:n])
+for gname, gd in GARM.items():
+    G_ = gd['G']; dd_, jj_ = _bt.query(G_, k=4); wq_ = 1.0 / np.maximum(dd_, 1e-4); wq_ /= wq_.sum(1, keepdims=True)
+    Pn = (P[jj_] * wq_[:, :, None]).sum(1); Nn = (Nv[jj_] * wq_[:, :, None]).sum(1); Nn /= np.maximum(np.linalg.norm(Nn, axis=1, keepdims=True), 1e-9)
+    d_ = ((G_ - Pn) * Nn).sum(1); need = np.clip(0.005 - d_, 0, 0.02) * (dd_[:, 0] < 0.05)
+    G_ += Nn * need[:, None]; print(gname, 'pushed out', int((need > 0).sum()), 'points, max', round(float(need.max()) * 1000, 1), 'mm')
 _allG = np.vstack([g['G'] for g in GARM.values()]); _allN = np.vstack([g['N'] for g in GARM.values()]); _gt = _KD(_allG)
 _adj = {}
 for f in body:
@@ -415,7 +436,15 @@ print('hidden skin vertices', len(set(d for d in deleted if d < n)), '->', len(d
 fullcov = np.zeros(n); fullcov[list(dl_)] = 1.0
 fullcov = np.maximum(fullcov, cov['socks'])
 LAYERS = {'skin': 0, 'shirt': 1, 'pants': 2, 'boots': 3, 'hair': 4, 'socks': 5}
-LAY = [P, GP['shirt'], GP['pants'], GP['boots'], PH, GP['socks']]; LN = [Nv, GN['shirt'], GN['pants'], GN['boots'], NH, GN['socks']]
+# skin under a garment sits a centimetre further in, so where a garment's edge runs over skin (the collar, cuffs, waist)
+# the last visible skin quads slope in under the cloth instead of poking out through it
+P_in = P.copy(); _dl = np.array(sorted(dl_)); P_in[_dl] -= Nv[_dl] * 0.01
+# and the first two rings of skin past a garment's edge ease in (6 and 3 mm), so the edge of the cloth lies over them
+_r0 = set(dl_)
+for _d in (0.006, 0.003):
+    _r1 = set(u for v in _r0 for u in _adj.get(v, ()) if u not in dl_ and u < n) - _r0
+    _r1 = np.array(sorted(_r1)); P_in[_r1] -= Nv[_r1] * _d; _r0 |= set(_r1.tolist())
+LAY = [P_in, GP['shirt'], GP['pants'], GP['boots'], PH, GP['socks']]; LN = [Nv, GN['shirt'], GN['pants'], GN['boots'], NH, GN['socks']]
 COV = [np.ones(n), cov['shirt'], cov['pants'], cov['boots'], hf, cov['socks']]
 REGOF = {1: 1, 2: 2, 3: 3, 4: 7, 5: 8}
 # ---- cloth simulation rig: the free parts of the garments hang from hoops of particles that the game simulates.
@@ -465,16 +494,16 @@ for si, sg in enumerate(SEGS):
     if sg == 'head':
         for f in hairF: quad(f, 4, 7)
     nk = len(keys); pos = np.zeros((nk, 3)); nrm = np.zeros((nk, 3)); nb = np.zeros(nk, dtype=np.int64); nw = np.zeros(nk); p2 = np.zeros((nk, 3)); cv_ = np.zeros(nk)
+    nb2 = np.zeros(nk, dtype=np.int64); nw2 = np.zeros(nk); p3 = np.zeros((nk, 3))
     for k, (v, L) in enumerate(keys):
         q = LAY[L][v:v + 1]; pos[k] = XF[sg](q)[0]; cv_[k] = COV[L][v]
         pr = XF[sg](q + LN[L][v:v + 1] * 0.01)[0] - pos[k]; nrm[k] = pr / max(np.linalg.norm(pr), 1e-9)
-        best = max(NB[sg], key=lambda m: SW2[v, SEGS.index(m)]); wn = SW2[v, SEGS.index(best)]; ws = SW2[v, si]
-        if wn <= 1e-4: continue
-        nb[k] = GSEG.index(best); nw[k] = wn / (ws + wn) if ws + wn > 0 else 0
-        p2[k] = XF[best](q)[0]
+        sl = pick2(SW2[v], sg)
+        if len(sl) > 0: nb[k], nw[k] = sl[0]; p2[k] = XF[GSEG[sl[0][0]]](q)[0]
+        if len(sl) > 1: nb2[k], nw2[k] = sl[1]; p3[k] = XF[GSEG[sl[1][0]]](q)[0]
     ck = np.zeros(nk); cr = np.zeros(nk); ca = np.zeros(nk)
     for k, (v, L) in enumerate(keys): ck[k], cr[k], ca[k] = cloth_coord(v, L)
-    out[sg] = {'p': pos, 'n': nrm, 'fr': np.array(fr), 't': np.array(tris), 'q': p2, 'b': nb, 'w': nw, 'vid': np.array([v * 6 + L for v, L in keys]),
+    out[sg] = {'p': pos, 'n': nrm, 'fr': np.array(fr), 't': np.array(tris), 'q': p2, 'b': nb, 'w': nw, 'q2': p3, 'b2': nb2, 'w2': nw2, 'vid': np.array([v * 6 + L for v, L in keys]),
                'lock': np.zeros(nk, dtype=bool), 'h': cv_, 'ck': ck, 'cr': cr, 'ca': ca, 'keys': keys}
     print(sg, nk, 'verts', len(tris) // 3, 'tris', 'blend', (nw > 0.01).sum())
 # ---- garments cut into the body segments like the body itself, with the same skinning and cloth coordinates
@@ -531,15 +560,16 @@ for gname, gd in GARM.items():
             ids = [K(v, t_) for v, t_ in f]
             for j in range(1, len(ids) - 1): tris += [ids[0], ids[j], ids[j + 1]]
         nk = len(keys); pos = np.zeros((nk, 3)); nrm = np.zeros((nk, 3)); uv = np.zeros((nk, 2)); nb = np.zeros(nk, dtype=np.int64); nw = np.zeros(nk); p2 = np.zeros((nk, 3)); cc = np.zeros((nk, 3)); tm = np.zeros(nk)
+        nb2 = np.zeros(nk, dtype=np.int64); nw2 = np.zeros(nk); p3 = np.zeros((nk, 3))
         for k, (v, t_) in enumerate(keys):
             q = G[v:v + 1]; pos[k] = XF[sg](q)[0]; uv[k] = vt[t_]
             pr = XF[sg](q + Ng[v:v + 1] * 0.01)[0] - pos[k]; nrm[k] = pr / max(np.linalg.norm(pr), 1e-9)
             tm[k] = 1.0 if gname == 'suit' and vt[t_][1] > 0.5 else 0.0
             cc[k] = g_cloth(gname, G, vt[t_][1], v)
-            best = max(NB[sg], key=lambda m: Wg[v, SEGS.index(m)]); wn = Wg[v, SEGS.index(best)]; ws = Wg[v, si]
-            if wn <= 1e-4: continue
-            nb[k] = GSEG.index(best); nw[k] = wn / (ws + wn) if ws + wn > 0 else 0; p2[k] = XF[best](q)[0]
-        gout[gname][sg] = {'p': pos, 'n': nrm, 'uv': uv, 't': np.array(tris), 'q': p2, 'b': nb, 'w': nw, 'c': cc, 'tm': tm, 'keys': keys}
+            sl = pick2(Wg[v], sg)
+            if len(sl) > 0: nb[k], nw[k] = sl[0]; p2[k] = XF[GSEG[sl[0][0]]](q)[0]
+            if len(sl) > 1: nb2[k], nw2[k] = sl[1]; p3[k] = XF[GSEG[sl[1][0]]](q)[0]
+        gout[gname][sg] = {'p': pos, 'n': nrm, 'uv': uv, 't': np.array(tris), 'q': p2, 'b': nb, 'w': nw, 'q2': p3, 'b2': nb2, 'w2': nw2, 'c': cc, 'tm': tm, 'keys': keys}
         print(gname, sg, nk, 'verts', len(tris) // 3, 'tris')
 # ---- cloth particles: for each hoop and angle, the outfit vertex nearest it; the game pins the particle where it is
 rig = []
@@ -553,7 +583,8 @@ for setk in (1, 2, 3):
                 return abs(c[1] - ring) * 4 + da
             sg, k, c = min(cand, key=lambda x: cost(x[2])); d = gout['suit'][sg]
             rig.append({'s': sg, 'p': [round(float(x), 4) for x in d['p'][k]], 'n': [round(float(x), 3) for x in d['n'][k]],
-                        'b': int(d['b'][k]), 'w': round(float(d['w'][k]), 3), 'q': [round(float(x), 4) for x in d['q'][k]]})
+                        'b': int(d['b'][k]), 'w': round(float(d['w'][k]), 3), 'q': [round(float(x), 4) for x in d['q'][k]],
+                        'b2': int(d['b2'][k]), 'w2': round(float(d['w2'][k]), 3), 'q2': [round(float(x), 4) for x in d['q2'][k]]})
 print('cloth particles', len(rig))
 json.dump(rig, open('/home/claude/hb/clothrig.json', 'w'))
 for g in gout.values():

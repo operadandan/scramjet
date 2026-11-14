@@ -13,18 +13,20 @@ function humSeg(seg) {
   if (_humSeg[seg]) return _humSeg[seg];
   const d = HUMAN_MESH[seg], p = new Int16Array(_b64(d.p)), n = new Int8Array(_b64(d.n)), r = new Uint8Array(_b64(d.r)), t = new Uint16Array(_b64(d.t));
   const q = new Int16Array(_b64(d.q)), b = new Uint8Array(_b64(d.b)), w = new Uint8Array(_b64(d.w)), h = new Uint8Array(_b64(d.h)), cc = new Uint8Array(_b64(d.c));
-  const pos = new Float32Array(p.length), nrm = new Float32Array(n.length), p2 = new Float32Array(q.length), nb = new Float32Array(b.length), nw = new Float32Array(w.length);
-  for (let i = 0; i < p.length; i++) { pos[i] = p[i] / 10000; nrm[i] = n[i] / 127; p2[i] = q[i] / 10000; }
+  const q2 = new Int16Array(_b64(d.q2)), b2 = new Uint8Array(_b64(d.b2)), w2 = new Uint8Array(_b64(d.w2));
+  const pos = new Float32Array(p.length), nrm = new Float32Array(n.length), p2 = new Float32Array(q.length), p3 = new Float32Array(q.length), nb = new Float32Array(b.length * 2), nw = new Float32Array(w.length * 2);
+  for (let i = 0; i < p.length; i++) { pos[i] = p[i] / 10000; nrm[i] = n[i] / 127; p2[i] = q[i] / 10000; p3[i] = q2[i] / 10000; }
+  for (let i = 0; i < b.length; i++) { nb[i * 2] = b[i]; nb[i * 2 + 1] = b2[i]; nw[i * 2] = w[i] / 255; nw[i * 2 + 1] = w2[i] / 255; }
   const hc = new Float32Array(h.length), ck = new Float32Array(h.length), cr = new Float32Array(h.length), ca = new Float32Array(h.length);
-  for (let i = 0; i < b.length; i++) { nb[i] = b[i]; nw[i] = w[i] / 255; hc[i] = h[i] / 255; ck[i] = cc[i * 3]; cr[i] = cc[i * 3 + 1] / 100; ca[i] = cc[i * 3 + 2] / 20; }
-  return (_humSeg[seg] = { pos, nrm, p2, nb, nw, hc, ck, cr, ca, t, tr: r });   // r: paint region of each triangle
+  for (let i = 0; i < b.length; i++) { hc[i] = h[i] / 255; ck[i] = cc[i * 3]; cr[i] = cc[i * 3 + 1] / 100; ca[i] = cc[i * 3 + 2] / 20; }
+  return (_humSeg[seg] = { pos, nrm, p2, p3, nb, nw, hc, ck, cr, ca, t, tr: r });   // r: paint region of each triangle
 }
 const humGeo = (seg, reg) => GC('hum' + seg + '_' + reg, () => {
   const S = humSeg(seg), idx = [];
   for (let k = 0; k < S.tr.length; k++) if (S.tr[k] === reg) idx.push(S.t[k * 3], S.t[k * 3 + 1], S.t[k * 3 + 2]);
   if (!idx.length) return null;
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(S.pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(S.nrm, 3));
-  g.setAttribute('p2', new THREE.BufferAttribute(S.p2, 3)); g.setAttribute('nb', new THREE.BufferAttribute(S.nb, 1)); g.setAttribute('nw', new THREE.BufferAttribute(S.nw, 1));
+  g.setAttribute('p2', new THREE.BufferAttribute(S.p2, 3)); g.setAttribute('p3', new THREE.BufferAttribute(S.p3, 3)); g.setAttribute('nb', new THREE.BufferAttribute(S.nb, 2)); g.setAttribute('nw', new THREE.BufferAttribute(S.nw, 2));
   g.setIndex(idx);
   // coverage (where a garment or the hair ends: drawn only over 0.5) and the kind of surface for the fabric shader:
   // 0 skin, 1 cotton shirt, 2 trouser cotton, 3 boot leather, 4 sole, 5 hair
@@ -45,13 +47,14 @@ const garmGeo = (g, seg) => {
   const k = g + ':' + seg; if (k in _garm) return _garm[k];
   const d = HUMAN_GARMENTS[g] && HUMAN_GARMENTS[g][seg]; if (!d) return (_garm[k] = null);
   const p = new Int16Array(_b64(d.p)), n = new Int8Array(_b64(d.n)), uv = new Uint16Array(_b64(d.uv)), t = new Uint16Array(_b64(d.t)), q = new Int16Array(_b64(d.q)),
-    b = new Uint8Array(_b64(d.b)), w = new Uint8Array(_b64(d.w)), c = new Uint8Array(_b64(d.c)), tm = new Uint8Array(_b64(d.tm)), N = b.length;
+    b = new Uint8Array(_b64(d.b)), w = new Uint8Array(_b64(d.w)), c = new Uint8Array(_b64(d.c)), tm = new Uint8Array(_b64(d.tm)), N = b.length,
+    q2 = new Int16Array(_b64(d.q2)), b2 = new Uint8Array(_b64(d.b2)), w2 = new Uint8Array(_b64(d.w2));
   const F = (n_) => new Float32Array(n_);
-  const pos = F(N * 3), nrm = F(N * 3), u = F(N * 2), p2 = F(N * 3), nb = F(N), nw = F(N), ck = F(N), cr = F(N), ca = F(N), tt = F(N);
-  for (let i = 0; i < N * 3; i++) { pos[i] = p[i] / 10000; nrm[i] = n[i] / 127; p2[i] = q[i] / 10000; }
-  for (let i = 0; i < N; i++) { u[i * 2] = uv[i * 2] / 65535; u[i * 2 + 1] = uv[i * 2 + 1] / 65535; nb[i] = b[i]; nw[i] = w[i] / 255; ck[i] = c[i * 3]; cr[i] = c[i * 3 + 1] / 100; ca[i] = c[i * 3 + 2] / 20; tt[i] = tm[i]; }
+  const pos = F(N * 3), nrm = F(N * 3), u = F(N * 2), p2 = F(N * 3), p3 = F(N * 3), nb = F(N * 2), nw = F(N * 2), ck = F(N), cr = F(N), ca = F(N), tt = F(N);
+  for (let i = 0; i < N * 3; i++) { pos[i] = p[i] / 10000; nrm[i] = n[i] / 127; p2[i] = q[i] / 10000; p3[i] = q2[i] / 10000; }
+  for (let i = 0; i < N; i++) { u[i * 2] = uv[i * 2] / 65535; u[i * 2 + 1] = uv[i * 2 + 1] / 65535; nb[i * 2] = b[i]; nb[i * 2 + 1] = b2[i]; nw[i * 2] = w[i] / 255; nw[i * 2 + 1] = w2[i] / 255; ck[i] = c[i * 3]; cr[i] = c[i * 3 + 1] / 100; ca[i] = c[i * 3 + 2] / 20; tt[i] = tm[i]; }
   const G = new THREE.BufferGeometry(), A = (a, k_) => new THREE.BufferAttribute(a, k_);
-  G.setAttribute('position', A(pos, 3)); G.setAttribute('normal', A(nrm, 3)); G.setAttribute('uv', A(u, 2)); G.setAttribute('p2', A(p2, 3)); G.setAttribute('nb', A(nb, 1)); G.setAttribute('nw', A(nw, 1));
+  G.setAttribute('position', A(pos, 3)); G.setAttribute('normal', A(nrm, 3)); G.setAttribute('uv', A(u, 2)); G.setAttribute('p2', A(p2, 3)); G.setAttribute('p3', A(p3, 3)); G.setAttribute('nb', A(nb, 2)); G.setAttribute('nw', A(nw, 2));
   G.setAttribute('ck', A(ck, 1)); G.setAttribute('cr', A(cr, 1)); G.setAttribute('ca', A(ca, 1)); G.setAttribute('tm', A(tt, 1));
   G.setIndex(A(t, 1)); G.computeBoundingSphere();
   return (_garm[k] = G);
@@ -66,9 +69,13 @@ const GARM_MAT = (() => {
 // Skinning across the joints. A body is still one group per bone, but the skin near a joint follows both bones: each vertex
 // has its position in the neighbouring bone's frame (p2) and a weight (nw), and the vertex shader blends the two. segM[k]
 // takes bone k's frame into the frame of the group this mesh hangs in, every frame; segOK[k] is 0 if that bone isn't there.
-const SKIN_VS = ['attribute vec3 p2;\nattribute float nb;\nattribute float nw;\nuniform mat4 segM[12];\nuniform float segOK[12];\n',
-  'int skI = int(nb + 0.5); float skW = nw * segOK[skI]; mat4 skM = segM[skI];\nobjectNormal = normalize(mix(objectNormal, mat3(skM) * objectNormal, skW));\n',
-  'transformed = mix(transformed, (skM * vec4(p2, 1.0)).xyz, skW);\n'];
+// Up to three bones per vertex: the mesh's own (weight 1 - nw.x - nw.y) and two slots (bone nb, position p2 / p3 in that
+// bone's frame). A bone that isn't there drops out and the rest share its weight; with none left the vertex stays with its mesh.
+const SKIN_VS = ['attribute vec3 p2;\nattribute vec3 p3;\nattribute vec2 nb;\nattribute vec2 nw;\nuniform mat4 segM[12];\nuniform float segOK[12];\n',
+  'int skI = int(nb.x + 0.5), skJ = int(nb.y + 0.5); float skA = nw.x * segOK[skI], skB = nw.y * segOK[skJ], sk0 = max(1.0 - nw.x - nw.y, 0.0);\n' +
+  'float skS = sk0 + skA + skB; if (skS < 1e-4) { sk0 = 1.0; skA = 0.0; skB = 0.0; skS = 1.0; } sk0 /= skS; skA /= skS; skB /= skS;\n' +
+  'mat4 skM = segM[skI], skN = segM[skJ];\nobjectNormal = normalize(objectNormal * sk0 + mat3(skM) * objectNormal * skA + mat3(skN) * objectNormal * skB);\n',
+  'transformed = transformed * sk0 + (skM * vec4(p2, 1.0)).xyz * skA + (skN * vec4(p3, 1.0)).xyz * skB;\n'];
 function skinShader(sh, U) {
   sh.uniforms.segM = U.segM; sh.uniforms.segOK = U.segOK; if (U.cD) sh.uniforms.cD = U.cD;
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + SKIN_VS[0])
@@ -109,8 +116,13 @@ class ClothSim {
     for (let i = 0; i < this.n; i++) {
       const r = HUMAN_CLOTH[i], A = this.at[r.s]; if (!A || A[0].userData.gone) { this.ok[i] = 0; continue; }
       this.ok[i] = 1; const m = A[0].matrixWorld;
-      this.tg[i].set(r.p[0], r.p[1] + A[1], r.p[2]).applyMatrix4(m);
-      if (r.w > 0) { const B = this.at[HUMAN_SEGS[r.b]]; if (B) this.tg[i].lerp(_cB.set(r.q[0], r.q[1] + B[1], r.q[2]).applyMatrix4(B[0].matrixWorld), r.w); }
+      // same blend as the vertex shader: own bone plus up to two slots
+      let w0 = Math.max(1 - r.w - r.w2, 0), s = w0; this.tg[i].set(r.p[0], r.p[1] + A[1], r.p[2]).applyMatrix4(m).multiplyScalar(w0);
+      for (const [b, w, q] of [[r.b, r.w, r.q], [r.b2, r.w2, r.q2]]) {
+        if (w <= 0) continue; const B = this.at[HUMAN_SEGS[b]]; if (!B || B[0].userData.gone) continue;
+        this.tg[i].addScaledVector(_cB.set(q[0], q[1] + B[1], q[2]).applyMatrix4(B[0].matrixWorld), w); s += w;
+      }
+      if (s > 1e-4) this.tg[i].multiplyScalar(1 / s); else this.tg[i].set(r.p[0], r.p[1] + A[1], r.p[2]).applyMatrix4(m);
       this.nr[i].set(r.n[0], r.n[1], r.n[2]).transformDirection(m);
     }
   }
@@ -170,7 +182,7 @@ function updateCloth(dt) {
 // a fabric relief from its rest position: soft folds that deepen at the joints, a ribbed crew neck, ripstop trousers with
 // a waistband, grained leather boots and hair with a direction to it.
 const CLOTH_VS = ['attribute float hc;\nattribute float fab;\nvarying float vHc;\nvarying float vFab;\nvarying vec3 vCp;\nvarying float vWk;\n',
-  'vHc = hc; vFab = fab; vCp = position; vWk = nw;\n'];
+  'vHc = hc; vFab = fab; vCp = position; vWk = nw.x + nw.y;\n'];
 const CLOTH_FS = `varying float vHc;
 varying float vFab;
 varying vec3 vCp;
@@ -294,7 +306,7 @@ function mergeChildren(group, matl, pick) {
     const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
     g.applyMatrix4(m.matrix);
     const tn = g.attributes.tint ? g.attributes.tint.array : null;
-    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv' && k !== 'p2' && k !== 'nb' && k !== 'nw' && k !== 'hc' && k !== 'fab' && k !== 'ck' && k !== 'cr' && k !== 'ca') g.deleteAttribute(k);
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv' && k !== 'p2' && k !== 'p3' && k !== 'nb' && k !== 'nw' && k !== 'hc' && k !== 'fab' && k !== 'ck' && k !== 'cr' && k !== 'ca') g.deleteAttribute(k);
     if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
     const col = m.material.color || new THREE.Color(1, 1, 1), n = g.attributes.position.count, arr = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { arr[i * 3] = col.r * (tn ? tn[i * 3] : 1); arr[i * 3 + 1] = col.g * (tn ? tn[i * 3 + 1] : 1); arr[i * 3 + 2] = col.b * (tn ? tn[i * 3 + 2] : 1); }
@@ -304,7 +316,7 @@ function mergeChildren(group, matl, pick) {
     group.remove(m);
   }
   // skinned and plain parts merge together: plain parts get zero skin weight
-  if (geos.some(g => g.attributes.nw)) for (const g of geos) if (!g.attributes.nw) { const n = g.attributes.position.count; g.setAttribute('p2', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('nb', new THREE.BufferAttribute(new Float32Array(n), 1)); g.setAttribute('nw', new THREE.BufferAttribute(new Float32Array(n), 1)); }
+  if (geos.some(g => g.attributes.nw)) for (const g of geos) if (!g.attributes.nw) { const n = g.attributes.position.count; g.setAttribute('p2', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('p3', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('nb', new THREE.BufferAttribute(new Float32Array(n * 2), 2)); g.setAttribute('nw', new THREE.BufferAttribute(new Float32Array(n * 2), 2)); }
   if (geos.some(g => g.attributes.fab)) for (const g of geos) if (!g.attributes.fab) { const n = g.attributes.position.count; g.setAttribute('hc', new THREE.BufferAttribute(new Float32Array(n).fill(1), 1)); g.setAttribute('fab', new THREE.BufferAttribute(new Float32Array(n), 1)); for (const k of ['ck', 'cr', 'ca']) g.setAttribute(k, new THREE.BufferAttribute(new Float32Array(n), 1)); }
   const merged = new THREE.Mesh(mergeGeometries(geos), matl);
   merged.castShadow = true; merged.receiveShadow = matl !== shadowMat;
