@@ -288,19 +288,23 @@ function holeify(mesh, max, inner) {
   m.userData.hA = { value: Array.from({ length: max }, () => new THREE.Vector4(0, 0, 0, 0)) };
   m.userData.hB = { value: Array.from({ length: max }, () => new THREE.Vector4(0, 1, 0, 0)) };
   m.userData.hIn = { value: new THREE.Color(inner) }; m.userData.hFl = { value: inner === FLESH_IN ? 1 : 0 };
+  m.customProgramCacheKey = () => 'hole' + max + (mesh.userData.under ? 'u' : mesh.userData.inner || mesh.userData.organ ? 'i' : mesh.userData.tex ? 'g' : '') + (typeof bodyKey === 'function' ? bodyKey(mesh) : '');
   m.onBeforeCompile = sh => {
     bodyPatches(sh, mesh);
     sh.uniforms.hA = m.userData.hA; sh.uniforms.hB = m.userData.hB; sh.uniforms.hIn = m.userData.hIn; sh.uniforms.hFl = m.userData.hFl; sh.uniforms.hCut = m.userData.hCut;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vHolePos;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvHolePos = position;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vHolePos;\nuniform vec4 hA[' + max + '];\nuniform vec4 hB[' + max + '];\nuniform vec3 hIn;\nuniform float hFl;\nuniform vec4 hCut;\nfloat holeRim = 0.0;\n' + HOLE_JAG + FLESH_CUT)
+      .replace('#include <common>', '#include <common>\nvarying vec3 vHolePos;\nuniform vec4 hA[' + max + '];\nuniform vec4 hB[' + max + '];\nuniform vec3 hIn;\nuniform float hFl;\nuniform vec4 hCut;\nfloat holeRim = 0.0;\nfloat holeNear = 0.0;\n' + HOLE_JAG + FLESH_CUT)
       .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (dot(vHolePos, hCut.xyz) > hCut.w) discard;\n' +
         'for (int i = 0; i < ' + max + '; i++) { if (hA[i].w > 0.0) {\n' +
         '  vec3 hq = vHolePos - hA[i].xyz; float L2 = max(dot(hB[i].xyz, hB[i].xyz), 1e-8); float t = dot(hq, hB[i].xyz) / L2;\n' +
         '  if (t > -0.05 && t < 1.0) { vec3 hp = hq - hB[i].xyz * t; float ct = clamp(t, 0.0, 1.0);\n' +
         '    float rr = mix(hA[i].w, hB[i].w, ct) * holeJag(i, hp, hB[i].xyz);\n' +
-        '    float dd = length(hp); if (dd < rr && t > 0.0) discard; holeRim = max(holeRim, 1.0 - smoothstep(rr, rr * 1.7, dd)); } } }')
-      .replace('#include <color_fragment>', '#include <color_fragment>\nif (!gl_FrontFacing) diffuseColor.rgb = hFl > 0.5 ? fleshCut(vHolePos) : hIn; else diffuseColor.rgb = mix(diffuseColor.rgb, hIn * 0.6, holeRim * 0.75);')
+        '    float dd = length(hp); if (dd < rr && t > 0.0' + (mesh.userData.tex ? ' && (t * sqrt(L2) < 0.09 || t * sqrt(L2) > sqrt(L2) - 0.09)' : '') + ') discard; holeRim = max(holeRim, 1.0 - smoothstep(rr, rr * 1.7, dd)); if (dd < rr * ' + (mesh.userData.under ? '2.5 + 0.03' : mesh.userData.tex ? '1.6 + 0.004' : '3.0 + 0.06') + ') holeNear = 1.0; } } }' +
+        // the skin under the clothes, and the bones and organs inside, show only round a hole (seen through it), never
+        // anywhere else: a shoulder blade or a rib near the surface must not poke out through the back of the shirt
+        (mesh.userData.under || mesh.userData.inner || mesh.userData.organ ? '\nif (hCut.w < 1e8 && dot(vHolePos, hCut.xyz) > hCut.w - 0.08) holeNear = 1.0;\nif (holeNear < 0.5) discard;' : ''))
+      .replace('#include <color_fragment>', '#include <color_fragment>\nif (!gl_FrontFacing' + (mesh.userData.tex ? ' && holeNear > 0.5' : '') + ') diffuseColor.rgb = hFl > 0.5 ? fleshCut(vHolePos) : hIn; else if (!gl_FrontFacing) {} else diffuseColor.rgb = mix(diffuseColor.rgb, hIn * 0.6, holeRim * 0.75);')
       // the inside never reads as an empty shell: it is lit as if it faced you, a little self-lit, so the far side of a body
       // seen through a hole looks like the cut face of solid meat rather than a dark cavity
       .replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\nif (!gl_FrontFacing) normal = normalize(vViewPosition);')
@@ -322,20 +326,24 @@ const _tubeR = new THREE.Raycaster();
 // blood drops sitting where a hole has since been cut away would hang in the air over it: drop them
 function pruneLiquid(group) {
   group.updateMatrixWorld(true); const gone = [], w = new V3();
-  group.traverse(o => { if (o.userData.liquid && o._on && inHole(o._on, o.getWorldPosition(w), 1.05)) gone.push(o); });
-  for (const o of gone) o.parent.remove(o);
+  const Z = new THREE.Matrix4().makeScale(0, 0, 0);
+  group.traverse(o => {
+    if (!o.userData.liqI) return; let ch = false;
+    o.userData.liqI.forEach((e, i) => { if (!e.gone && e.on && inHole(e.on, w.copy(e.p).applyMatrix4(o.matrixWorld), 1.05, e.r * 0.9)) { e.gone = true; o.setMatrixAt(i, Z); ch = true; } });
+    if (ch) o.instanceMatrix.needsUpdate = true;
+  });
 }
 function holeInGroup(group, p, d, len, r0, r1, sk) {
   let slot = -1, slotF = false;
   for (const c of group.children) {
-    if (!c.isMesh || c.userData.keep || c.userData.organ || c.userData.tube) continue;
-    if (c.userData.inner || c.userData.under) c.visible = true;
+    if (!c.isMesh || c.userData.keep || c.userData.tube) continue;
+    // organs and bones come into view with the hole, cut like the rest and drawn only round the opening
+    if (c.userData.inner || c.userData.under || c.userData.organ) c.visible = true;
     c.updateMatrix(); _hm.copy(c.matrix).invert();
     const a = p.clone().applyMatrix4(_hm), dd = d.clone().transformDirection(_hm);
-    if ((slot < 0 || c.userData.frame) && !c.userData.inner && !c.userData.under && !(slot >= 0 && slotF)) { slotF = !!c.userData.frame; slot = (c.userData.holeN || 0) % (c.material.userData && c.material.userData.hA ? c.material.userData.hA.value.length : (c.userData.holeMax || 20)); }
+    if ((slot < 0 || c.userData.frame) && !c.userData.inner && !c.userData.under && !c.userData.organ && !(slot >= 0 && slotF)) { slotF = !!c.userData.frame; slot = (c.userData.holeN || 0) % (c.material.userData && c.material.userData.hA ? c.material.userData.hA.value.length : (c.userData.holeMax || 20)); }
     cutHole(c, a, dd, len, r0, r1, c.userData.inner ? c.userData.hIn : c.userData.armor === 'pack' ? FABRIC_IN : FLESH_IN);
   }
-  for (const c of group.children) if (c.userData.organ) c.visible = true;
   pruneLiquid(group);
   // the channel through skin and muscle at each opening, so the wound has walls instead of a paper-thin edge
   if (slot >= 0 && sk) {
@@ -355,16 +363,33 @@ function holeInGroup(group, p, d, len, r0, r1, sk) {
 }
 // wound size by calibre: entry and exit hole radius in metres. Rifle exits are wider (the round yaws), .50 BMG is huge.
 const CAL = { 0: [0.0056, 0.013], 1: [0.006, 0.009], 2: [0.018, 0.045], 3: [0.0056, 0.012], 4: [0.006, 0.009], 5: [0.0048, 0.008] };
-// severed end: skin rim, torn muscle, and the cut bone with marrow showing. Points along -y, radius r
+// severed end: a torn, uneven face of meat (not a clean cut), ragged skin and fat at the rim, strings of torn tissue hanging off,
+// and the broken bone standing a little proud with a splintered end and marrow. Points along -y, radius r
 const stumpGeo = r => GC('stump' + r, () => {
+  let sd = Math.round(r * 1e4) * 7 + 3; const R = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
   const g = new THREE.Group(), M = c => mat(c, 0.5);
-  const add = (geo, c, x, y, z, s) => { const m = new THREE.Mesh(geo, M(c)); m.position.set(x, y, z); if (s) m.scale.set(s[0], s[1], s[2]); g.add(m); };
-  add(new THREE.CylinderGeometry(r, r * 0.92, r * 0.5, 12), 0x5a0808, 0, -r * 0.2, 0);
-  for (let i = 0; i < 7; i++) { const t = i / 7 * Math.PI * 2 + 0.3; add(new THREE.SphereGeometry(r * 0.36, 7, 5), i % 2 ? 0x8a1010 : 0x6a0a0a, Math.cos(t) * r * 0.55, -r * 0.5, Math.sin(t) * r * 0.55, [1, 0.8 + (i % 3) * 0.3, 1]); }
-  add(new THREE.CylinderGeometry(r * 0.3, r * 0.34, r * 1.5, 9), 0xe2d8c2, 0, -r * 0.9, 0);
-  add(new THREE.CylinderGeometry(r * 0.17, r * 0.17, r * 0.06, 8), 0x5a1410, 0, -r * 1.66, 0);
-  add(new THREE.SphereGeometry(r * 0.2, 6, 4), 0x9a1414, r * 0.2, -r * 1.2, r * 0.25, [0.6, 2.2, 0.6]);
-  return bakeColored(g);
+  const put = (geo, c, x, y, z, s, rx, rz) => { const m = new THREE.Mesh(geo, M(c)); m.position.set(x, y, z); if (s) m.scale.set(s[0], s[1], s[2]); if (rx) m.rotation.x = rx; if (rz) m.rotation.z = rz; g.add(m); return m; };
+  const rough = (geo, k) => { const P = geo.attributes.position, v = new V3(); for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i); const f = 1 + (R() - 0.5) * k; P.setXYZ(i, v.x * f, v.y * (1 + (R() - 0.5) * k * 1.6), v.z * f); } geo.computeVertexNormals(); return geo; };
+  // the torn face: a low uneven dome of muscle, with a few lumps standing out of it
+  put(rough(new THREE.SphereGeometry(r * 0.97, 14, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), 0.28), 0x5c0a0c, 0, -r * 0.05, 0, [1, 0.32, 1]);
+  for (let i = 0; i < 9; i++) { const a = R() * 6.28, d = r * (0.25 + R() * 0.6); put(rough(new THREE.SphereGeometry(r * (0.16 + R() * 0.16), 7, 5), 0.4), [0x6e0d10, 0x4e0709, 0x7d1416][i % 3], Math.cos(a) * d, -r * (0.2 + R() * 0.12), Math.sin(a) * d, [1, 0.45 + R() * 0.4, 1]); }
+  // fat and torn skin round the edge: a yellowish band and ragged flaps curling out and down
+  put(rough(new THREE.TorusGeometry(r * 0.93, r * 0.07, 4, 18), 0.25), 0xb8925a, 0, -r * 0.08, 0, null, Math.PI / 2);
+  for (let i = 0; i < 11; i++) { const a = i / 11 * 6.28 + R() * 0.4, L = r * (0.15 + R() * 0.35); const m = put(new THREE.ConeGeometry(r * (0.08 + R() * 0.07), L, 4), [0x6a2a20, 0x7a3426, 0x5a1c16][i % 3], Math.cos(a) * r * 0.98, -r * 0.05 - L * 0.35, Math.sin(a) * r * 0.98); m.rotation.set(Math.PI + (R() - 0.5) * 0.6, 0, 0); m.rotation.y = -a; m.rotateZ(0.5 + R() * 0.5); }
+  // the bone: short, off centre, with a splintered end (a cylinder whose top ring is chopped unevenly) and the marrow
+  const bg = new THREE.CylinderGeometry(r * 0.28, r * 0.31, r * 0.6, 9, 1), P = bg.attributes.position;
+  for (let i = 0; i < P.count; i++) if (P.getY(i) < 0) P.setY(i, P.getY(i) - R() * r * 0.32);
+  bg.computeVertexNormals();
+  const bx = (R() - 0.5) * r * 0.25, bz = (R() - 0.5) * r * 0.25;
+  put(bg, 0xd6c9a8, bx, -r * 0.42, bz);
+  put(new THREE.CircleGeometry(r * 0.16, 8), 0x4a120d, bx, -r * 0.73, bz, null, Math.PI / 2);
+  for (let i = 0; i < 3; i++) put(new THREE.ConeGeometry(r * 0.05, r * (0.15 + R() * 0.15), 3), 0xe0d4b6, bx + (R() - 0.5) * r * 0.4, -r * 0.78, bz + (R() - 0.5) * r * 0.4, null, Math.PI);
+  // strings of torn tissue hanging off
+  for (let i = 0; i < 3; i++) { const a = R() * 6.28, d = r * (0.3 + R() * 0.5), L = r * (0.5 + R() * 0.8); put(new THREE.CylinderGeometry(r * 0.05, r * 0.02, L, 5), 0x6a0a0c, Math.cos(a) * d, -r * 0.25 - L / 2, Math.sin(a) * d, null, (R() - 0.5) * 0.5, (R() - 0.5) * 0.5); }
+  const geo = bakeColored(g), C = geo.attributes.color;
+  // mottled: no two bits of meat quite the same colour
+  for (let i = 0; i < C.count; i++) { const k = 0.82 + R() * 0.3; C.setXYZ(i, C.getX(i) * k, C.getY(i) * k, C.getZ(i) * k); }
+  return geo;
 });
 function addStump(parent, pos, dir, r) {
   const m = new THREE.Mesh(stumpGeo(r), vcMat); m.position.copy(pos); m.quaternion.setFromUnitVectors(_a.set(0, -1, 0), dir.clone().normalize()); m.userData.keep = true; m.castShadow = true; parent.add(m); return m;
@@ -375,17 +400,19 @@ function addStump(parent, pos, dir, r) {
 // whatever shape is there and move with it. A big wound gets a wide wet patch and runs heading downhill.
 // is a world point inside one of the holes cut into this mesh (blood must never sit over empty space)
 const _ihI = new THREE.Matrix4(), _ihP = new V3(), _ihA = new V3(), _ihB = new V3();
-function inHole(mesh, wp, pad) {
+function inHole(mesh, wp, pad, ex) {
   const u = mesh.material && mesh.material.userData; if (!u || !u.hA) return false;
   _ihP.copy(wp).applyMatrix4(_ihI.copy(mesh.matrixWorld).invert());
   for (let i = 0; i < u.hA.value.length; i++) { const A = u.hA.value[i], B = u.hB.value[i]; if (!(A.w > 0)) continue;
     _ihA.set(_ihP.x - A.x, _ihP.y - A.y, _ihP.z - A.z); _ihB.set(B.x, B.y, B.z); const L2 = Math.max(_ihB.lengthSq(), 1e-8), t = _ihA.dot(_ihB) / L2;
-    if (t < -0.1 || t > 1) continue; const ct = clamp(t, 0, 1), r = lerp(A.w, B.w, ct) * (pad || 1.15);
+    if (t < -0.1 || t > 1) continue; const ct = clamp(t, 0, 1), r = lerp(A.w, B.w, ct) * (pad || 1.15) + (ex || 0);
     if (_ihA.addScaledVector(_ihB, -ct).length() < r) return true; }
   return false;
 }
 const LIQ_GEO = new THREE.SphereGeometry(1, 10, 6);
-const LIQ_MAT = [0x6e070b, 0x52040a, 0x3a0206].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.45, metalness: 0, envMapIntensity: 0.2, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+// all the drops of one patch are one instanced mesh (one draw call), each drop its own shade of wet, dark red
+const LIQ_MAT = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.32, metalness: 0, envMapIntensity: 0.25, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+const LIQ_COL = [0x6a060b, 0x58040a, 0x480308, 0x7a0a0e].map(c => new THREE.Color(c));
 const _lray = new THREE.Raycaster(), _lqL = new THREE.Quaternion(), _lqG = new THREE.Quaternion();
 const _lqM = new THREE.Matrix4();
 function liquidBlood(group, p, n, R, count, runs, hr) {
@@ -411,7 +438,7 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
       tris.push(a, b, c); tm.push(m);
     }
   }
-  const _hp2 = new V3(), _tn = new V3(), _e1 = new V3(), _e2 = new V3(); let b_mesh = null;
+  const _hp2 = new V3(), _tn = new V3(), _e1 = new V3(), _e2 = new V3(); let b_mesh = null; const L = [];
   const drop = (o, r, stretch, along) => {
     _lray.ray.set(o.clone().addScaledVector(wn, 0.12), wn.clone().negate());
     let best = 0.26, hp = null, hn = null, hm = null;
@@ -419,22 +446,32 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
       const q = _lray.ray.intersectTriangle(tris[t], tris[t + 1], tris[t + 2], false, _hp2); if (!q) continue;
       const d = q.distanceTo(_lray.ray.origin); if (d < best) { best = d; hp = q.clone(); hm = tm[t / 3]; hn = _tn.crossVectors(_e1.subVectors(tris[t + 1], tris[t]), _e2.subVectors(tris[t + 2], tris[t])).normalize().clone(); }
     }
-    if (!hp || inHole(hm, hp)) return null; if (hn.dot(wn) < 0) hn.negate();
+    // a drop is a disc of radius r (or longer, stretched): none of it may lie over the opening, or it hides the wound
+    if (!hp || inHole(hm, hp, 1.15, r * Math.max(1, stretch) * 1.05)) return null; if (hn.dot(wn) < 0) hn.negate();
     b_mesh = hm;
     const h = { point: hp };
-    const b = new THREE.Mesh(LIQ_GEO, LIQ_MAT[Math.floor(Math.random() * LIQ_MAT.length)]); b.userData.keep = true; b.userData.liquid = true; b._on = b_mesh;
     _lqL.setFromUnitVectors(_Y, hn); if (along) { const a = along.clone().addScaledVector(hn, -along.dot(hn)).normalize(), x0 = new V3(0, 0, 1).applyQuaternion(_lqL); _lqL.premultiply(new THREE.Quaternion().setFromUnitVectors(x0, a)); } else _lqL.multiply(new THREE.Quaternion().setFromAxisAngle(_Y, Math.random() * 6.28));
-    b.quaternion.copy(gq).multiply(_lqL); b.position.copy(out.worldToLocal(h.point.clone().addScaledVector(hn, r * 0.08)));
-    b.scale.set(r, r * rnd(0.045, 0.075), r * stretch); out.add(b); return h.point;
+    L.push({ q: gq.clone().multiply(_lqL), p: out.worldToLocal(h.point.clone().addScaledVector(hn, r * 0.08)), s: new V3(r, r * rnd(0.045, 0.075), r * stretch), on: b_mesh, r: r * Math.max(1, stretch) });
+    return h.point;
   };
   const k = clamp(R / 0.05, 0.6, 1.8);
   // a wet patch: many flat, overlapping drops that run together, biggest in the middle
-  for (let i = 0; i < count * 2; i++) { const a = Math.random() * 6.28, d = hr + (R - hr) * Math.pow(Math.random(), 0.7) * (i < count * 0.6 ? 0.45 : 1) + hr * 0.15; /* a ring round the hole, never over it */ drop(wp.clone().addScaledVector(t1, Math.cos(a) * d).addScaledVector(t2, Math.sin(a) * d), rnd(0.01, 0.022) * k * (1 - 0.55 * d / R), rnd(1, 1.5)); }
+  for (let i = 0; i < count * 6; i++) {
+    // many small drops that run together read as a wet stain (a few big ones read as polka dots): thickest at the rim
+    const a = Math.random() * 6.28, st = rnd(1, 1.6); let d = hr + (R - hr) * Math.pow(Math.random(), 1.3) * (i < count * 2.5 ? 0.4 : 1) + hr * 0.15;
+    const r = rnd(0.003, 0.0075) * k * (1 - 0.5 * Math.min(1, d / R));
+    d = Math.max(d, hr * 1.15 + r * st * 1.1);   // a ring round the hole: even the drop's edge stays off the opening
+    drop(wp.clone().addScaledVector(t1, Math.cos(a) * d).addScaledVector(t2, Math.sin(a) * d), r, st);
+  }
   // runs: blood heading downhill across the surface from the wound
   const down = new V3(0, -1, 0).addScaledVector(wn, wn.y); if (runs && down.length() > 0.25) {
     down.normalize();
-    for (let j = 0; j < runs; j++) { const side = t1.clone().multiplyScalar(rnd(-0.6, 0.6) * R); let o = wp.clone().add(side).addScaledVector(down, hr); const w0 = rnd(0.0035, 0.006) * k, nS = 6 + Math.floor(Math.random() * 4); for (let s = 0; s < nS; s++) { o = o.addScaledVector(down, w0 * rnd(1.6, 2.2)); if (!drop(o, w0 * (1 - s / nS * 0.6), rnd(2.4, 3), down)) break; } }
+    for (let j = 0; j < runs; j++) { const side = t1.clone().multiplyScalar(rnd(-0.6, 0.6) * R); const w0 = rnd(0.0035, 0.006) * k, nS = 6 + Math.floor(Math.random() * 4); let o = wp.clone().add(side).addScaledVector(down, hr * 1.15 + w0 * 3.2), got = 0; for (let s = 0; s < nS; s++) { o = o.addScaledVector(down, w0 * rnd(1.6, 2.2)); if (drop(o, w0 * (1 - s / nS * 0.6), rnd(2.4, 3), down)) got++; else if (got || s > 2) break; } }
   }
+  if (!L.length) { out.removeFromParent(); return null; }
+  const im = new THREE.InstancedMesh(LIQ_GEO, LIQ_MAT, L.length), M4 = new THREE.Matrix4();
+  L.forEach((e, i) => { im.setMatrixAt(i, M4.compose(e.p, e.q, e.s)); im.setColorAt(i, LIQ_COL[Math.floor(Math.random() * LIQ_COL.length)]); });
+  im.frustumCulled = false; im.userData.keep = true; im.userData.liqI = L; out.add(im);
   return out;
 }
 // kept under the old name: the torn ring round a blast wound is now a wide patch of liquid blood
@@ -525,7 +562,8 @@ function bodyWound(hit, dir, w, pen, ex, hum) {
   const pL = g.worldToLocal(hit.point.clone()), dL = dir.clone().applyQuaternion(qi).normalize(), nL = dL.clone().negate();
   // through and through: the track ends where the round leaves this segment (pen.depth is how far it could have gone, which
   // drew the wound tube sticking out of the far side as a long red cylinder)
-  const through = pen.v > 0 && ex, depth = Math.max(0.02, through ? Math.min(pen.depth, ex.len || pen.depth) : pen.depth), r1 = through ? cal[1] : lerp(cal[0], cal[1], 0.4);
+  // a round that stays in the body stops short of the far side: the track must not come out through the back of the shirt
+  const through = pen.v > 0 && ex, depth = Math.max(0.02, through ? Math.min(pen.depth, ex.len || pen.depth) : ex && ex.len ? Math.min(pen.depth, ex.len - 0.035) : pen.depth), r1 = through ? cal[1] : lerp(cal[0], cal[1], 0.4);
   const start = pL.clone().addScaledVector(dL, -0.04), L = depth + 0.04 + (through ? 0.05 : 0), sk = [0.04, through ? 0.04 + depth : 0];
   const pellet = !!WEAPONS[w].pellets;
   if (!pellet) holeInGroup(g, start, dL, L, cal[0], r1, sk);

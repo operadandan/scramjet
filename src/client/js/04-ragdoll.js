@@ -76,16 +76,23 @@ class Ragdoll {
       if (sg.hidden) continue;
       if (sg.mid < 0) { const g = new THREE.Group(); this.group.add(g); sg.g = g; g.userData.rf = { seg: sg.si, dy: -sg.L / 2 }; B[sg.fn](g, sg.L / 2, sg.L, sg.si % 4 < 2 ? 'L' : 'R'); this.limbs.push({ g, a: sg.a, b: sg.b, seg: sg.si, top: sg.L / 2, bot: -sg.L / 2, first: true }); }
       else {
-        const r = sg.fn === 'thigh' ? 0.075 : sg.fn === 'shin' ? 0.055 : 0.048, hL = sg.L / 2;
+        // a broken bone: the same body segment (skin, clothes) built in each half and cut off at the break, the bone ends showing
+        const r = sg.fn === 'thigh' ? 0.075 : sg.fn === 'shin' ? 0.055 : 0.048, hL = sg.L / 2, side = sg.si % 4 < 2 ? 'L' : 'R';
+        const segName = { upperArm: 'sh', forearm: 'el', thigh: 'lg', shin: 'kn' }[sg.fn] + side;
+        const halves = [];
         for (const [x, y, end] of [[sg.a, sg.mid, false], [sg.mid, sg.b, true]]) {
           const g = new THREE.Group(); this.group.add(g);
-          B.add(limbG(hL, r, r * 0.95, r * 0.9), limbCol[sg.fn], g, 0, hL / 2, 0);
-          if (end && sg.fn === 'forearm') B.add(rbox(0.07, 0.085, 0.034, 0.014), pl.glove, g, 0, -hL / 2 - 0.03, 0);
-          if (end && sg.fn === 'shin') B.add(rbox(0.11, 0.12, 0.25, 0.04), pl.boots, g, 0, -hL / 2 - 0.02, -0.04);
-          B.add(sph(r * 0.9), 0x7a0a0a, g, 0, end ? hL / 2 : -hL / 2, 0);
+          const top = end ? hL / 2 + hL : hL / 2;
+          B[sg.fn](g, top, sg.L, side);
+          halves.push(B.segAt[segName]);
+          (this.breakClip = this.breakClip || []).push([g, end ? hL / 2 : -hL / 2, end]);
+          B.add(sph(r * 0.55), 0xd8cdb4, g, 0, end ? hL / 2 : -hL / 2, 0);   // the broken bone end
+          B.add(sph(r * 0.8), 0x5a0606, g, 0, end ? hL / 2 - 0.005 : -hL / 2 + 0.005, 0, null, [1, 0.35, 1]);
           g.userData.rf = { seg: sg.si, dy: end ? -hL * 1.5 : -hL / 2 };
           this.limbs.push({ g, a: x, b: y, seg: sg.si, top: hL / 2, bot: -hL / 2, first: !end });
         }
+        // what joins on above blends with the upper half, what joins on below with the lower half
+        B.segAt[segName] = halves[0]; (this.lowerAt = this.lowerAt || {})[segName] = halves[1];
       }
     }
     if (masks.w) for (const w of masks.w) {
@@ -95,9 +102,14 @@ class Ragdoll {
       if (w.st && w.st.isMesh) { const sk = soakMesh(g, w.p.clone().setY(w.p.y + dy), w.n, w.st.scale.x); this.soaks = this.soaks || []; this.soaks.push([sk, w.grow]); }
       (this.liq = this.liq || []).push([w.frame, w.p.clone().setY(w.p.y + dy), w.n.clone(), w.tear, w.p.y]);
     }
-    if (masks.gib) B.add(sph(0.052), 0x6a0505, this.torso, 0, 0.315, 0, null, [1, 0.6, 1]);
     if (masks.nh) this.group.traverse(o => { if (o.userData.armor === 'helmet') o.visible = false; });
     mergeTree(this.group, vcMat); attachSkin(this.group, B.segAt);
+    if (this.lowerAt) for (const l of this.limbs) {
+      // the next segment down a broken limb follows the lower half
+      const nm = { 0: 'shL', 2: 'shR', 4: 'lgL', 6: 'lgR' }[l.seg - 1];
+      if (nm && this.lowerAt[nm]) { const at = Object.assign({}, B.segAt, { [nm]: this.lowerAt[nm] }); l.g.traverse(o => { if (o._skin) o._skin.at = at; }); }
+    }
+    if (this.breakClip) for (const [g, y, below] of this.breakClip) clipGroup(g, y, below);
     this.group.traverse(o => { if (o.isMesh) o.userData.rag = this; });
     if (masks.gib) this.headG.visible = false;
     if (masks.h && masks.h.length) this.group.userData.wounded = true;   // (its clothes stay put over the blood: see ClothSim)
@@ -463,10 +475,113 @@ function spawnLimb(hum, bit, dir, t, lowerGone) {
   addStump(g, new V3(0, cy, 0), new V3(0, 1, 0), arm ? 0.042 : 0.065);
   root.matrixWorld.decompose(g.position, g.quaternion, g.scale);
   const at = g.position.clone();
-  addProp(g, dir.clone().multiplyScalar(rnd(0.8, 2)).add(new V3(rnd(-0.6, 0.6), rnd(0.5, 1.4), rnd(-0.6, 0.6))), new V3(rnd(-8, 8), rnd(-8, 8), rnd(-8, 8)), arm ? 0.05 : 0.07, 'limb', 40);
+  new LimbBody(g, cy, arm ? 0.042 : 0.062, dir.clone().multiplyScalar(rnd(0.8, 2)).add(new V3(rnd(-0.6, 0.6), rnd(0.5, 1.4), rnd(-0.6, 0.6))), rnd(-6, 6));
   for (let i = 0; i < 3; i++) bloodFx(at.clone().add(new V3(rnd(-0.05, 0.05), rnd(-0.05, 0.05), rnd(-0.05, 0.05))), dir.clone().add(new V3(rnd(-0.5, 0.5), rnd(0, 0.6), rnd(-0.5, 0.5))).normalize());
   puff(at, 0x7a0000, 0.9, 0.8, 0.05, 0.9);
   noiseHit(300, 0.25, 0.12);
+}
+// A limb that came off is a stick of two particles (the cut end and the far end) held at its length, each a ball of the
+// limb's thickness, plus a check at the middle. They fall and tumble, land and slide on the floor and on top of things,
+// can't go into walls, crates or bodies (standing people are capsules, lying bodies the balls of their ragdoll), and the
+// limb is turned to lie along the stick, keeping its own roll. It settles and then lies still until it's cleared.
+const limbBodies = [];
+const _lA = new V3(), _lB = new V3(), _lC = new V3(), _lQ = new THREE.Quaternion();
+function limbBoxPush(P, Q, r) {
+  let hit = false;
+  if (P.y < r) { P.y = r; Q.y = Math.max(Q.y, r); hit = true; }
+  for (const c of colliders) {
+    if (P.x > c.min.x - r && P.x < c.max.x + r && P.y > c.min.y - r && P.y < c.max.y + r && P.z > c.min.z - r && P.z < c.max.z + r && !(c.mesh && gridOpenW(c.mesh, P))) {
+      const d = [P.x - (c.min.x - r), (c.max.x + r) - P.x, P.y - (c.min.y - r), (c.max.y + r) - P.y, P.z - (c.min.z - r), (c.max.z + r) - P.z];
+      let k = 0; for (let j = 1; j < 6; j++) if (d[j] < d[k]) k = j;
+      if (k === 0) P.x = c.min.x - r; else if (k === 1) P.x = c.max.x + r; else if (k === 2) P.y = c.min.y - r; else if (k === 3) P.y = c.max.y + r; else if (k === 4) P.z = c.min.z - r; else P.z = c.max.z + r;
+      if (k < 2) Q.x = P.x; else if (k < 4) Q.y = P.y; else Q.z = P.z;
+      hit = true;
+    }
+  }
+  return hit;
+}
+// standing people as capsules (feet to head), lying people as their ragdoll's balls: returns how far to push p out
+function limbBodyPush(p, r, out) {
+  out.set(0, 0, 0); let hit = false;
+  const cap = (root) => {
+    const y0 = root.position.y + 0.2, y1 = root.position.y + 1.62, R = 0.2 + r;
+    const y = clamp(p.y, y0, y1), dx = p.x - root.position.x, dz = p.z - root.position.z, dy = p.y - y, L = Math.hypot(dx, dy, dz);
+    if (L < R && L > 1e-5) { out.x += dx / L * (R - L); out.y += dy / L * (R - L); out.z += dz / L * (R - L); hit = true; }
+  };
+  for (const d of dummies) if (d.hum.root.visible && !d.rag) cap(d.hum.root);
+  if (S.remotes) for (const rm of S.remotes.values()) if (rm.hum && rm.hum.root.visible && !rm.rag) cap(rm.hum.root);
+  if (P.alive && !P.rag && !P.downed) { const ft = { position: new V3(P.pos.x, P.pos.y, P.pos.z) }; cap(ft); }
+  for (const rg of ragdolls) {
+    if (!rg.group.visible) continue;
+    for (let i = 0; i < rg.p.length; i++) {
+      const R = (rg.rad[i] || 0.06) + r; _lC.subVectors(p, rg.p[i]); const L = _lC.length();
+      if (L < R && L > 1e-5) { out.addScaledVector(_lC, (R - L) / L); hit = true; }
+    }
+  }
+  return hit;
+}
+class LimbBody {
+  constructor(g, cy, r, v, spin) {
+    scene.add(g); g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    g.updateMatrixWorld(true);
+    // the stick: from the cut end to the far end of what's left (the far corner of its box, through the box's middle)
+    const bx = new THREE.Box3(), inv = new THREE.Matrix4().copy(g.matrixWorld).invert();
+    g.traverse(o => { if (o.isMesh && o.visible && o.geometry) { o.geometry.computeBoundingBox(); bx.union(o.geometry.boundingBox.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld))); } });
+    const c = bx.getCenter(new V3()); this.al = new V3(0, Math.min(cy, bx.max.y), 0);
+    this.bl = new V3(c.x, bx.min.y + r, c.z);   // far end: the bottom of what's left (the cut is drawn by the shader, the box is the whole part)
+    this.len = Math.max(0.12, this.al.distanceTo(this.bl) - r * 1.2); this.r = r;
+    this.ax = this.bl.clone().sub(this.al).normalize();
+    this.p = [g.localToWorld(this.al.clone()), g.localToWorld(this.bl.clone())];
+    const h = 1 / 120, w = new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(4, 9));
+    this.q = this.p.map((x, i) => x.clone().sub(v.clone().add(w.clone().multiplyScalar(i ? 0.5 : -0.5)).multiplyScalar(h)));
+    // the two ends must start outside walls, crates and bodies
+    for (let i = 0; i < 2; i++) { limbBoxPush(this.p[i], this.q[i], r); }
+    this.g = g; this.spin = spin || 0; this.life = 0; this.still = 0; this.rest = false; this.acc = 0;
+    this.d0 = this.p[1].clone().sub(this.p[0]).normalize();
+    limbBodies.push(this);
+    if (limbBodies.length > 24) limbBodies.shift().dispose();
+  }
+  dispose() { scene.remove(this.g); }
+  step() {
+    const h = 1 / 120, p = this.p, q = this.q;
+    for (let i = 0; i < 2; i++) { const P = p[i], Q = q[i]; _lA.subVectors(P, Q).multiplyScalar(0.995); Q.copy(P); P.add(_lA); P.y -= 9.8 * h * h; }
+    const gr = [false, false];
+    for (let it = 0; it < 4; it++) {
+      _lA.subVectors(p[1], p[0]); const d = _lA.length() || 1e-6, k = (d - this.len) / d * 0.5;
+      p[0].addScaledVector(_lA, k); p[1].addScaledVector(_lA, -k);
+      for (let i = 0; i < 2; i++) {
+        if (limbBoxPush(p[i], q[i], this.r)) gr[i] = true;
+        if (limbBodyPush(p[i], this.r, _lB)) p[i].add(_lB);
+      }
+      // the middle too: a long thigh can't straddle a crate edge or a body with both ends clear
+      _lC.addVectors(p[0], p[1]).multiplyScalar(0.5); const m0 = _lC.clone(), mq = _lC.clone();
+      let moved = limbBoxPush(_lC, mq, this.r);
+      if (limbBodyPush(_lC, this.r, _lB)) { _lC.add(_lB); moved = true; }
+      if (moved) { _lC.sub(m0); p[0].add(_lC); p[1].add(_lC); }
+    }
+    // whatever touches the floor or a top drags
+    for (let i = 0; i < 2; i++) if (gr[i]) { const P = p[i], Q = q[i]; Q.x = P.x - (P.x - Q.x) * 0.8; Q.z = P.z - (P.z - Q.z) * 0.8; }
+    const ground = gr[0] || gr[1];
+    this.spin *= ground ? 0.85 : 0.995;
+    const sp = p[0].distanceTo(q[0]) + p[1].distanceTo(q[1]);
+    this.still = sp < 0.0006 ? this.still + h : 0;
+    if (this.still > 0.6) this.rest = true;
+  }
+  place() {
+    const d = _lA.subVectors(this.p[1], this.p[0]).normalize();
+    _lQ.setFromUnitVectors(this.d0, d); this.g.quaternion.premultiply(_lQ); this.d0.copy(d);
+    if (this.spin) this.g.quaternion.premultiply(_lQ.setFromAxisAngle(d, this.spin * this.dt));
+    this.g.position.copy(this.p[0]).sub(this.al.clone().applyQuaternion(this.g.quaternion));
+  }
+  update(dt) {
+    this.life += dt; if (this.rest) return;
+    this.acc = Math.min(this.acc + dt, 0.05);
+    while (this.acc >= 1 / 120) { this.step(); this.acc -= 1 / 120; }
+    this.dt = dt; this.place();
+  }
+}
+function updateLimbs(dt) {
+  for (let i = limbBodies.length - 1; i >= 0; i--) { const L = limbBodies[i]; L.update(dt); if (L.life > 60) { L.dispose(); limbBodies.splice(i, 1); } }
 }
 function syncLost(hum, mask, dir, cuts) {
   const prev = hum.lostMask || 0;

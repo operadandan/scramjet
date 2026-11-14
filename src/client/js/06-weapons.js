@@ -15,6 +15,8 @@ const WEAPONS = [
 const PRIMARIES = [0], SECONDARIES = [1], MEDKIT_W = 9;
 const isPistol = w => WEAPONS[w] && WEAPONS[w].kind === 'pistol';
 const isShotgun = w => WEAPONS[w] && WEAPONS[w].kind === 'shotgun';
+// what can take a limb or the head off: buckshot and heavy-calibre rounds (the .50), never rifle or pistol rounds
+const canDismember = w => !!WEAPONS[w] && (WEAPONS[w].kind === 'shotgun' || WEAPONS[w].kind === 'sniper');
 const roundsPer = w => WEAPONS[w].carrier || WEAPONS[w].cap;
 // pellet directions from a seed, so every client draws the same pattern for a shot
 function seededRng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }

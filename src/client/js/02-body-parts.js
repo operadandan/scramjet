@@ -441,9 +441,11 @@ class Body {
     const BONE = 0xe4d9c2, MAR = 0x9a3a2a;
     if (kind === 'chest') {
       // spine, ribs, lungs, heart, liver, stomach
-      this.gut(cylg(0.016, 0.38, 8), BONE, p, 0, y + 0.26, 0.042);
-      for (let i = 0; i < 7; i++) this.gut(rbox(0.03, 0.02, 0.022, 0.005), BONE, p, 0, y + 0.1 + i * 0.05, 0.048);
-      for (let i = 0; i < 7; i++) { const yy = y + 0.2 + i * 0.038, rr = 0.11 + Math.min(i, 3) * 0.01 - Math.max(0, i - 4) * 0.012; this.gut(GC('rib' + i, () => new THREE.TorusGeometry(1, 0.06, 4, 20)), BONE, p, 0, yy, 0, [rr, rr * 0.6, 0.009 / 0.06 * 1], [Math.PI / 2, 0, 0]); }
+      // the spine sits a couple of centimetres in from the back (the skin runs in a groove over it): further out it came
+      // through the back of the shirt next to an exit wound
+      this.gut(cylg(0.015, 0.38, 8), BONE, p, 0, y + 0.26, 0.026);
+      for (let i = 0; i < 7; i++) this.gut(rbox(0.028, 0.02, 0.02, 0.005), BONE, p, 0, y + 0.1 + i * 0.05, 0.03);
+      for (let i = 0; i < 7; i++) { const yy = y + 0.2 + i * 0.038, rr = 0.11 + Math.min(i, 3) * 0.01 - Math.max(0, i - 4) * 0.012; this.gut(GC('rib' + i, () => new THREE.TorusGeometry(1, 0.06, 4, 20)), BONE, p, 0, yy, -0.004, [rr * 0.9, rr * 0.48, 0.009 / 0.06 * 1], [Math.PI / 2, 0, 0]); }   // kept well inside the back and sides
       for (const sx of [-1, 1]) this.gut(sph(1), 0xc8838a, p, sx * 0.07, y + 0.37, 0.0, [0.058, 0.11, 0.06]);
       this.gut(sph(1), 0x6e1016, p, 0.025, y + 0.32, -0.025, [0.042, 0.05, 0.036]);
       this.gut(sph(1), 0x5a1a14, p, -0.035, y + 0.2, -0.005, [0.09, 0.045, 0.055]);

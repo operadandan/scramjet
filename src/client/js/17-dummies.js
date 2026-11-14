@@ -314,7 +314,20 @@ class Dummy {
     bleedDrips(this, this.anat.bleedRate(), dt, arteryRate(this.anat), clamp(this.anat.blood / 5000, 0.2, 1));
   }
   shot(info, v, w, wdir, dist) {
-    if (this.dead) return { killed: false };
+    if (this.dead) {
+      // the rest of a shotgun blast that just killed still lands: the pellets add up (a destroyed head, a limb off)
+      const bg = this.anat.bg;
+      if (!(isShotgun(w) && bg && bg.w === w && performance.now() / 1000 - bg.t < 0.12)) return { killed: false };
+      const an = this.anat, g0 = an.gibHead, t0 = an.neckTear, l0 = an.lostMask();
+      an.hit(info.frame, info.e, info.d, v, w, info.armor, info.pd);
+      const r = this.rag;
+      if (r) {
+        if (an.gibHead && !g0 && r.headG.visible) r.gibHead(wdir);
+        else if (an.neckTear && !t0 && !r.neckTorn && r.headG.visible) r.tearNeck(wdir);
+        if (an.lostMask() !== l0) { r.applyLost(an.lostMask(), wdir, an.cutArr()); this.hum.setLost(an.lostMask(), an.cutArr()); }
+      }
+      return { killed: false };
+    }
     this.anat.lastDir.copy(wdir); this.anat.lastDist = dist;
     const res = this.anat.hit(info.frame, info.e, info.d, v, w, info.armor, info.pd);
     if (!res.stopped) hurtClutch(this.hum.anim, info.frame, info.e);

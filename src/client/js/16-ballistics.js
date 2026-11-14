@@ -277,8 +277,9 @@ function onBulletHit(b, hit, dir, dist) {
     if (ud.hum.remote) net.send({ t: 'hit', id: ud.hum.remote.id, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
     else if (ud.hum.dummy) {
       const d0 = ud.hum.dummy;
-      // rounds into the neck add up: four rifle rounds (one .50, a couple of close blasts) tear it through and the head is left hanging
-      if (info.frame === 'neck' && !stopped) { d0.neckHits = (d0.neckHits || 0) + (b.w === 2 ? 6 : b.shot ? 1.4 : 1); if (d0.neckHits >= 4) { d0.anat.neckTear = true; if (!d0.anat.dead) d0.anat.kill('spinal'); } }
+      // heavy hits into the neck add up: one .50 or a few close blasts tear it through and the head is left hanging (rifle and
+      // pistol rounds never take the head off)
+      if (info.frame === 'neck' && !stopped && canDismember(b.w)) { d0.neckHits = (d0.neckHits || 0) + (b.w === 2 ? 6 : b.shot ? 1.4 : 1); if (d0.neckHits >= 4) { d0.anat.neckTear = true; if (!d0.anat.dead) d0.anat.kill('spinal'); } }
       d0.shot(info, v, b.w, dir, dist);
       if (d0.anat.neckTear && d0.rag && !d0.rag.neckTorn && d0.rag.headG.visible) d0.rag.tearNeck(dir);
     }

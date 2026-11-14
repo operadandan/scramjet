@@ -177,7 +177,9 @@ class Anatomy {
     if (limb) {
       const bones = (STRUCTS_BY_FRAME[frame] || []).filter(st => st.type === 'bone'), anyBroken = bones.some(st => this.s[st.id].broken);
       const boneNow = hits.some(([st]) => st.type === 'bone' && this.s[st.id].broken);
-      if ((wasGone && anyBroken) || (E0 > 6500 && boneNow && (limb[1] === 2 || this.flesh[region] < 45))) {
+      // only a shotgun or a heavy round (the .50) has the mass to take a limb off: rifle and pistol rounds break the bone and
+      // shred the tissue, but the limb stays on however many times it is hit
+      if (canDismember(w) && ((wasGone && anyBroken) || (E0 > 6500 && boneNow && (limb[1] === 2 || this.flesh[region] < 45)))) {
         const t = /hand|foot/.test(region) ? 0.93 : clamp(-e.y / (LSEG[frame] || 0.3), 0.1, 0.9);
         this.sever(limb[0], limb[1], t); out.severed = limb[0];
       }
