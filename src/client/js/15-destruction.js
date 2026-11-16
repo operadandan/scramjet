@@ -73,13 +73,18 @@ function updateWallGrid(mesh, D, dir) {
   const G = wallGrid(mesh); if (!G) return;
   const ud = mesh.userData, { n1, n2, cs1, cs2, min1, min2, cell } = G, q = new V3();
   // flood fill the solid part from whatever holds it up; the rest breaks away
-  const seen = new Uint8Array(n1 * n2), st = [], push = k => { if (!cell[k] && !seen[k]) { seen[k] = 1; st.push(k); } };
+  // only sound material carries load: a cell damaged past the point it shows as open does not hold anything up, so a piece
+  // hanging on by cracked rubble alone comes away
+  const WEAK = 0.42, dm = G.dmg;
+  const seen = new Uint8Array(n1 * n2), st = [], push = k => { if (!cell[k] && !seen[k] && dm[k] < WEAK) { seen[k] = 1; st.push(k); } };
   if (G.hold.bottom) for (let i = 0; i < n1; i++) push(i);
   if (G.hold.top) for (let i = 0; i < n1; i++) push((n2 - 1) * n1 + i);
   if (G.hold.s0) for (let j = 0; j < n2; j++) push(j * n1);
   if (G.hold.s1) for (let j = 0; j < n2; j++) push(j * n1 + n1 - 1);
   while (st.length) { const k = st.pop(), i = k % n1, j = (k - i) / n1; if (i > 0) push(k - 1); if (i < n1 - 1) push(k + 1); if (j > 0) push(k - n1); if (j < n2 - 1) push(k + n1); }
-  const fall = []; for (let k = 0; k < n1 * n2; k++) if (!cell[k] && !seen[k]) { cell[k] = 2; fall.push(k); }
+  // cracked cells stay only where they cling to sound wall that is held up
+  const held = k => { const i = k % n1; return (i > 0 && seen[k - 1]) || (i < n1 - 1 && seen[k + 1]) || (k >= n1 && seen[k - n1]) || (k + n1 < n1 * n2 && seen[k + n1]); };
+  const fall = []; for (let k = 0; k < n1 * n2; k++) if (!cell[k] && !seen[k] && !(dm[k] >= WEAK && held(k))) { cell[k] = 2; fall.push(k); }
   if (G.dirty) { G.tex.needsUpdate = true; G.dirty = false; }
   if (!fall.length) return;
   for (const k of fall) G.tex.image.data[k] = 255; G.tex.needsUpdate = true;
@@ -110,30 +115,47 @@ function updateWallGrid(mesh, D, dir) {
 // fibres, crumbled gypsum, fresh concrete and aggregate) in a band that follows the opening's own outline.
 const WALL_NOISE = 'float wh(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }\n' +
   'float wn3(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(mix(wh(i), wh(i + vec3(1, 0, 0)), f.x), mix(wh(i + vec3(0, 1, 0)), wh(i + vec3(1, 1, 0)), f.x), f.y), mix(mix(wh(i + vec3(0, 0, 1)), wh(i + vec3(1, 0, 1)), f.x), mix(wh(i + vec3(0, 1, 1)), wh(i + vec3(1, 1, 1)), f.x), f.y), f.z); }\n' +
-  'float wallV = 0.0;\n';
-const MASK_GLSL = p => '{ vec2 muv = vec2((dot(' + p + ', hS1) - hMP.x) / hMP.z, (dot(' + p + ', hS2) - hMP.y) / hMP.w);' +
-  ' if (muv.x >= 0.0 && muv.x <= 1.0 && muv.y >= 0.0 && muv.y <= 1.0) { float v = texture2D(hMask, muv).r; wallV = v;' +
-  ' float nz = wn3(' + p + ' * 95.0) * 0.55 + wn3(' + p + ' * 30.0) * 0.45; if (v > 0.5 + (nz - 0.5) * 0.55) discard; } }\n';
-const WALL_EDGE = p => 'if (gl_FrontFacing && wallV > 0.02) {\n' +
-  '  float e = smoothstep(0.03, 0.42, wallV), lip = smoothstep(0.3, 0.5, wallV); vec3 bc;\n' +
+  'float wallV = 0.0; float wallIn = 0.0; vec3 wallP = vec3(0.0);\n';
+// noise taken on the face plane, so an opening's outline is the same at every depth through the wall
+const MASK_FN = 'vec2 wUV(vec3 q) { return vec2((dot(q, hS1) - hMP.x) / hMP.z, (dot(q, hS2) - hMP.y) / hMP.w); }\n' +
+  'float wThr(vec3 q) { vec3 f = q - hTh.xyz * dot(q, hTh.xyz); return 0.5 + (wn3(f * 95.0) * 0.55 + wn3(f * 30.0) * 0.45 - 0.5) * 0.55; }\n' +
+  'bool wOpen(vec3 q) { vec2 m = wUV(q); if (m.x < 0.0 || m.x > 1.0 || m.y < 0.0 || m.y > 1.0) return false; return texture2D(hMask, m).r > wThr(q); }\n';
+const MASK_GLSL = p => '{ vec2 muv = wUV(' + p + '); if (muv.x >= 0.0 && muv.x <= 1.0 && muv.y >= 0.0 && muv.y <= 1.0) { wallV = texture2D(hMask, muv).r; if (wallV > wThr(' + p + ')) discard; } }\n';
+// the visible wall: where the face is open, follow the view ray into the wall; if it meets material on the way through,
+// that is the side of the hole and gets drawn (raw material, darker the deeper), otherwise the ray comes out the far side
+const MASK_GLSL_IN = p => '{ vec2 muv = wUV(' + p + '); wallP = ' + p + '; if (muv.x >= 0.0 && muv.x <= 1.0 && muv.y >= 0.0 && muv.y <= 1.0) { wallV = texture2D(hMask, muv).r; if (wallV > wThr(' + p + ')) {\n' +
+  '  vec3 rd = normalize(' + p + ' - vCamL); float dn = abs(dot(rd, hTh.xyz)), tM = 2.0 * hTh.w / max(dn, 0.08); bool hit = false;\n' +
+  '  for (int i = 1; i <= 12; i++) { float t = tM * float(i) / 12.0; vec3 q = ' + p + ' + rd * t; if (!wOpen(q)) {\n' +
+  '    float t0 = tM * float(i - 1) / 12.0; for (int k = 0; k < 4; k++) { float tm = 0.5 * (t0 + t); if (wOpen(' + p + ' + rd * tm)) t0 = tm; else t = tm; }\n' +
+  '    wallP = ' + p + ' + rd * t; wallIn = clamp(t * dn / (2.0 * hTh.w), 0.0, 1.0); hit = true; break; } }\n' +
+  '  if (!hit) discard; wallIn = max(wallIn, 0.001); wallV = 0.0; } } }\n';
+const WALL_EDGE = p0 => { const p = 'wallP'; return '{\n' +
+  '  vec3 bc; float bn = wn3(' + p + ' * 60.0);\n' +
   '  if (hKind < 0.5) { float fib = wn3(vec3(dot(' + p + ', hS1) * 14.0, dot(' + p + ', hS2) * 240.0, 0.0)); bc = mix(vec3(0.86, 0.69, 0.46), vec3(0.6, 0.43, 0.25), fib); }\n' +
-  '  else if (hKind < 1.5) { float g = wn3(' + p + ' * 170.0); bc = mix(vec3(0.94, 0.93, 0.89), vec3(0.76, 0.74, 0.7), g); bc = mix(bc, vec3(0.83, 0.76, 0.64), (1.0 - lip) * step(e, 0.55) * 0.5); }\n' +
-  '  else { float a = wn3(' + p + ' * 150.0), g = wn3(' + p + ' * 40.0); bc = mix(vec3(0.66, 0.64, 0.6), vec3(0.45, 0.43, 0.4), g); bc = mix(bc, vec3(0.36, 0.34, 0.31), step(0.68, a)); }\n' +
-  '  float bn = wn3(' + p + ' * 60.0); diffuseColor.rgb = mix(diffuseColor.rgb, bc * (1.0 - 0.45 * lip * bn), e * (0.55 + 0.4 * bn));\n}\n';
+  '  else if (hKind < 1.5) { float g = wn3(' + p + ' * 170.0); bc = mix(vec3(0.94, 0.93, 0.89), vec3(0.76, 0.74, 0.7), g); }\n' +
+  '  else { float a = wn3(' + p + ' * 150.0), g = wn3(' + p + ' * 40.0), s2 = wn3(' + p + ' * 420.0); bc = mix(vec3(0.66, 0.64, 0.6), vec3(0.45, 0.43, 0.4), g); bc = mix(bc, vec3(0.36, 0.34, 0.31), step(0.66, a)); bc *= 0.85 + 0.3 * s2; }\n' +
+  // inside the wall (seen through an opening): the raw material all the way through, in shadow
+  '  if (wallIn > 0.0) diffuseColor.rgb = bc * mix(0.42, 0.16, wallIn) * (0.8 + 0.3 * bn);\n' +
+  '  else if (!gl_FrontFacing) diffuseColor.rgb = bc * (0.26 + 0.12 * bn);\n' +
+  // round an opening: a ragged band of broken material that follows its outline
+  '  else if (wallV > 0.02) { float e = smoothstep(0.1, 0.24, wallV + (bn - 0.5) * 0.3), lip = smoothstep(0.32, 0.5, wallV);\n' +
+  '    diffuseColor.rgb = mix(diffuseColor.rgb, bc * (1.0 - 0.35 * lip), e * (0.6 + 0.35 * bn)); }\n' +
+  '}\n'; };
 function maskUniforms(G) {
   const s1 = new V3().setComponent(G.a1, 1), s2 = new V3().setComponent(G.a2, 1);
-  return { hMask: { value: G.tex }, hMP: { value: new THREE.Vector4(G.min1, G.min2, G.n1 * G.cs1, G.n2 * G.cs2) }, hS1: { value: s1 }, hS2: { value: s2 }, hKind: { value: G.kind || 0 } };
+  return { hMask: { value: G.tex }, hMP: { value: new THREE.Vector4(G.min1, G.min2, G.n1 * G.cs1, G.n2 * G.cs2) }, hS1: { value: s1 }, hS2: { value: s2 }, hKind: { value: G.kind || 0 }, hTh: { value: new THREE.Vector4().setComponent(G.ax, 1).setW(G.half || 0.01) } };
 }
 // a wall with no grid still gets the same shader, with an empty mask
-const NO_MASK = { hMask: { value: new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType) }, hMP: { value: new THREE.Vector4(0, 0, 1, 1) }, hS1: { value: new V3(1, 0, 0) }, hS2: { value: new V3(0, 1, 0) }, hKind: { value: 0 } };
+const NO_MASK = { hMask: { value: new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType) }, hMP: { value: new THREE.Vector4(0, 0, 1, 1) }, hS1: { value: new V3(1, 0, 0) }, hS2: { value: new V3(0, 1, 0) }, hKind: { value: 0 }, hTh: { value: new THREE.Vector4(0, 0, 1, 0.01) } };
 NO_MASK.hMask.value.needsUpdate = true;
-const MASK_DECL = '\nuniform sampler2D hMask; uniform vec4 hMP; uniform vec3 hS1; uniform vec3 hS2; uniform float hKind;\n' + WALL_NOISE;
+const MASK_DECL = '\nuniform sampler2D hMask; uniform vec4 hMP; uniform vec3 hS1; uniform vec3 hS2; uniform float hKind; uniform vec4 hTh;\n' + WALL_NOISE + MASK_FN;
 function wallMask(mesh) {
   const G = wallGrid(mesh), m = mesh.material; if (!G || m.userData.hMask) return;
   G.kind = { plywood: 0, crate: 0, drywall: 1, concrete: 2 }[mesh.userData.kind] || 0;
+  { const gp = mesh.geometry.parameters; G.half = [gp.width, gp.height, gp.depth][G.ax] / 2; }
   const U = maskUniforms(G); Object.assign(m.userData, U); const prev = m.onBeforeCompile;
-  m.onBeforeCompile = sh => { prev(sh); Object.assign(sh.uniforms, U); sh.fragmentShader = sh.fragmentShader.replace('uniform vec4 hCut;', 'uniform vec4 hCut;' + MASK_DECL).replace('if (dot(vHolePos, hCut.xyz) > hCut.w) discard;', 'if (dot(vHolePos, hCut.xyz) > hCut.w) discard;\n' + MASK_GLSL('vHolePos')).replace('#include <emissivemap_fragment>', WALL_EDGE('vHolePos') + '#include <emissivemap_fragment>'); };
-  m.customProgramCacheKey = () => 'holesmask2' + SLOTS; m.needsUpdate = true;
+  m.onBeforeCompile = sh => { prev(sh); Object.assign(sh.uniforms, U); sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vCamL;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvCamL = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz;'); sh.fragmentShader = sh.fragmentShader.replace('uniform vec4 hCut;', 'uniform vec4 hCut;\nvarying vec3 vCamL;' + MASK_DECL).replace('if (dot(vHolePos, hCut.xyz) > hCut.w) discard;', 'if (dot(vHolePos, hCut.xyz) > hCut.w) discard;\n' + MASK_GLSL_IN('vHolePos')).replace('#include <emissivemap_fragment>', WALL_EDGE('vHolePos') + '#include <emissivemap_fragment>'); };
+  m.customProgramCacheKey = () => 'holesmask3' + SLOTS; m.needsUpdate = true;
   // the wall's shadow gets the same openings
   const dm = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
   dm.onBeforeCompile = sh => {

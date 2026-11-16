@@ -251,6 +251,8 @@ class Dummy {
   constructor(x, z, anim, label) {
     this.hum = new Humanoid({ shirt: 0xb8662a, vest: 0x5a5a56, vest2: 0x4e4e4a, helmet: 0x4a4a46, skin: SKINS[Math.floor(Math.random() * SKINS.length)] });
     this.hum.dummy = this; scene.add(this.hum.root);
+    // what was shown when it was built, so a respawn can put back anything a death hid (head included)
+    this.vis0 = []; for (const k of ['head', 'neck']) if (this.hum[k]) this.hum[k].traverse(o => this.vis0.push([o, o.visible]));
     this.hum.root.add(makeLabel(label, '#ffd166'));
     this.label = label;
     this.home = new V3(x, 0, z); this.anim = anim; this.anat = new Anatomy(); this.dead = false; this.respawnT = 0;
@@ -261,7 +263,7 @@ class Dummy {
     if (this.dead) {
       // the heart has stopped: wounds keep draining by gravity for a while, slowing down, and the pool under the body keeps spreading
       this.deadT = (this.deadT || 0) + dt;
-      this.respawnT -= dt; if (this.respawnT <= 0) { this.deadT = 0; this.neckHits = 0; this.dead = false; this.unarmed = false; this.credited = false; this.stag = undefined; this.react = undefined; this.reactDone = false; this.forceDown = false; this.anat = new Anatomy(); this.rag = null; clearWounds(this.hum); this.hum.setLost(0); this.hum.root.visible = true; setHelmet(this.hum, true); } return; }
+      this.respawnT -= dt; if (this.respawnT <= 0) { this.deadT = 0; this.neckHits = 0; this.dead = false; this.unarmed = false; this.credited = false; this.stag = undefined; this.react = undefined; this.reactDone = false; this.forceDown = false; this.anat = new Anatomy(); this.rag = null; clearWounds(this.hum); this.hum.lostKey = null; this.hum.setLost(0); for (const [o, v] of this.vis0) o.visible = v; this.hum.root.visible = true; setHelmet(this.hum, true); } return; }
     this.anat.update(dt);
     if (this.anat.dead) { this.die(); return; }
     const down = this.anat.isDowned() || this.anat.bothLegs() || this.forceDown || this.react !== undefined;
