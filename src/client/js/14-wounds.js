@@ -18,6 +18,64 @@ function buildVfgHand(W, under, elbow) {
 }
 function trimDecals() { while (decals.length > 220) { const d = decals.shift(); scene.remove(d); if (d.geometry !== splatGeo && d.geometry !== poolGeo) d.geometry.dispose(); const i = floorSplats.indexOf(d); if (i >= 0) floorSplats.splice(i, 1); } }
 function spawnDrop(p, v, r, g, drag, ml) { if (drops.length >= BLOOD_MAX) drops.shift(); drops.push({ p: p.clone(), v, r, life: 5, g: g === undefined ? 1 : g, drag: drag === undefined ? 0.6 : drag, ml }); }
+// ---------------------------------------------------------------- drop splats
+// Every drop that lands leaves its own mark. 64 different splats are painted once into one atlas at load (each its own blob
+// outline, crown of satellite droplets, wet sheen, thickness and colour), and every mark picks one, turned, scaled,
+// stretched along the way it was flying and tinted a little differently: all of them in one instanced draw call.
+const SPLAT_N = 2400, SPLAT_T = 8, SPLAT_ATLAS = (() => {
+  const S = 2048, T = S / SPLAT_T, cv = document.createElement('canvas'); cv.width = cv.height = S; const g = cv.getContext('2d');
+  for (let ti = 0; ti < SPLAT_T * SPLAT_T; ti++) {
+    const ox = (ti % SPLAT_T) * T, oy = Math.floor(ti / SPLAT_T) * T, c = T / 2, R = T * rnd(0.16, 0.24);
+    g.save(); g.beginPath(); g.rect(ox, oy, T, T); g.clip(); g.translate(ox, oy);
+    const dark = rnd(0.75, 1.15), col = (k, a) => 'rgba(' + Math.round(clamp(104 * k * dark, 0, 255)) + ',' + Math.round(clamp(6 * k, 0, 255)) + ',' + Math.round(clamp(12 * k, 0, 255)) + ',' + a + ')';
+    // the main blob: a wobbly outline (a few harmonics with their own phases)
+    const H = [rnd(0, 0.18), rnd(0, 0.12), rnd(0, 0.08), rnd(0, 0.05)], Ph = H.map(() => rnd(0, 6.28)), F = [2, 3, 5, 9].map(f => f + Math.floor(rnd(0, 2)));
+    const blob = (r, cx, cy) => { g.beginPath(); for (let i = 0; i <= 64; i++) { const a = i / 64 * 6.283; let k = 1; for (let h = 0; h < 4; h++) k += H[h] * Math.sin(F[h] * a + Ph[h]); const x = cx + Math.cos(a) * r * k, y = cy + Math.sin(a) * r * k; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); };
+    const tail = rnd(0, 1) < 0.55 ? rnd(0.4, 1.4) : 0, ta = rnd(-0.3, 0.3);
+    blob(R, c, c); g.fillStyle = col(1, 0.95); g.fill();
+    // thicker middle, thin drying rim
+    const gr = g.createRadialGradient(c, c, R * 0.1, c, c, R * 1.15); gr.addColorStop(0, col(0.7, 0.9)); gr.addColorStop(0.7, col(0.95, 0.0)); gr.addColorStop(0.92, col(1.25, 0.35)); gr.addColorStop(1, col(1.25, 0));
+    blob(R, c, c); g.fillStyle = gr; g.fill();
+    // fingers and a tail flung out the way it was going (+x in the tile)
+    const nf = Math.floor(rnd(2, 9));
+    for (let i = 0; i < nf; i++) { const a = (tail ? ta : 0) + rnd(-1, 1) * (tail ? 0.9 : 3.14), L = R * rnd(0.3, 1.0) * (tail ? 1.6 : 1), w = R * rnd(0.08, 0.22); g.beginPath(); g.moveTo(c + Math.cos(a + 1.57) * w, c + Math.sin(a + 1.57) * w); g.lineTo(c + Math.cos(a) * (R + L), c + Math.sin(a) * (R + L)); g.lineTo(c + Math.cos(a - 1.57) * w, c + Math.sin(a - 1.57) * w); g.fillStyle = col(1, 0.9); g.fill(); g.beginPath(); g.arc(c + Math.cos(a) * (R + L), c + Math.sin(a) * (R + L), w * rnd(0.5, 1.1), 0, 6.283); g.fill(); }
+    if (tail) { g.beginPath(); g.ellipse(c + R * tail * 0.9, c + R * ta, R * (0.5 + tail * 0.6), R * rnd(0.25, 0.45), ta, 0, 6.283); g.fillStyle = col(1, 0.9); g.fill(); }
+    // satellite droplets, more and further out on the side it was going
+    const ns = Math.floor(rnd(3, 26));
+    for (let i = 0; i < ns; i++) { const a = (tail && Math.random() < 0.7 ? ta + rnd(-0.6, 0.6) : rnd(0, 6.283)), d = R * rnd(1.15, tail ? 2.6 : 2.0), r = R * rnd(0.03, 0.14) * (1.6 - d / (R * 2.6)); g.beginPath(); g.ellipse(c + Math.cos(a) * d, c + Math.sin(a) * d, r * rnd(1, 1.8), r, a, 0, 6.283); g.fillStyle = col(rnd(0.9, 1.15), rnd(0.75, 0.95)); g.fill(); }
+    // a glint of wet on top
+    g.beginPath(); g.ellipse(c - R * rnd(0.1, 0.35), c - R * rnd(0.1, 0.35), R * rnd(0.12, 0.3), R * rnd(0.06, 0.15), rnd(0, 3), 0, 6.283); g.fillStyle = 'rgba(190,60,60,' + rnd(0.08, 0.2) + ')'; g.fill();
+    g.restore();
+  }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+})();
+const splatIM = (() => {
+  const m = new THREE.MeshStandardMaterial({ map: SPLAT_ATLAS, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, roughness: 0.22, metalness: 0.05, envMapIntensity: 0.6 });
+  const geo = new THREE.PlaneGeometry(1, 1), tile = new THREE.InstancedBufferAttribute(new Float32Array(SPLAT_N * 2), 2); geo.setAttribute('tile', tile);
+  m.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 tile;').replace('#include <uv_vertex>', '#include <uv_vertex>\nvMapUv = vMapUv * ' + (1 / SPLAT_T).toFixed(4) + ' + tile;'); };
+  m.customProgramCacheKey = () => 'splatAtlas';
+  const im = new THREE.InstancedMesh(geo, m, SPLAT_N); im.count = 0; im.frustumCulled = false; im.receiveShadow = true; im.userData.keep = true; im.userData.next = 0;
+  im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(SPLAT_N * 3), 3);
+  scene.add(im); return im;
+})();
+const _sM = new THREE.Matrix4(), _sQ = new THREE.Quaternion(), _sQ2 = new THREE.Quaternion(), _sS = new V3(), _sP = new V3(), _sN = new V3(), _sC = new THREE.Color();
+// p: where it hit, n: the surface's normal, r: the drop's radius, v: its velocity when it hit
+function dropSplat(p, n, r, v) {
+  const im = splatIM, i = im.userData.next; im.userData.next = (i + 1) % SPLAT_N; im.count = Math.max(im.count, i + 1);
+  _sN.copy(n).normalize(); _sQ.setFromUnitVectors(_Z, _sN);
+  // along the surface, the way it was going: the tile's +x (its tail) points that way, and it smears longer the faster it hit
+  const vt = _sP.copy(v).addScaledVector(_sN, -v.dot(_sN)), sp = vt.length(), vn = Math.abs(v.dot(_sN));
+  let ang = rnd(0, 6.283);
+  if (sp > 0.3) { const lx = vt.clone().applyQuaternion(_sQ2.copy(_sQ).invert()); ang = Math.atan2(lx.y, lx.x); }
+  _sQ.multiply(_sQ2.setFromAxisAngle(_Z, ang));
+  const base = r * rnd(9, 14) * (0.8 + Math.min(1.2, vn * 0.12)), str = 1 + Math.min(2.2, sp * 0.22);
+  _sS.set(base * str, base, 1);
+  im.setMatrixAt(i, _sM.compose(_sP.copy(p).addScaledVector(_sN, 0.0015 + Math.random() * 0.002), _sQ, _sS));
+  const ti = Math.floor(Math.random() * SPLAT_T * SPLAT_T); im.geometry.attributes.tile.setXY(i, (ti % SPLAT_T) / SPLAT_T, 1 - (Math.floor(ti / SPLAT_T) + 1) / SPLAT_T);
+  const k = rnd(0.82, 1.12); im.setColorAt(i, _sC.setRGB(k, k * rnd(0.85, 1.1), k * rnd(0.85, 1.1)));
+  im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true; im.geometry.attributes.tile.needsUpdate = true;
+}
+const _sUp = new V3(0, 1, 0);
 // ---------------------------------------------------------------- blood pools: what lands on the floor collects; scattered drops alone never show
 const pools = [], seeds = [];
 const dropMl = r => 0.5 * Math.pow(r / 0.01, 3);
@@ -142,16 +200,17 @@ function updateBlood(dt) {
     const d = drops[i]; d.life -= dt; d.v.y -= 9.8 * d.g * dt; d.v.multiplyScalar(1 - d.drag * dt);
     const px = d.p.x, py = d.p.y, pz = d.p.z; d.p.addScaledVector(d.v, dt);
     let hit = d.life <= 0;
-    if (d.p.y <= 0.004) { feedPool(d.p.x, 0, d.p.z, d.ml || dropMl(d.r)); hit = true; }
+    if (d.p.y <= 0.004) { dropSplat(_sP.set(d.p.x, 0, d.p.z).clone(), _sUp, d.r, d.v); feedPool(d.p.x, 0, d.p.z, d.ml || dropMl(d.r)); hit = true; }
     else for (const c of colliders) {
       if (d.p.x > c.min.x && d.p.x < c.max.x && d.p.y > c.min.y && d.p.y < c.max.y && d.p.z > c.min.z && d.p.z < c.max.z && !(c.mesh && gridOpenW(c.mesh, d.p))) {
         // which face did it come through? the one the previous position was outside of
-        if (py >= c.max.y) feedPool(d.p.x, c.max.y, d.p.z, d.ml || dropMl(d.r));
+        if (py >= c.max.y) { dropSplat(new V3(d.p.x, c.max.y, d.p.z), _sUp, d.r, d.v); feedPool(d.p.x, c.max.y, d.p.z, d.ml || dropMl(d.r)); }
         else {
           _wn.set(0, 0, 0);
           if (px <= c.min.x) _wn.x = -1; else if (px >= c.max.x) _wn.x = 1; else if (pz <= c.min.z) _wn.z = -1; else if (pz >= c.max.z) _wn.z = 1;
           if (_wn.lengthSq() > 0) {
             if (_wn.x) d.p.x = _wn.x < 0 ? c.min.x : c.max.x; else d.p.z = _wn.z < 0 ? c.min.z : c.max.z;
+            dropSplat(d.p.clone(), _wn, d.r * 0.85, d.v);
           }
         }
         hit = true; break;

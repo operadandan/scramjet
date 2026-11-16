@@ -404,7 +404,7 @@ function updateFx(dt) {
       if (f.spin) { f.o.rotation.x += dt * 9; f.o.rotation.y += dt * 7; }
       if (f.align) f.o.lookAt(_a.copy(f.o.position).add(f.v));
       if (f.o.position.y < 0.005) {
-        if (f.drop) { groundSplat(new V3(f.o.position.x, 0.003 + Math.random() * 0.002, f.o.position.z), rnd(0.07, 0.18)); f.life = 0; }
+        if (f.drop) { dropSplat(new V3(f.o.position.x, 0, f.o.position.z), _sUp, f.o.scale.x * 0.6 + 0.002, f.v); groundSplat(new V3(f.o.position.x, 0.003 + Math.random() * 0.002, f.o.position.z), rnd(0.07, 0.18)); f.life = 0; }
         else { f.o.position.y = 0.005; f.v.y *= -0.25; f.v.x *= 0.5; f.v.z *= 0.5; }
       } else if (f.drop && pointBlocked(f.o.position, 0)) f.life = 0;
     }
