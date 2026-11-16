@@ -71,7 +71,7 @@ const GARM_MAT = (() => {
 // takes bone k's frame into the frame of the group this mesh hangs in, every frame; segOK[k] is 0 if that bone isn't there.
 // Up to three bones per vertex: the mesh's own (weight 1 - nw.x - nw.y) and two slots (bone nb, position p2 / p3 in that
 // bone's frame). A bone that isn't there drops out and the rest share its weight; with none left the vertex stays with its mesh.
-const SKIN_VS = ['attribute vec3 p2;\nattribute vec3 p3;\nattribute vec2 nb;\nattribute vec2 nw;\nuniform mat4 segM[12];\nuniform float segOK[12];\n',
+const SKIN_VS = ['attribute vec3 p2;\nattribute vec3 p3;\nattribute vec2 nb;\nattribute vec2 nw;\nuniform mat4 segM[16];\nuniform float segOK[16];\n',
   'int skI = int(nb.x + 0.5), skJ = int(nb.y + 0.5); float skA = nw.x * segOK[skI], skB = nw.y * segOK[skJ], sk0 = max(1.0 - nw.x - nw.y, 0.0);\n' +
   'float skS = sk0 + skA + skB; if (skS < 1e-4) { sk0 = 1.0; skA = 0.0; skB = 0.0; skS = 1.0; } sk0 /= skS; skA /= skS; skB /= skS;\n' +
   'mat4 skM = segM[skI], skN = segM[skJ];\nobjectNormal = normalize(objectNormal * sk0 + mat3(skM) * objectNormal * skA + mat3(skN) * objectNormal * skB);\n',
@@ -83,6 +83,14 @@ function skinShader(sh, U) {
     .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + SKIN_VS[2]);
 }
 const _skI = new THREE.Matrix4(), _skT = new THREE.Matrix4(), _skN = new THREE.Matrix3();
+// Helper bones 12-15 (left/right shoulder, left/right hip): at the joint, turned half as far as the limb is turned from
+// the trunk. M = trunk * (joint offset, half the turn); positions in the helper's frame are the limb's rest-frame ones.
+const HPAIR = [[1, 4], [1, 6], [0, 8], [0, 10]], _hR = new THREE.Matrix4(), _hP = new V3(), _hQ = new THREE.Quaternion(), _hS = new V3(), _hI = new THREE.Quaternion(), _hO = new V3(1, 1, 1);
+function helperMat(M, OK, h) {
+  const [p, l] = HPAIR[h]; OK[12 + h] = OK[p] && OK[l] ? 1 : 0; if (!OK[12 + h]) return;
+  _hR.copy(M[p]).invert().multiply(M[l]); _hR.decompose(_hP, _hQ, _hS);
+  M[12 + h].copy(M[p]).multiply(_hR.compose(_hP, _hI.identity().slerp(_hQ, 0.5), _hS));
+}
 function skinUpdate() {
   const sk = this._skin, P = this.parent; if (!sk || !P) return;
   _skI.copy(this.matrixWorld).invert();   // the mesh's own frame: a part built off its group's origin (the ragdoll's) blends right too
@@ -93,6 +101,7 @@ function skinUpdate() {
     sk.U.segOK.value[k] = 1;
     sk.U.segM.value[k].multiplyMatrices(_skI, at[0].matrixWorld).multiply(_skT.makeTranslation(0, at[1], 0));
   }
+  for (let h = 0; h < 4; h++) helperMat(sk.U.segM.value, sk.U.segOK.value, h);
   if (sk.U.cD && sk.sim) { _skN.setFromMatrix4(_skI); const D = sk.sim.d, out = sk.U.cD.value; for (let k = 0; k < 56; k++) out[k].copy(D[k]).applyMatrix3(_skN); }
   if (this.material) this.material.uniformsNeedUpdate = true;
 }
@@ -103,7 +112,7 @@ function skinUpdate() {
 // and can't go into the body. So a hem swings and settles when a body runs, turns or stops, trousers sway, and on a body
 // lying down the cloth falls the way gravity pulls. The garments' vertices follow their hoops in the vertex shader.
 const CLOTH_SIMS = [];
-const _cA = new V3(), _cB = new V3(), _cT = new V3();
+const _cA = new V3(), _cB = new V3(), _cT = new V3(), _cM = [new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4()];
 class ClothSim {
   constructor(root, at) {
     const n = HUMAN_CLOTH.length; this.root = root; this.at = at; this.n = n; this.on = false; this.idle = 0;
@@ -119,7 +128,14 @@ class ClothSim {
       // same blend as the vertex shader: own bone plus up to two slots
       let w0 = Math.max(1 - r.w - r.w2, 0), s = w0; this.tg[i].set(r.p[0], r.p[1] + A[1], r.p[2]).applyMatrix4(m).multiplyScalar(w0);
       for (const [b, w, q] of [[r.b, r.w, r.q], [r.b2, r.w2, r.q2]]) {
-        if (w <= 0) continue; const B = this.at[HUMAN_SEGS[b]]; if (!B || B[0].userData.gone) continue;
+        if (w <= 0) continue;
+        if (b >= 12) {   // a helper bone: built from its trunk and limb in world space
+          const [p, l] = HPAIR[b - 12], Bp = this.at[HUMAN_SEGS[p]], Bl = this.at[HUMAN_SEGS[l]]; if (!Bp || !Bl || Bl[0].userData.gone) continue;
+          _cM[0].copy(Bp[0].matrixWorld).multiply(_skT.makeTranslation(0, Bp[1], 0)); _cM[1].copy(Bl[0].matrixWorld).multiply(_skT.makeTranslation(0, Bl[1], 0));
+          _hR.copy(_cM[0]).invert().multiply(_cM[1]); _hR.decompose(_hP, _hQ, _hS); _cM[2].copy(_cM[0]).multiply(_hR.compose(_hP, _hI.identity().slerp(_hQ, 0.5), _hS));
+          this.tg[i].addScaledVector(_cB.set(q[0], q[1], q[2]).applyMatrix4(_cM[2]), w); s += w; continue;
+        }
+        const B = this.at[HUMAN_SEGS[b]]; if (!B || B[0].userData.gone) continue;
         this.tg[i].addScaledVector(_cB.set(q[0], q[1] + B[1], q[2]).applyMatrix4(B[0].matrixWorld), w); s += w;
       }
       if (s > 1e-4) this.tg[i].multiplyScalar(1 / s); else this.tg[i].set(r.p[0], r.p[1] + A[1], r.p[2]).applyMatrix4(m);
@@ -271,7 +287,7 @@ function attachSkin(root, at) {
   let sim = null;
   root.traverse(o => {
     if (!o.isMesh || !o.geometry.attributes.nw || o.material === shadowMat || o._skin) return;
-    const U = { segM: { value: Array.from({ length: 12 }, () => new THREE.Matrix4()) }, segOK: { value: new Array(12).fill(0) } };
+    const U = { segM: { value: Array.from({ length: 16 }, () => new THREE.Matrix4()) }, segOK: { value: new Array(16).fill(0) } };
     if (o.geometry.attributes.ck) { U.cD = { value: Array.from({ length: 56 }, () => new THREE.Vector3()) }; sim = sim || new ClothSim(root, at); }
     o._skin = { U, at, sim };
     const m = o.material.clone(); if (o.geometry.attributes.fab) m.side = THREE.DoubleSide; m.onBeforeCompile = sh => bodyPatches(sh, o); m.customProgramCacheKey = () => 'body' + bodyKey(o); o.material = m;

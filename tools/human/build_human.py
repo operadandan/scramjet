@@ -45,7 +45,10 @@ SEGS = ['hips', 'spine', 'neck', 'head', 'shL', 'elL', 'shR', 'elR', 'lgL', 'knL
 n = len(V); SW = np.zeros((n, len(SEGS)))
 for b, lst in W.items():
     si = SEGS.index(seg_of(b))
-    for vi, w in lst: SW[vi, si] += w
+    # the shoulder bone (top of the shoulder and the trapezius) lifts only part of the way with the arm: half of it stays
+    # with the chest, or a raised arm hauls the whole top of the shoulder up into a hood
+    k_ = 0.45 if b.startswith('shoulder01') else 1.0
+    for vi, w in lst: SW[vi, si] += w * k_; SW[vi, SEGS.index('spine')] += w * (1 - k_)
 body = [f for f, gg in zip(F, G) if gg == 'body']
 bv = np.array(sorted(set(i for f in body for i in f)))
 
@@ -190,13 +193,24 @@ NB = {'hips': ['spine', 'lgL', 'lgR'], 'spine': ['hips', 'neck', 'shL', 'shR'], 
 # In a mesh whose own bone is one of the two, the other goes in slot 1; otherwise both go in the slots and the own bone
 # gets no weight. Slot positions are in the slot bone's frame.
 _GI = [SEGS.index(b) for b in GSEG]
+# Helper bones 12-15 sit at the shoulders and hips and turn half as far as the limb (relative to the trunk). Skin and
+# cloth shared between trunk and limb blend trunk -> helper -> limb (a quadratic spline in the limb's share), so a raised
+# arm or a lifted leg no longer folds the shoulder into a peak or balloons the cloth over it.
+HPAIR = [('spine', 'shL'), ('spine', 'shR'), ('hips', 'lgL'), ('hips', 'lgR')]
 def pick2(Wrow, sg):
     ws = np.array([Wrow[i] for i in _GI]); o = np.argsort(-ws)[:2]; o = [k for k in o if ws[k] > 1e-4]
     tot = sum(ws[k] for k in o)
     if not o: return []
     own = GSEG.index(sg)
+    if len(o) == 2:
+        for hi, (pa, li) in enumerate(HPAIR):
+            P_, L_ = GSEG.index(pa), GSEG.index(li)
+            if set(o) == {P_, L_} and own in (P_, L_):
+                a = ws[L_] / (ws[P_] + ws[L_]); wP, wH, wL = (1 - a) ** 2, 2 * a * (1 - a), a * a
+                return [(12 + hi, wH), (L_, wL)] if own == P_ else [(12 + hi, wH), (P_, wP)]
     if own in o: return [(k, ws[k] / tot) for k in o if k != own]
     return [(k, ws[k] / tot) for k in o]
+def XFS(k): return XF[GSEG[k]] if k < 12 else XF[HPAIR[k - 12][1]]
 SW2 = SW.copy()
 for S in 'LR': SW2[:, SEGS.index('el' + S)] += SW2[:, SEGS.index('hand' + S)]
 # the trunk bends between hips and chest over a band at the waist (MakeHuman's own pelvis weights are a sliver)
@@ -419,6 +433,19 @@ for gname, gd in GARM.items():
     Pn = (P[jj_] * wq_[:, :, None]).sum(1); Nn = (Nv[jj_] * wq_[:, :, None]).sum(1); Nn /= np.maximum(np.linalg.norm(Nn, axis=1, keepdims=True), 1e-9)
     d_ = ((G_ - Pn) * Nn).sum(1); need = np.clip(0.005 - d_, 0, 0.02) * (dd_[:, 0] < 0.05)
     G_ += Nn * need[:, None]; print(gname, 'pushed out', int((need > 0).sum()), 'points, max', round(float(need.max()) * 1000, 1), 'mm')
+    # Where the shirt crosses the shoulder joint (the band where the skin is shared between chest and arm), it is drawn in
+    # to lie 7 mm off the skin: there it bends exactly as the skin does. Left loose, linear skinning blew the loose cloth up
+    # into a hood over the shoulder and a flat wing under a raised arm, which no shirt does.
+    if gname != 'shoes':
+        Wn_ = SW2[jj_[:, 0]] / np.maximum(SW2[jj_[:, 0]].sum(1, keepdims=True), 1e-9)
+        fo = np.zeros(len(G_))
+        for sd in 'LR':
+            aa = Wn_[:, [SEGS.index('sh' + sd), SEGS.index('el' + sd), SEGS.index('hand' + sd)]].sum(1)
+            fo = np.maximum(fo, np.clip(np.minimum(aa, 1 - aa) / 0.18, 0, 1))
+        fo *= (dd_[:, 0] < 0.08)
+        tgt = Pn + Nn * 0.007
+        G_ += (tgt - G_) * fo[:, None]
+        print(gname, 'drawn in at the shoulders', int((fo > 0.05).sum()), 'points')
 _allG = np.vstack([g['G'] for g in GARM.values()]); _allN = np.vstack([g['N'] for g in GARM.values()]); _gt = _KD(_allG)
 _adj = {}
 for f in body:
@@ -499,8 +526,8 @@ for si, sg in enumerate(SEGS):
         q = LAY[L][v:v + 1]; pos[k] = XF[sg](q)[0]; cv_[k] = COV[L][v]
         pr = XF[sg](q + LN[L][v:v + 1] * 0.01)[0] - pos[k]; nrm[k] = pr / max(np.linalg.norm(pr), 1e-9)
         sl = pick2(SW2[v], sg)
-        if len(sl) > 0: nb[k], nw[k] = sl[0]; p2[k] = XF[GSEG[sl[0][0]]](q)[0]
-        if len(sl) > 1: nb2[k], nw2[k] = sl[1]; p3[k] = XF[GSEG[sl[1][0]]](q)[0]
+        if len(sl) > 0: nb[k], nw[k] = sl[0]; p2[k] = XFS(sl[0][0])(q)[0]
+        if len(sl) > 1: nb2[k], nw2[k] = sl[1]; p3[k] = XFS(sl[1][0])(q)[0]
     ck = np.zeros(nk); cr = np.zeros(nk); ca = np.zeros(nk)
     for k, (v, L) in enumerate(keys): ck[k], cr[k], ca[k] = cloth_coord(v, L)
     out[sg] = {'p': pos, 'n': nrm, 'fr': np.array(fr), 't': np.array(tris), 'q': p2, 'b': nb, 'w': nw, 'q2': p3, 'b2': nb2, 'w2': nw2, 'vid': np.array([v * 6 + L for v, L in keys]),
@@ -567,8 +594,8 @@ for gname, gd in GARM.items():
             tm[k] = 1.0 if gname == 'suit' and vt[t_][1] > 0.5 else 0.0
             cc[k] = g_cloth(gname, G, vt[t_][1], v)
             sl = pick2(Wg[v], sg)
-            if len(sl) > 0: nb[k], nw[k] = sl[0]; p2[k] = XF[GSEG[sl[0][0]]](q)[0]
-            if len(sl) > 1: nb2[k], nw2[k] = sl[1]; p3[k] = XF[GSEG[sl[1][0]]](q)[0]
+            if len(sl) > 0: nb[k], nw[k] = sl[0]; p2[k] = XFS(sl[0][0])(q)[0]
+            if len(sl) > 1: nb2[k], nw2[k] = sl[1]; p3[k] = XFS(sl[1][0])(q)[0]
         gout[gname][sg] = {'p': pos, 'n': nrm, 'uv': uv, 't': np.array(tris), 'q': p2, 'b': nb, 'w': nw, 'q2': p3, 'b2': nb2, 'w2': nw2, 'c': cc, 'tm': tm, 'keys': keys}
         print(gname, sg, nk, 'verts', len(tris) // 3, 'tris')
 # ---- cloth particles: for each hoop and angle, the outfit vertex nearest it; the game pins the particle where it is
