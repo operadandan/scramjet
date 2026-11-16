@@ -353,42 +353,125 @@ function detonateCharge(c, already) {
 }
 const r3 = x => Math.round(x * 1000) / 1000;
 // ---------------------------------------------------------------- grenades in flight: bounce, roll, then go off
-function throwNade(owner, id, p, v, fuse, local) {
+// A rigid body: 400 g, 63.5 mm across, treated as a solid ball for inertia (I = 2/5 m r^2). Every contact is resolved with
+// impulses at the contact point: a bounce (restitution by surface, none for a slow touch), and Coulomb friction (mu by
+// surface) that turns sliding into rolling, so spin and travel stay coupled and a backspun throw checks up on landing.
+// Air drag (Cd 0.5) is applied in flight. On the ground the fuze head and spoon make it an uneven ball: it rolls with
+// high rolling resistance, curves toward its narrow end, and wobbles a little as it slows. Bodies standing in the way
+// are hit too, so a grenade can bounce off someone's legs.
+const NADE_M = 0.4, NADE_I = 0.4 * NADE_M * NADE_R * NADE_R, NADE_DRAG = 0.5 * 1.2 * 0.5 * Math.PI * NADE_R * NADE_R / NADE_M;
+const SURF_PHYS = { metal: [0.5, 0.25], concrete: [0.42, 0.55], drywall: [0.3, 0.6], plywood: [0.33, 0.5], crate: [0.33, 0.5], wood: [0.33, 0.5], ground: [0.32, 0.65], body: [0.12, 0.8] };
+function throwNade(owner, id, p, v, fuse, local, w, curl) {
   const n = makeFrag(); n.pin.visible = false; n.spoon.visible = false; n.g.position.copy(p); scene.add(n.g);
-  const o = { g: n.g, p: p.clone(), v: v.clone(), w: new V3(rnd(-12, 12), rnd(-6, 6), rnd(-12, 12)), fuse, owner, id, local, t: 0 };
+  const o = { g: n.g, p: p.clone(), v: v.clone(), w: w ? w.clone() : new V3(rnd(-12, 12), rnd(-6, 6), rnd(-12, 12)), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(rnd(0, 6), rnd(0, 6), rnd(0, 6))), fuse, owner, id, local, t: 0, curl: curl === undefined ? rnd(-0.12, 0.12) : curl, ground: false };
   NADES.push(o); return o;
+}
+// one contact: normal n (out of the surface), surface kind for restitution and friction
+const _ncv = new V3(), _rc = new V3(), _tv = new V3();
+function nadeImpulse(o, n, kind) {
+  const [e0, mu] = SURF_PHYS[kind] || SURF_PHYS.concrete;
+  _rc.copy(n).multiplyScalar(-NADE_R);                                   // centre to contact point
+  _ncv.copy(o.w).cross(_rc).add(o.v);                                      // velocity of the contact point
+  const vn = _ncv.dot(n); if (vn >= 0) return;
+  const e = vn < -0.9 ? e0 * clamp(1.05 - (-vn) * 0.035, 0.45, 1) : 0, Jn = -(1 + e) * vn * NADE_M;
+  // a hard landing on an uneven body: the fuze or spoon digs in and it tumbles, losing a good share of its run
+  if (vn < -2) { const k = clamp(1 + (vn + 2) * 0.035, 0.6, 1), vnn = o.v.dot(n); o.v.addScaledVector(n, -vnn).multiplyScalar(k).addScaledVector(n, vnn); o.w.multiplyScalar(k); }
+  o.v.addScaledVector(n, Jn / NADE_M);
+  if (-vn > 1.2) o.hitV = Math.max(o.hitV || 0, -vn), o.hitK = kind;
+  // friction: the impulse that would stop the contact point slipping, capped by mu * Jn
+  _tv.copy(_ncv).addScaledVector(n, -vn); const vt = _tv.length();
+  if (vt > 1e-5) {
+    const Jreq = vt / (1 / NADE_M + NADE_R * NADE_R / NADE_I), Jt = Math.min(Jreq, mu * Jn);
+    _tv.multiplyScalar(-Jt / vt);                                         // friction impulse vector
+    o.v.addScaledVector(_tv, 1 / NADE_M);
+    o.w.add(_rc.clone().cross(_tv).multiplyScalar(1 / NADE_I));
+  }
 }
 function nadeCollide(o) {
   const r = NADE_R, p = o.p;
-  if (p.y < r) { p.y = r; if (o.v.y < 0) { o.hitV = Math.max(o.hitV || 0, -o.v.y); o.v.y = -o.v.y * 0.28; o.v.x *= 0.72; o.v.z *= 0.72; o.ground = true; } }
+  if (p.y < r) { p.y = r; nadeImpulse(o, _up, 'ground'); o.ground = true; }
   for (const c of colliders) {
     if (p.x + r < c.min.x || p.x - r > c.max.x || p.y + r < c.min.y || p.y - r > c.max.y || p.z + r < c.min.z || p.z - r > c.max.z) continue;
     if (c.mesh && gridOpenW(c.mesh, p)) continue;
-    // push out along the shallowest axis and bounce off that face
-    const pen = [[p.x + r - c.min.x, 0, -1], [c.max.x - (p.x - r), 0, 1], [p.y + r - c.min.y, 1, -1], [c.max.y - (p.y - r), 1, 1], [p.z + r - c.min.z, 2, -1], [c.max.z - (p.z - r), 2, 1]];
-    let best = pen[0]; for (const q of pen) if (q[0] < best[0]) best = q;
-    p.setComponent(best[1], p.getComponent(best[1]) + best[0] * best[2]);
-    const vn = o.v.getComponent(best[1]) * best[2];
-    if (vn < 0) {
-      o.hitV = Math.max(o.hitV || 0, -vn); o.v.setComponent(best[1], -o.v.getComponent(best[1]) * 0.3);
-      for (let k = 0; k < 3; k++) if (k !== best[1]) o.v.setComponent(k, o.v.getComponent(k) * 0.75);
-      if (best[1] === 1 && best[2] > 0) o.ground = true;
+    // closest point on the box: faces, edges and corners all give the right normal
+    const q = new V3(clamp(p.x, c.min.x, c.max.x), clamp(p.y, c.min.y, c.max.y), clamp(p.z, c.min.z, c.max.z)), d = p.distanceTo(q);
+    let n, pen;
+    if (d > 1e-6) { if (d >= r) continue; n = p.clone().sub(q).multiplyScalar(1 / d); pen = r - d; }
+    else {
+      const P_ = [[p.x - c.min.x, -1, 0], [c.max.x - p.x, 1, 0], [p.y - c.min.y, -1, 1], [c.max.y - p.y, 1, 1], [p.z - c.min.z, -1, 2], [c.max.z - p.z, 1, 2]];
+      let b = P_[0]; for (const x of P_) if (x[0] < b[0]) b = x; n = new V3().setComponent(b[2], b[1]); pen = b[0] + r;
     }
+    p.addScaledVector(n, pen);
+    const kind = c.mesh ? c.mesh.userData.kind || 'concrete' : 'concrete';
+    nadeImpulse(o, n, kind === 'crate' ? 'wood' : kind);
+    if (n.y > 0.7) o.ground = true;
+  }
+  // people standing in the way: an upright capsule per body
+  for (const h of nadeBodies(o)) {
+    const by = clamp(p.y, 0.1, h.top), dx = p.x - h.x, dz = p.z - h.z, dy = p.y - by, d = Math.hypot(dx, dy, dz), rr = h.r + r;
+    if (d >= rr || d < 1e-5) continue;
+    const n = new V3(dx, dy, dz).multiplyScalar(1 / d); p.addScaledVector(n, rr - d); nadeImpulse(o, n, 'body');
   }
 }
+const _up = new V3(0, 1, 0);
+function nadeBodies(o) {
+  const out = [];
+  for (const d of dummies) if (!d.dead && !d.rag && d.hum.root.visible) { const q = d.hum.root.position; if (Math.abs(q.x - o.p.x) < 1 && Math.abs(q.z - o.p.z) < 1) out.push({ x: q.x, z: q.z, top: /prone|crawl/.test(d.anim) ? 0.3 : /crouch/.test(d.anim) ? 1.1 : 1.6, r: /prone|crawl/.test(d.anim) ? 0.2 : 0.2 }); }
+  if (S.remotes) for (const r of S.remotes.values()) if (r.alive && r.hum && r.hum.root.visible) { const q = r.hum.root.position; if (Math.abs(q.x - o.p.x) < 1 && Math.abs(q.z - o.p.z) < 1) out.push({ x: q.x, z: q.z, top: 1.6, r: 0.2 }); }
+  if (P.alive && !P.downed && o.t > 0.35 && Math.abs(P.pos.x - o.p.x) < 1 && Math.abs(P.pos.z - o.p.z) < 1) out.push({ x: P.pos.x, z: P.pos.z, top: P.prone > 0.5 ? 0.3 : P.crouch > 0.5 ? 1.1 : 1.6, r: 0.2 });
+  return out;
+}
+const _nwq = new THREE.Quaternion();
 function updateNades(dt) {
   for (let i = NADES.length - 1; i >= 0; i--) {
-    const o = NADES[i]; o.t += dt; o.fuse -= dt; o.ground = false;
-    const sp = o.v.length(), n = Math.max(1, Math.ceil(sp * dt / 0.012));
-    for (let s = 0; s < n; s++) { o.v.y -= 9.81 * dt / n; o.p.addScaledVector(o.v, dt / n); nadeCollide(o); }
-    if (o.ground) { o.v.multiplyScalar(Math.exp(-dt * 1.6)); o.w.multiplyScalar(Math.exp(-dt * 2)); if (o.v.length() < 0.05) o.v.set(0, 0, 0); }
-    if (o.hitV > 1.2) noiseHit(rnd(2000, 3200), 0.04, clamp(o.hitV * 0.03, 0, 0.25) / (1 + camera.position.distanceTo(o.p) * 0.1));
-    o.hitV = 0;
-    o.g.position.copy(o.p); o.g.rotation.x += o.w.x * dt; o.g.rotation.y += o.w.y * dt; o.g.rotation.z += o.w.z * dt;
+    const o = NADES[i]; o.t += dt; o.fuse -= dt;
+    const n = clamp(Math.ceil(Math.max(o.v.length() * dt / 0.01, dt * 240)), 1, 40), h = dt / n;
+    let onGround = false;
+    for (let s = 0; s < n; s++) {
+      const sp = o.v.length();
+      o.v.y -= 9.81 * h; if (!o.ground) o.v.addScaledVector(o.v, -NADE_DRAG * sp * h);
+      o.p.addScaledVector(o.v, h);
+      o.ground = false; nadeCollide(o); onGround = onGround || o.ground;
+      if (o.ground) {
+        // rolling: an uneven ball loses speed fast, curls toward the fuze end, and stops
+        const hv = Math.hypot(o.v.x, o.v.z);
+        if (hv > 0.02) {
+          const dec = Math.min(hv, 9.81 * 0.4 * h), k = (hv - dec) / hv; o.v.x *= k; o.v.z *= k;
+          const side = new V3(-o.v.z, 0, o.v.x).multiplyScalar(1 / Math.max(hv, 1e-4)); o.v.addScaledVector(side, o.curl * hv * hv * h);
+          o.w.multiplyScalar(Math.max(0, 1 - 2.5 * h));
+          // the lumps knock it about a little
+          if (Math.random() < 6 * h * Math.min(1, hv)) { o.v.y += rnd(0, 0.25) * Math.min(1, hv); o.v.x += rnd(-0.08, 0.08) * hv; o.v.z += rnd(-0.08, 0.08) * hv; }
+        } else { o.v.x = 0; o.v.z = 0; o.w.multiplyScalar(Math.max(0, 1 - 12 * h)); }
+      }
+      // turn by the spin
+      const wl = o.w.length(); if (wl > 1e-4) { _nwq.setFromAxisAngle(o.w.clone().multiplyScalar(1 / wl), wl * h); o.q.premultiply(_nwq); }
+    }
+    o.ground = onGround;
+    if (o.hitV) { const k = o.hitK, dist = camera.position.distanceTo(o.p), vol = clamp(o.hitV * 0.035, 0, 0.3) / (1 + dist * 0.1); if (k === 'metal') { noiseHit(rnd(2600, 3400), 0.07, vol); blip(rnd(1700, 2300), 0.06, vol * 0.25, 'triangle'); } else if (k === 'body') noiseHit(rnd(400, 700), 0.05, vol * 0.7); else noiseHit(rnd(1400, 2600), 0.04, vol); o.hitV = 0; }
+    o.g.position.copy(o.p); o.g.quaternion.copy(o.q);
     if (o.fuse <= 0) {
       if (o.local) { if (S.mode === 'online') net.send({ t: 'x', a: 'boom', k: 'frag', i: o.id, p: o.p.toArray().map(r3) }); explode(o.p.clone(), 'frag', o.owner, true); }
       if (o.local || o.fuse < -4) { scene.remove(o.g); NADES.splice(i, 1); }
     }
+  }
+  updateSpoons(dt);
+}
+// the spoon flies off when it is let go, spinning, and lies where it lands
+const SPOONS = [];
+function flySpoon(p, v) {
+  const g = new THREE.Group(); vbox(0.0025, 0.07, 0.013, EXM.spoon, g, 0, 0, 0); vbox(0.022, 0.0025, 0.013, EXM.spoon, g, -0.01, 0.035, 0); g.position.copy(p); scene.add(g);
+  SPOONS.push({ g, v: v.clone(), w: new V3(rnd(-30, 30), rnd(-30, 30), rnd(-30, 30)), t: 0, rest: false });
+}
+function updateSpoons(dt) {
+  for (let i = SPOONS.length - 1; i >= 0; i--) {
+    const s = SPOONS[i]; s.t += dt;
+    if (!s.rest) {
+      s.v.y -= 9.81 * dt; s.v.multiplyScalar(Math.exp(-dt * 0.8)); s.g.position.addScaledVector(s.v, dt);
+      s.g.rotation.x += s.w.x * dt; s.g.rotation.y += s.w.y * dt; s.g.rotation.z += s.w.z * dt;
+      const fy = floorAt(s.g.position.x, s.g.position.y, s.g.position.z) + 0.004;
+      if (s.g.position.y < fy) { s.g.position.y = fy; if (Math.abs(s.v.y) > 1) { s.v.y *= -0.3; s.v.x *= 0.5; s.v.z *= 0.5; s.w.multiplyScalar(0.5); noiseHit(4200, 0.02, 0.04); } else { s.rest = true; s.g.rotation.set(Math.PI / 2, s.g.rotation.y, 0); } }
+    }
+    if (s.t > 30) { scene.remove(s.g); SPOONS.splice(i, 1); }
   }
 }
 // ---------------------------------------------------------------- held: the grenade
@@ -411,19 +494,22 @@ function updateFrag(dt) {
     if (N.t > 0.12 && VMG.nade.g.visible) {
       VMG.nade.g.visible = false;
       const q = camera.quaternion, fwd = new V3(0, 0, -1).applyQuaternion(q), over = N.btn === 0;
-      const dir = fwd.clone().add(new V3(0, over ? 0.18 : 0.05, 0)).normalize(), speed = over ? rnd(16, 18.5) : rnd(7, 8.5);
+      const dir = fwd.clone().add(new V3(0, over ? 0.2 : 0.02, 0)).normalize(), speed = over ? rnd(16, 18.5) : rnd(5.5, 7.5);
       const p0 = camera.position.clone().add(new V3(over ? 0.18 : 0.1, over ? 0.05 : -0.35, -0.35).applyQuaternion(q));
       const v = dir.multiplyScalar(speed).add(P.vel.clone().multiplyScalar(0.8)), fuse = N.cook ? N.fuse : rnd(4, 5.5), id = explSeq++;
-      throwNade(S.myIdOr0(), id, p0, v, fuse, true);
-      if (S.mode === 'online') net.send({ t: 'x', a: 'nade', i: id, p: p0.toArray().map(r3), v: v.toArray().map(r3), f: r3(fuse) });
-      if (!N.cook) blip(3000, 0.04, 0.05, 'triangle');      // the spoon flies off
+      // spin: overhand it leaves the fingertips with backspin; underhand it is bowled with forward roll
+      const side = new V3(1, 0, 0).applyQuaternion(q).setY(0).normalize();
+      const w = side.multiplyScalar(over ? rnd(8, 16) : -rnd(0.5, 0.8) * speed / NADE_R * 0.35).add(new V3(rnd(-3, 3), rnd(-3, 3), rnd(-3, 3))), curl = rnd(-0.12, 0.12);
+      throwNade(S.myIdOr0(), id, p0, v, fuse, true, w, curl);
+      if (S.mode === 'online') net.send({ t: 'x', a: 'nade', i: id, p: p0.toArray().map(r3), v: v.toArray().map(r3), f: r3(fuse), w: w.toArray().map(r3), c: r3(curl) });
+      if (!N.cook) { blip(3000, 0.04, 0.05, 'triangle'); flySpoon(p0.clone(), v.clone().multiplyScalar(0.3).add(new V3(rnd(-1, 1), rnd(2, 3.5), rnd(-1, 1)))); }      // the spoon flies off
       noiseHit(700, 0.12, 0.06); N.cook = false; P.fragN = Math.max(0, P.fragN - 1);
     }
     if (N.t > 0.55) { nadeReset(); P.nade.t = 0; }
   }
 }
 addEventListener('keydown', e => {
-  if (e.code === 'KeyR' && P.slot === 3 && P.nade && (P.nade.ph === 'ready' || P.nade.ph === 'pin') && !P.nade.cook) { P.nade.cook = true; P.nade.fuse = rnd(4, 5.5); VMG.nade.spoon.visible = false; blip(3000, 0.04, 0.05, 'triangle'); flashMsg('SPOON RELEASED<small>The fuse is burning</small>', 900); }
+  if (e.code === 'KeyR' && P.slot === 3 && P.nade && (P.nade.ph === 'ready' || P.nade.ph === 'pin') && !P.nade.cook) { P.nade.cook = true; P.nade.fuse = rnd(4, 5.5); VMG.nade.spoon.visible = false; flySpoon(camera.position.clone().add(new V3(0.12, -0.1, -0.3).applyQuaternion(camera.quaternion)), new V3(rnd(-1, 1), rnd(2, 3), rnd(-1, 1)).add(P.vel)); blip(3000, 0.04, 0.05, 'triangle'); flashMsg('SPOON RELEASED<small>The fuse is burning</small>', 900); }
 });
 addEventListener('mousedown', e => { if (e.button === 2) mouse.right = true; });
 addEventListener('mouseup', e => { if (e.button === 2) mouse.right = false; });
@@ -506,7 +592,7 @@ function onExplosiveMsg(m) {
   if (!ok(m.p)) return;
   const p = new V3().fromArray(m.p);
   if (m.a === 'c4p' && ok(m.n)) addCharge(m.id, m.i, p, new V3().fromArray(m.n).normalize());
-  else if (m.a === 'nade' && ok(m.v)) throwNade(m.id, m.i, p, new V3().fromArray(m.v), clamp(Number(m.f) || 4, 0, 6) + 0.5, false);
+  else if (m.a === 'nade' && ok(m.v)) throwNade(m.id, m.i, p, new V3().fromArray(m.v), clamp(Number(m.f) || 4, 0, 6) + 0.5, false, ok(m.w) ? new V3().fromArray(m.w) : null, clamp(Number(m.c) || 0, -0.2, 0.2));
   else if (m.a === 'boom') {
     const kind = m.k === 'c4' ? 'c4' : 'frag';
     for (const c of CHARGES.slice()) if (c.owner === m.id && c.id === m.i) removeCharge(c);
@@ -516,6 +602,6 @@ function onExplosiveMsg(m) {
 }
 function clearExplosives() {
   for (const c of CHARGES) scene.remove(c.g); CHARGES.length = 0;
-  for (const o of NADES) scene.remove(o.g); NADES.length = 0;
+  for (const o of NADES) scene.remove(o.g); NADES.length = 0; for (const o of SPOONS) scene.remove(o.g); SPOONS.length = 0;
   for (const f of BOOM_FX) scene.remove(f.o); BOOM_FX.length = 0; boomLight.intensity = 0;
 }

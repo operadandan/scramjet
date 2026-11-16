@@ -8,8 +8,8 @@ const WEAPONS = [
   { id: 'ak74', name: 'AK-74M', kind: 'rifle', auto: true, rpm: 650, cap: 30, spare: 5, tac: 2.5, empty: 3.1, inspect: 2.1, recoil: 0.013, fovAds: 55, shell: '545', vel: 900, mass: 0.0034, drag: 0.00105, disp: 0.0006, tracerEvery: 4, snd: 3, gap: 70 },
   { id: 'm9', name: 'Beretta M9', kind: 'pistol', auto: false, rpm: 450, cap: 15, spare: 3, tac: 1.8, empty: 2.1, inspect: 1.7, recoil: 0.03, fovAds: 62, shell: '9mm', vel: 381, mass: 0.008, drag: 0.0014, disp: 0.0013, tracerEvery: 0, snd: 1, gap: 95 },
   // Remington 870 with an 18.5 in cylinder-bore barrel and a +2 extension (6 in the tube). 2 3/4 in 00 buck: 9 pellets of 3.49 g at 404 m/s,
-  // round balls shed speed fast (about 945 fps left at 50 yd). Pattern opens about 2.5 cm per metre. Spares are 8-shell carriers, loaded one shell at a time.
-  { id: 'm870', name: 'M870', kind: 'shotgun', auto: false, rpm: 105, cap: 6, spare: 4, carrier: 8, tac: 0.62, empty: 0.62, inspect: 1.8, recoil: 0.075, fovAds: 58, shell: '12g', vel: 404, mass: 0.00349, drag: 0.0074, disp: 0.0005, pellets: 9, spread: 0.0125, zero: 25, tracerEvery: 0, snd: 4, gap: 450 }
+  // round balls shed speed fast (about 945 fps left at 50 yd). Plain (unbuffered, no wad control) 00 buck patterns wide: about 1.2 in per yard for most of the load, with fliers well out; roughly 25-30 cm across at 7 m and 75-90 cm at 23 m. Spares are 8-shell carriers, loaded one shell at a time.
+  { id: 'm870', name: 'M870', kind: 'shotgun', auto: false, rpm: 105, cap: 6, spare: 4, carrier: 8, tac: 0.62, empty: 0.62, inspect: 1.8, recoil: 0.075, fovAds: 58, shell: '12g', vel: 404, mass: 0.00349, drag: 0.0074, disp: 0.0005, pellets: 9, spread: 0.019, zero: 25, tracerEvery: 0, snd: 4, gap: 450 }
 ];
 // only the M4 and G17 are finished; the AK-74M, M107, M870 and M9 stay in the code but can't be picked yet
 const PRIMARIES = [0, 2, 5], SECONDARIES = [1], MEDKIT_W = 9;
@@ -24,7 +24,7 @@ function pelletDirs(dir, wi, seed) {
   const w = WEAPONS[wi], R = seededRng(seed), right = new V3().crossVectors(dir, new V3(0, 1, 0)); if (right.lengthSq() < 1e-6) right.set(1, 0, 0); right.normalize();
   const up = new V3().crossVectors(right, dir).normalize(), out = [];
   // roughly normal spread: most pellets near the centre, a few fliers
-  for (let i = 0; i < w.pellets; i++) { const a = R() * Math.PI * 2, r = w.spread * Math.min(1.6, Math.sqrt(-2 * Math.log(1 - R() * 0.999)) * 0.62); out.push(dir.clone().addScaledVector(right, Math.cos(a) * r).addScaledVector(up, Math.sin(a) * r).normalize()); }
+  for (let i = 0; i < w.pellets; i++) { const a = R() * Math.PI * 2, r = w.spread * Math.min(2.1, Math.sqrt(-2 * Math.log(1 - R() * 0.999)) * 0.62 * (R() < 0.12 ? 1.5 : 1)); out.push(dir.clone().addScaledVector(right, Math.cos(a) * r).addScaledVector(up, Math.sin(a) * r).normalize()); }
   return out;
 }
 function freshGuns(lo) { const g = {}; for (const i of lo) { const w = WEAPONS[i]; g[i] = { mag: w.cap, chamber: 1, pouch: Array(w.spare).fill(w.carrier || w.cap) }; } return g; }

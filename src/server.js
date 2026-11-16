@@ -180,7 +180,7 @@ export class GameRoom extends DurableObject {
       }
       case "itake": { if (p.ready) this.broadcast({ t: "itake", iid: Number(m.iid) || 0 }, p); break; }
       // explosives: a C4 charge set, a grenade thrown, a charge or grenade going off (each client works out its own damage)
-      case "x": { if (p.ready && raw.length < 400 && ["c4p", "nade", "boom"].includes(m.a)) this.broadcast({ t: "x", id: p.id, a: m.a, k: m.k === "c4" ? "c4" : "frag", i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0 }, p); break; }
+      case "x": { if (p.ready && raw.length < 400 && ["c4p", "nade", "boom"].includes(m.a)) this.broadcast({ t: "x", id: p.id, a: m.a, k: m.k === "c4" ? "c4" : "frag", i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0, w: m.w, c: Number(m.c) || 0 }, p); break; }
       case "hit": this.hit(p, m); break;
       case "died": this.died(p, m); break;
       case "down": this.down(p, m); break;

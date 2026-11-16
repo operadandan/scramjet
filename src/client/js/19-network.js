@@ -75,7 +75,7 @@ class HostRoom {
       }
       case 'idrop': { const s = JSON.stringify(m); if (p.ready && s.length < 600 && m.it && typeof m.it === 'object') this.broadcast({ t: 'idrop', it: m.it, p: m.p, v: m.v }, p); break; }
       case 'itake': if (p.ready) this.broadcast({ t: 'itake', iid: Number(m.iid) || 0 }, p); break;
-      case 'x': if (p.ready && JSON.stringify(m).length < 400 && ['c4p', 'nade', 'boom'].includes(m.a)) this.broadcast({ t: 'x', id: p.id, a: m.a, k: m.k, i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: m.f }, p); break;
+      case 'x': if (p.ready && JSON.stringify(m).length < 400 && ['c4p', 'nade', 'boom'].includes(m.a)) this.broadcast({ t: 'x', id: p.id, a: m.a, k: m.k, i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: m.f, w: m.w, c: m.c }, p); break;
       case 'hit': this.hit(p, m); break;
       case 'died': this.died(p, m); break;
       case 'down': this.down(p, m); break;
