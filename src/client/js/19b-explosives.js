@@ -210,25 +210,44 @@ function blastWalls(p, W, owner) {
 }
 // ---------------------------------------------------------------- bodies
 function poisson(l) { if (l > 30) return Math.round(l + Math.sqrt(l) * rnd(-1, 1)); const L = Math.exp(-l); let k = 0, q = 1; do { k++; q *= Math.random(); } while (q > L); return k - 1; }
-// fragments that reach this set of body meshes: each one a real hit through the same wound and anatomy code a pellet uses
+// fragments that reach this set of body meshes. Every fragment is a straight ray from the burst, spread evenly over the
+// sphere, and only the ones that actually strike the body (past walls, crates and the ground) count, each as a real hit
+// through the same wound and anatomy code a pellet uses. Rays are only cast into the cone the body fills, so the cost
+// stays small. That is what makes going prone work: a grenade bursts just above the ground, everything below the horizon
+// goes into the dirt, and a body lying flat only shows the burst a thin strip about 25 cm high, so most of the steel
+// passes over it. Standing, you show it your whole height.
 function fragsAt(p, meshes, nFrag, area, owner, apply) {
-  if (!meshes.length) return;
-  const c = new V3(); for (const m of meshes) c.add(m.getWorldPosition(_fv)); c.multiplyScalar(1 / meshes.length);
-  const d = Math.max(0.3, c.distanceTo(p)); if (d > 45) return;
-  const n = Math.min(40, poisson(nFrag * area / (4 * Math.PI * d * d)));
-  for (let i = 0; i < n; i++) {
-    const m = meshes[Math.floor(Math.random() * meshes.length)]; if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
-    const t = m.localToWorld(m.geometry.boundingSphere.center.clone()).add(new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(m.geometry.boundingSphere.radius * 0.6));
-    const dir = t.clone().sub(p).normalize(), L = t.distanceTo(p);
-    _ray.set(p, dir); _ray.far = L + 0.4;
-    const hits = _ray.intersectObjects(worldMeshes.concat(meshes), false);
-    const h = hits.find(x => !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(dir, 0.01))));
+  if (!meshes.length) return 0;
+  const c = new V3(), sph = [];
+  for (const m of meshes) { if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere(); const bs = m.geometry.boundingSphere, w = m.localToWorld(bs.center.clone()); sph.push([w, bs.radius]); c.add(w); }
+  c.multiplyScalar(1 / sph.length); let R = 0.05; for (const [w, r] of sph) R = Math.max(R, w.distanceTo(c) + r);
+  const ax = c.clone().sub(p), d = ax.length(); if (d > 60) return 0; ax.multiplyScalar(1 / Math.max(d, 1e-4));
+  const cosT = d > R ? Math.sqrt(1 - (R / d) * (R / d)) : -1, n = Math.min(900, poisson(nFrag * (1 - cosT) / 2));
+  // a frame around the axis, to aim rays inside the cone
+  const u = Math.abs(ax.y) < 0.9 ? new V3(0, 1, 0).cross(ax).normalize() : new V3(1, 0, 0).cross(ax).normalize(), v = ax.clone().cross(u);
+  const cand = worldMeshes.filter(m => { if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere(); return true; }).concat(meshes);
+  let hits = 0;
+  for (let i = 0; i < n && hits < 40; i++) {
+    const cz = 1 - Math.random() * (1 - cosT), sz = Math.sqrt(Math.max(0, 1 - cz * cz)), ph = Math.random() * 6.2832;
+    const dir = ax.clone().multiplyScalar(cz).addScaledVector(u, sz * Math.cos(ph)).addScaledVector(v, sz * Math.sin(ph));
+    _ray.set(p, dir); _ray.far = d + R;
+    const h = _ray.intersectObjects(cand, false).find(x => !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(dir, 0.01))));
     if (!h || !meshes.includes(h.object)) continue;
+    // real ground is never flat: dirt, stones, grass and kerbs stand a few centimetres up, and a fragment skimming
+    // along under that height for a metre or two is very likely to hit something and stop
+    const L = clutterRun(p.y, dir.y, h.distance); if (L > 0 && Math.random() > Math.exp(-L / 0.6)) continue;
+    hits++;
     // a fragment leaves at about 1500 m/s and sheds speed fast; expressed as the speed of a 00 buck pellet of the same energy
-    apply(h, dir, 430 * Math.exp(-L / 11) * rnd(0.75, 1.2), L);
+    apply(h, dir, 430 * Math.exp(-h.distance / 11) * rnd(0.75, 1.2), h.distance);
   }
+  return hits;
 }
-const _fv = new V3();
+const _fv = new V3(), CLUTTER_H = 0.12;
+// how far a ray from height y0 with vertical direction dy runs below the clutter height before travelling dist
+function clutterRun(y0, dy, dist) {
+  if (y0 < CLUTTER_H) { if (dy <= 0) return dist; return Math.min(dist, (CLUTTER_H - y0) / dy); }
+  if (dy >= 0) return 0; return Math.max(0, dist - (y0 - CLUTTER_H) / -dy);
+}
 function ragPush(r, p, sp) {
   if (!r || !r.p) return;
   for (let i = 0; i < r.p.length; i++) { const d = r.p[i].clone().sub(p), L = Math.max(0.3, d.length()); d.multiplyScalar(1 / L).add(new V3(0, 0.35, 0)); r.q[i].addScaledVector(d, -sp * clamp(1.5 / L, 0.3, 1.2) / 120); }
