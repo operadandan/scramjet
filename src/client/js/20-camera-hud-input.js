@@ -284,9 +284,7 @@ addEventListener('keydown', e => {
   if (e.repeat) return;
   if (e.code === 'KeyR') startReload();
   if (e.code === 'KeyM') startInspect();
-  if (e.code === 'AltLeft' && !e.repeat) { e.preventDefault(); if (S.bodycam) { S.bodycam = false; S.tp = true; } else S.tp = !S.tp; blip(500, 0.03, 0.03); }
-  // body cam: the view from a camera clipped to the chest (off by default)
-  if (e.code === 'Comma' && !e.repeat) { S.bodycam = !S.bodycam; if (S.bodycam) { S.tpPrev = S.tp; S.tp = true; } else S.tp = !!S.tpPrev; blip(S.bodycam ? 760 : 420, 0.03, 0.03); }
+  if (e.code === 'AltLeft' && !e.repeat) { e.preventDefault(); S.tp = !S.tp; blip(500, 0.03, 0.03); }
   // F works the action when the gun needs it (or when there is nothing to pick up), otherwise picks things up
   if (e.code === 'KeyF' && !e.repeat) { if (rackNeeded() || (!S.pick && canRack())) workAction(); else pickUp(); }
   if (e.code === 'KeyB') dropHeld();

@@ -4,7 +4,7 @@ function loadLoadout() {
   try { const j = JSON.parse(localStorage.getItem('breach_loadout') || 'null'); if (j && PRIMARIES.includes(j[0]) && SECONDARIES.includes(j[1])) lo = j; } catch (e) {}
   return lo;
 }
-const S = { mode: null, ws: null, myId: 0, room: '', remotes: new Map(), names: {}, locked: false, bodycam: true, tp: true, tpPrev: false };
+const S = { mode: null, ws: null, myId: 0, room: '', remotes: new Map(), names: {}, locked: false };
 const P = {
   pos: new V3(), vel: new V3(), yaw: 0, pitch: 0, onGround: false, crouch: 0, lean: 0, leanEff: 0, leanState: 0, adsOn: false,
   stamina: 100, staminaLock: false, staminaDelay: 0, sprinting: false, sprintBlend: 0, speed: 0,
