@@ -133,6 +133,9 @@ function updatePlayer(dt) {
   const wob = len ? Math.sin((P.bobT || 0) * 0.5 + 0.7) * 0.035 + Math.sin(performance.now() / 1300) * 0.02 : 0;
   const mx = wx * Math.cos(wob) - wz * Math.sin(wob), mz = wx * Math.sin(wob) + wz * Math.cos(wob);
   const cur = Math.hypot(P.vel.x, P.vel.z), speeding = spd * (len ? 1 : 0) > cur;
+  // cutting hard at speed: the feet have to plant and push the other way, so a sharp change of direction bleeds speed
+  // (a reversal from a sprint nearly stops you before you go back)
+  if (len && cur > 1.5 && P.onGround) { const cosA = (P.vel.x * mx + P.vel.z * mz) / cur; if (cosA < 0.7) { const loss = (0.7 - cosA) / 1.7 * Math.min(1, cur / 5) * 3.2 * dt; P.vel.x *= 1 - loss; P.vel.z *= 1 - loss; } }
   // speeding up is slow (slower still into a sprint), stopping is quicker but not instant; in the air almost no control
   const rate = !P.onGround ? 0.8 : speeding ? (P.sprinting ? 2.6 : 5) : 7.5;
   const k = 1 - Math.exp(-rate * dt);

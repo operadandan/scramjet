@@ -125,17 +125,47 @@ const TP_OFF = { m870: [0, -0.027, -0.38], m4: [0, 0.005, -0.345], ak74: [0, 0.0
 const TP_FORE = { m870: [-0.004, -0.046, -0.28], m4: [-0.004, -0.02, -0.26], ak74: [-0.004, -0.024, -0.2], m107: [-0.004, -0.1, -0.08] };
 if (IMPORTED.m4) TP_FORE.m4 = [-0.004, -0.03, -0.19];
 const tpCache = {};
+// A far copy of a gun for other people's hands: vertices snapped together on a grid of cell metres (one per cell and draw
+// group), triangles that collapse dropped. The imported M4 is 61k vertices; held by 27 people it was drawn twice a frame
+// (screen and sun shadow), which is what lagged the game near the range.
+function clusterGeo(src, cell) {
+  const P = src.attributes.position, N = src.attributes.normal, U = src.attributes.uv, C = src.attributes.color, I = src.index;
+  const groups = src.groups.length ? src.groups : [{ start: 0, count: I ? I.count : P.count, materialIndex: 0 }];
+  const rep = new Map(), out = [], outIdx = [], ng = [];
+  const vid = (i, gi) => {
+    const k = Math.round(P.getX(i) / cell) + ',' + Math.round(P.getY(i) / cell) + ',' + Math.round(P.getZ(i) / cell) + ',' + gi;
+    let r = rep.get(k); if (r === undefined) { r = out.length; rep.set(k, r); out.push(i); } return r;
+  };
+  groups.forEach((g, gi) => {
+    const st = outIdx.length;
+    for (let t = g.start; t < g.start + g.count; t += 3) {
+      const a = vid(I ? I.getX(t) : t, gi), b = vid(I ? I.getX(t + 1) : t + 1, gi), c = vid(I ? I.getX(t + 2) : t + 2, gi);
+      if (a !== b && b !== c && a !== c) outIdx.push(a, b, c);
+    }
+    ng.push({ start: st, count: outIdx.length - st, materialIndex: g.materialIndex });
+  });
+  const geo = new THREE.BufferGeometry(), cp = (A, n) => { const arr = new Float32Array(out.length * n); out.forEach((i, j) => { for (let q = 0; q < n; q++) arr[j * n + q] = A.array[i * n + q]; }); return new THREE.BufferAttribute(arr, n); };
+  geo.setAttribute('position', cp(P, 3)); if (N) geo.setAttribute('normal', cp(N, 3)); if (U) geo.setAttribute('uv', cp(U, 2)); if (C) geo.setAttribute('color', cp(C, C.itemSize));
+  geo.setIndex(outIdx); for (const g of ng) geo.addGroup(g.start, g.count, g.materialIndex);
+  if (!N) geo.computeVertexNormals();
+  geo.userData = src.userData; return geo;
+}
 function tpGunGeo(id) {
   if (tpCache[id]) return tpCache[id];
   const M = GUN_MODEL[id](TP_KIT), D = VM_DEF[id]; M.g.updateMatrixWorld(true);
   // an imported model keeps its UVs and textures; the cartridges stay out (hidden in the magazine at that distance)
   const body = M.textured ? bakeTextured(M.g, [M.mag]) : bakeColored(M.g, [M.mag]), mag = M.textured ? bakeTextured(M.mag, [M.cart]) : bakeColored(M.mag);
-  return tpCache[id] = { body, mag, mat: M.textured ? body.userData.mats : null, magMat: M.textured ? mag.userData.mats : null, magPos: M.mag.position.clone(), magRot: M.mag.rotation.clone(), grip: D.hand[0], H0: D.H0[0], muzzle: M.muzzle };
+  const bodyLo = clusterGeo(body, 0.007);
+  return tpCache[id] = { body, bodyLo, mag, mat: M.textured ? body.userData.mats : null, magMat: M.textured ? mag.userData.mats : null, magPos: M.mag.position.clone(), magRot: M.mag.rotation.clone(), grip: D.hand[0], H0: D.H0[0], muzzle: M.muzzle };
 }
 function tpGun(id, shadow) {
   const C = tpGunGeo(id), off = TP_OFF[id], pistol = id === 'g17' || id === 'm9', mt = shadow ? shadowMat : (C.mat || gunVcMat);
   const g = new THREE.Group(), inner = new THREE.Group(); inner.position.fromArray(off); g.add(inner);
-  const body = new THREE.Mesh(C.body, mt); body.castShadow = true; body.userData.keep = true; inner.add(body);
+  // close up the full model; past 7 m (and in the sun's shadow, always) the clustered one
+  const hi = new THREE.Mesh(C.body, mt), lo = new THREE.Mesh(C.bodyLo, mt); hi.userData.keep = lo.userData.keep = true;
+  const body = new THREE.LOD(); body.addLevel(hi, 0); body.addLevel(lo, 7); body.userData.keep = true; inner.add(body);
+  lo.castShadow = true; hi.castShadow = false;
+  const shLo = new THREE.Mesh(C.bodyLo, shadowMat); shLo.castShadow = true; shLo.userData.keep = true; shLo.userData.shadowOnly = true; hi.add(shLo);
   const mag = new THREE.Group(); mag.position.copy(C.magPos); mag.rotation.copy(C.magRot); inner.add(mag);
   const mm = new THREE.Mesh(C.mag, shadow ? shadowMat : (C.magMat || gunVcMat)); mm.castShadow = true; mm.userData.keep = true; mag.add(mm);
   const mk = (p, dx, dy, dz) => mark(g, p[0] + off[0] + (dx || 0), p[1] + off[1] + (dy || 0), p[2] + off[2] + (dz || 0));

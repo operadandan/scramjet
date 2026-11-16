@@ -110,6 +110,35 @@ const focus = new V3();
 // blown up with hard pixel edges, so every pixel is the same size on screen whatever the distance, window size or display
 const RETRO = { rt: null, scene: new THREE.Scene(), cam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1) };
 RETRO.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false })); RETRO.scene.add(RETRO.quad);
+// the body cam's lens: barrel bend (the middle bigger, the edges squeezed, black past the corners), a little colour
+// fringing toward the edges, a dark rim, flat contrast and sensor grain
+const BCQ = { scene: new THREE.Scene(), rt: null };
+BCQ.mat = new THREE.ShaderMaterial({
+  uniforms: { map: { value: null }, asp: { value: 1 }, K: { value: 0.2 }, t: { value: 0 } }, depthTest: false, depthWrite: false,
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: `uniform sampler2D map; uniform float asp, K, t; varying vec2 vUv;
+    float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233)) + t * 17.0) * 43758.5453); }
+    void main() {
+      vec2 p = vUv * 2.0 - 1.0; float r2 = p.x * p.x + (p.y / asp) * (p.y / asp);
+      vec2 q = p * (1.0 - K + K * r2), qr = p * (1.0 - K + K * r2 * 1.012), qb = p * (1.0 - K + K * r2 * 0.988);
+      if (abs(q.x) > 1.0 || abs(q.y) > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+      vec3 c = vec3(texture2D(map, qr * 0.5 + 0.5).r, texture2D(map, q * 0.5 + 0.5).g, texture2D(map, qb * 0.5 + 0.5).b);
+      float l = dot(c, vec3(0.299, 0.587, 0.114)); c = mix(vec3(l), c, 0.82); c = (c - 0.5) * 0.92 + 0.52;
+      c *= 1.0 - smoothstep(0.55, 1.45, r2) * 0.75;
+      c += (hash(gl_FragCoord.xy) - 0.5) * 0.06;
+      gl_FragColor = vec4(c, 1.0);
+      #include <colorspace_fragment>
+    }`
+});
+BCQ.scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), BCQ.mat));
+function bcamTarget() {
+  const v = renderer.getDrawingBufferSize(new THREE.Vector2()), w = v.x, h = v.y;
+  if (!BCQ.rt || BCQ.rt.width !== w || BCQ.rt.height !== h) {
+    if (BCQ.rt) BCQ.rt.dispose();
+    BCQ.rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, generateMipmaps: false, depthBuffer: true, samples: 4 });
+  }
+  return BCQ.rt;
+}
 function retroTarget() {
   if (!(S.pixel > 0)) return null;
   // 0..100 on the slider: from 720 lines down to 120
@@ -125,6 +154,33 @@ function retroTarget() {
 // second), so a worker, which is not throttled, ticks the simulation and the network about 20 times a second instead. Without
 // it a player whose tab was not focused froze for everyone else (hits, reactions, falls all waited for the tab to come back).
 let rafPending = false;
+// Only the nearest bodies throw a sun shadow (each body is ~40k vertices drawn again into the shadow map; a full range
+// of them doubled the cost of every frame). Re-sorted a few times a second.
+let _shT = 0;
+function updateShadowCasters(dt) {
+  if ((_shT -= dt) > 0) return; _shT = 0.3;
+  const L = [];
+  for (const d of dummies) if (d.hum && d.hum.root.visible) L.push(d.rag ? d.rag.group : d.hum.root);
+  for (const r of S.remotes.values()) if (r.hum) L.push(r.rag ? r.rag.group : r.hum.root);
+  for (const rg of ragdolls) if (!L.includes(rg.group)) L.push(rg.group);
+  const cp = camera.position, dist = o => { o.getWorldPosition(_shV); return _shV.distanceToSquared(cp); };
+  const ds = L.map(o => [o, dist(o)]).sort((a, b) => a[1] - b[1]);
+  ds.forEach(([o, d2], i) => {
+    const on = i < 8 && d2 < 30 * 30;
+    if (o.userData.shOn === on) return; o.userData.shOn = on;
+    o.traverse(m => { if (!m.isMesh) return; if (m.userData.cs0 === undefined) m.userData.cs0 = m.castShadow; m.castShadow = on && m.userData.cs0; });
+  });
+}
+const _shV = new V3();
+// Resolution follows the frame time: under load the canvas renders at fewer pixels (down to 60%) and climbs back when
+// there's room; never above 1.5x the CSS pixels (a 2x Retina screen was four times the pixels of a 1x one).
+let _drT = 0, _drE = 1 / 60, _drR = Math.min(devicePixelRatio, 1.5);
+function dynRes(dt) {
+  _drE += (dt - _drE) * 0.08; if ((_drT -= dt) > 0) return; _drT = 0.5;
+  const mx = Math.min(devicePixelRatio, 1.5), mn = Math.min(mx, 0.6);
+  let r = _drR; if (_drE > 1 / 50) r = Math.max(mn, r * 0.88); else if (_drE < 1 / 75) r = Math.min(mx, r * 1.06);
+  if (Math.abs(r - renderer.getPixelRatio()) / r > 0.03) { _drR = r; renderer.setPixelRatio(r); renderer.setSize(innerWidth, innerHeight, false); }
+}
 function schedule() { if (!rafPending) { rafPending = true; requestAnimationFrame(loop); } }
 function loop(now) { rafPending = false; schedule(); frame(now, false); }
 try {
@@ -154,19 +210,28 @@ function frame(now, hidden) {
   updateCamera(dt); if (S.mode && P.alive && !P.downed) tpCamera();
   if (S.mode) { updateViewmodel(dt); vmCamera.updateMatrixWorld(true); updateDevices(); } else updateDevices();
   updateTPBody(dt);
+  const bcOn = bodyCam();
   updateCloth(wdt);
   if (S.tp) { $('scope').style.display = 'none'; $('acog').style.display = 'none'; $('vigads').style.opacity = '0'; }
   $('tpdot').style.display = S.tp && S.mode && P.alive && !P.downed && !S.inv ? 'block' : 'none';
+  if (bcOn) bodyCamDot($('tpdot')); else { $('tpdot').style.left = '50%'; $('tpdot').style.top = '50%'; }
+  $('bcam').style.display = bcOn ? 'block' : 'none';
+  if (bcOn) { const d = new Date(), z = n => String(n).padStart(2, '0'); const t = d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + ' ' + z(d.getHours()) + ':' + z(d.getMinutes()) + ':' + z(d.getSeconds()); if ($('bcamT').textContent !== t) $('bcamT').textContent = t; }
   focus.copy(S.mode && P.alive ? P.pos : (P.rag ? P.rag.p[2] : new V3()));
   focus.x = Math.round(focus.x * 4) / 4; focus.z = Math.round(focus.z * 4) / 4; focus.y = 0;
   sun.position.copy(focus).addScaledVector(sunDir, 100); sun.target.position.copy(focus);
   if (hidden) return;   // nobody is looking: simulate, don't draw
+  updateShadowCasters(dt); dynRes(dt);
   renderer.clear();
   renderScope();
-  const rt = retroTarget();
+  const rt = retroTarget() || (bcOn ? bcamTarget() : null);
   if (rt) { renderer.setRenderTarget(rt); renderer.clear(); }
   renderer.render(scene, camera);
   if (S.mode && P.alive && !P.downed && !S.tp) { renderer.clearDepth(); renderer.render(vmScene, vmCamera); }
-  if (rt) { renderer.setRenderTarget(null); renderer.render(RETRO.scene, RETRO.cam); }
+  if (rt) {
+    renderer.setRenderTarget(null);
+    if (bcOn) { BCQ.mat.uniforms.map.value = rt.texture; BCQ.mat.uniforms.asp.value = innerWidth / innerHeight; BCQ.mat.uniforms.K.value = BCAM.K; BCQ.mat.uniforms.t.value = now / 1000 % 100; renderer.render(BCQ.scene, RETRO.cam); }
+    else renderer.render(RETRO.scene, RETRO.cam);
+  }
 }
 schedule();

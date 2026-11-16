@@ -35,12 +35,24 @@ function updateCamera(dt) {
   // view bob: the head dips on every footfall, sways over the planted foot and rolls a little with it; stronger at a run,
   // much less while aiming, eased in and out so stopping does not snap the view
   const mv = P.onGround ? clamp(P.speed / 4.3, 0, 1.7) : 0;
-  P.bobT += dt * (5.2 + P.speed * 1.35) * (mv > 0.05 ? 1 : 0);
+  // the stride goes by ground covered, not by time: one footfall every stride length (longer strides the faster you go),
+  // so the bob matches the feet instead of ticking at a fixed rate
+  const stride = lerp(0.62, 1.25, clamp(P.speed / 5.4, 0, 1)) * lerp(1, 0.6, P.crouch || 0);
+  P.bobT += (mv > 0.05 ? P.speed * dt / stride * Math.PI : 0);
   P.bobA = damp(P.bobA || 0, mv * (1 - P.ads * 0.8) * (P.prone > 0.5 ? 0.4 : 1), 6, dt);
   const bob = 0.05 * P.bobA, step = Math.sin(P.bobT), sway = Math.sin(P.bobT * 0.5);
   camera.position.copy(head).addScaledVector(right, P.leanEff * 0.42 + sway * bob * 0.55);
   camera.position.y += -Math.abs(P.leanEff) * 0.08 - Math.abs(step) * bob * 0.75 + bob * 0.35;
-  P.bobRot = { p: -Math.abs(step) * 0.009 * P.bobA + Math.sin(P.bobT * 2) * 0.002 * P.bobA, r: sway * 0.011 * P.bobA, y: sway * 0.004 * P.bobA };
+  // the eyes stay on what they look at: the head bobs, but the gaze counter-turns to keep a point ~8 m away still, so the
+  // view moves up and down far less than the head does (as in real life, and as head-cams show)
+  const headDy = -Math.abs(step) * bob * 0.75 + bob * 0.35, headDx = sway * bob * 0.55;
+  // the body leans into acceleration: speeding up tips the head forward a touch, braking throws it forward and back, a
+  // sideways push rolls it; damped like a neck
+  { const fwd = new V3(-Math.sin(P.yaw), 0, -Math.cos(P.yaw)), rt = right, vF = P.vel.dot(fwd), vR = P.vel.dot(rt);
+    const aF = (vF - (P._vF || 0)) / Math.max(dt, 1 / 240), aR = (vR - (P._vR || 0)) / Math.max(dt, 1 / 240); P._vF = vF; P._vR = vR;
+    P.accP = damp(P.accP || 0, clamp(-aF * 0.0042, -0.035, 0.035) * (P.onGround ? 1 : 0.3), 7, dt);
+    P.accR = damp(P.accR || 0, clamp(aR * 0.0028, -0.025, 0.025) * (P.onGround ? 1 : 0.3), 7, dt); }
+  P.bobRot = { p: -Math.abs(step) * 0.009 * P.bobA + Math.sin(P.bobT * 2) * 0.002 * P.bobA - headDy / 8 + P.accP, r: sway * 0.011 * P.bobA - P.accR, y: sway * 0.004 * P.bobA + headDx / 8 };
   const tt = performance.now() / 1000;
   const rlB = P.reloading ? Math.sin(P.reloadT / P.reloadDur * Math.PI) : 0;
   const br = P.bobRot || { p: 0, r: 0, y: 0 };
@@ -272,7 +284,9 @@ addEventListener('keydown', e => {
   if (e.repeat) return;
   if (e.code === 'KeyR') startReload();
   if (e.code === 'KeyM') startInspect();
-  if (e.code === 'AltLeft' && !e.repeat) { e.preventDefault(); S.tp = !S.tp; blip(500, 0.03, 0.03); }
+  if (e.code === 'AltLeft' && !e.repeat) { e.preventDefault(); if (S.bodycam) { S.bodycam = false; S.tp = true; } else S.tp = !S.tp; blip(500, 0.03, 0.03); }
+  // body cam: the view from a camera clipped to the chest (off by default)
+  if (e.code === 'Comma' && !e.repeat) { S.bodycam = !S.bodycam; if (S.bodycam) { S.tpPrev = S.tp; S.tp = true; } else S.tp = !!S.tpPrev; blip(S.bodycam ? 760 : 420, 0.03, 0.03); }
   // F works the action when the gun needs it (or when there is nothing to pick up), otherwise picks things up
   if (e.code === 'KeyF' && !e.repeat) { if (rackNeeded() || (!S.pick && canRack())) workAction(); else pickUp(); }
   if (e.code === 'KeyB') dropHeld();
@@ -323,7 +337,7 @@ document.addEventListener('pointerlockchange', () => {
 function setPixelation(v) {
   S.pixel = clamp(+v || 0, 0, 100);
   // the low-resolution frame is made by retroTarget() (22-menu-loop.js); the canvas itself stays at full resolution
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight);
+  renderer.setSize(innerWidth, innerHeight);
   renderer.domElement.style.imageRendering = 'auto';
 }
 addEventListener('resize', () => {

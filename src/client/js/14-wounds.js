@@ -192,7 +192,7 @@ function copySegment(g) {
     if (!c.isMesh || c.userData.keep || c.userData.tube) continue;
     const m = new THREE.Mesh(c.geometry, c.userData.baseMat || c.material); m.position.copy(c.position); m.quaternion.copy(c.quaternion); m.scale.copy(c.scale); m.castShadow = true; n.add(m);
     // a piece on its own has nothing to bend with: its skin stays as cut
-    if (c._skin) { const U = { segM: { value: Array.from({ length: 12 }, () => new THREE.Matrix4()) }, segOK: { value: new Array(12).fill(0) } }; m._skin = { U, at: {} }; const mm = m.material.clone(); if (m.geometry.attributes.fab) mm.side = THREE.DoubleSide; mm.onBeforeCompile = sh => bodyPatches(sh, m); mm.customProgramCacheKey = () => 'body' + bodyKey(m); m.material = mm; }
+    if (c._skin) { const U = { segM: { value: Array.from({ length: 16 }, () => new THREE.Matrix4()) }, segOK: { value: new Array(16).fill(0) } }; m._skin = { U, at: {} }; const mm = m.material.clone(); if (m.geometry.attributes.fab) mm.side = THREE.DoubleSide; mm.onBeforeCompile = sh => bodyPatches(sh, m); mm.customProgramCacheKey = () => 'body' + bodyKey(m); m.material = mm; }
     if (c.userData.holeN !== undefined) { holeify(m, c.userData.holeMax, c.material.userData.hIn.value.getHex()); m.userData.holeN = c.userData.holeN; const a = c.material.userData, b = m.material.userData; for (let i = 0; i < a.hA.value.length; i++) { b.hA.value[i].copy(a.hA.value[i]); b.hB.value[i].copy(a.hB.value[i]); } }
   }
   return n;
