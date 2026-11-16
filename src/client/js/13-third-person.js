@@ -41,8 +41,8 @@ function tpAim() {
 // A camera clipped to the middle of the chest: it goes wherever the torso goes (every step, twist and lean), sees the arms
 // and the gun from below, and has the wide, barrel-bent lens, dark corners and grain of real body-worn footage. You still
 // aim with your eyes: where you are looking shows as a small dot.
-const BCAM = { pos: new V3(), q: new THREE.Quaternion(), tilt: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12, 0, 0)), K: 0.2 };
-const _bcF = new V3(), _bcE = new V3(), _bcQ = new THREE.Quaternion();
+const BCAM = { pos: new V3(), q: new THREE.Quaternion(), tilt: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12, 0, 0)), K: 0.12 };
+const _bcF = new V3(), _bcE = new V3(), _bcQ = new THREE.Quaternion(), _bcI = new THREE.Quaternion();
 function bodyCam() {
   if (!S.bodycam || !S.mode || !P.alive || P.downed || !localBody) return false;
   const sp = localBody.spine; localBody.root.updateMatrixWorld(true);
@@ -53,9 +53,10 @@ function bodyCam() {
   sp.getWorldQuaternion(BCAM.q);
   const f = _bcF.set(0, 0, -1).applyQuaternion(BCAM.q), e = _bcE.set(0, 0, -1).applyQuaternion(P.eyeQ || BCAM.q);
   const dy = Math.atan2(-e.x, -e.z) - Math.atan2(-f.x, -f.z), dyw = Math.atan2(Math.sin(dy), Math.cos(dy));
-  BCAM.q.premultiply(_bcQ.setFromAxisAngle(_Y, dyw * 0.8)).multiply(BCAM.tilt);
+  const aim = localVis && localVis.bcA || 0; BCAM.q.premultiply(_bcQ.setFromAxisAngle(_Y, dyw * lerp(0.8, 1, aim))).multiply(_bcQ.slerpQuaternions(BCAM.tilt, _bcI, aim));
+  BCAM.aim = aim;
   camera.position.copy(BCAM.pos); camera.quaternion.copy(BCAM.q);
-  camera.fov = 84; camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
+  camera.fov = lerp(84, 70, BCAM.aim || 0); camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
   return true;
 }
 // where the aim point lands on the bent picture: project it, then undo the lens (q = p (1 - K + K r^2), solved for p)

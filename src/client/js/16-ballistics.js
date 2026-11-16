@@ -196,8 +196,10 @@ function woundBits(frame, p, dir, E, through, hum) {
   const sz = 0.006 + 0.0042 * Math.sqrt(e), v = (through ? 1.4 : 0.8) + Math.min(5, e * 0.3), d = through ? dir : dir.clone().negate();
   if (head) {
     spawnGore(p, d, 'flesh', Math.ceil(n * 0.4), v, 0.5, sz);
-    spawnGore(p, d, 'brain', Math.ceil(n * 0.35), v * 0.9, 0.5, sz * 1.1);
-    if (e > 0.8 || Math.random() < 0.4) spawnGore(p, d, 'skull', Math.max(1, Math.round(n * 0.2)), v, 0.5, sz * 1.6, hum && hum.pal && hum.pal.skin);
+    spawnGore(p, d, 'brain', Math.ceil(n * (e > 4 ? 0.35 : 0.15)), v * 0.9, 0.5, sz * (e > 4 ? 1.1 : 0.7));
+    // rifle and pistol rounds leave a hole: only a crumb or two of bone, no skin-covered skull pieces (those, flying off,
+    // read as the head coming apart); big pieces only from the .50
+    if (e > 4) spawnGore(p, d, 'skull', Math.max(1, Math.round(n * 0.2)), v, 0.5, sz * 1.6, hum && hum.pal && hum.pal.skin);
     if (Math.random() < 0.5) spawnGore(p, d, 'bone', Math.ceil(n * 0.15), v * 1.2, 0.55, sz * 0.7);
   } else {
     spawnGore(p, d, 'flesh', n, v, 0.45, sz);
