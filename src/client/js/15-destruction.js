@@ -89,13 +89,23 @@ function updateWallGrid(mesh, D, dir) {
   for (const k of fall) G.tex.image.data[k] = 255; G.tex.needsUpdate = true;
   // the loose piece comes down as chunks, roughly one per 10 x 10 cm, capped so a big slab does not flood the scene
   const thick = [mesh.geometry.parameters.width, mesh.geometry.parameters.height, mesh.geometry.parameters.depth][G.ax], step = Math.max(1, Math.round(Math.sqrt(fall.length / 70)));
-  for (let n = 0; n < fall.length; n += step * 2) {
-    const k = fall[n], i = k % n1, j = (k - i) / n1; q.set(0, 0, 0); q.setComponent(G.a1, min1 + (i + 0.5) * cs1); q.setComponent(G.a2, min2 + (j + 0.5) * cs2); q.setComponent(G.ax, rnd(-0.4, 0.4) * thick);
-    const wp = mesh.localToWorld(q.clone()), out = new V3().setComponent(G.ax, Math.random() < 0.5 ? 1 : -1);
-    spawnDebris(wp, 1, (dir ? dir.clone().lerp(out, 0.5) : out).normalize(), 0.35, rnd(0.4, 1.6), D, Math.min(0.06, Math.max(cs1, cs2) * step * 0.9 + thick * 0.3));
+  // the loose part breaks up into slabs of the wall itself (bigger the more came loose, at most ~80 of them), each the
+  // wall's full thickness, plus a scatter of rubble from the broken edges
+  const fs = new Set(fall), bs = Math.max(3, Math.round(Math.sqrt(fall.length / 80)));
+  const done = new Set();
+  for (const k of fall) {
+    const i0 = k % n1, j0 = (k - i0) / n1, bi = Math.floor(i0 / bs), bj = Math.floor(j0 / bs), key = bi + ',' + bj; if (done.has(key)) continue; done.add(key);
+    let cnt = 0, su = 0, sv = 0; for (let dj = 0; dj < bs; dj++) for (let di = 0; di < bs; di++) { const kk = (bj * bs + dj) * n1 + bi * bs + di; if (bi * bs + di < n1 && fs.has(kk)) { cnt++; su += bi * bs + di; sv += bj * bs + dj; } }
+    if (!cnt) continue; const fu = Math.sqrt(cnt / (bs * bs));
+    q.set(0, 0, 0); q.setComponent(G.a1, min1 + (su / cnt + 0.5) * cs1); q.setComponent(G.a2, min2 + (sv / cnt + 0.5) * cs2);
+    const wp = mesh.localToWorld(q.clone()), out = new V3().setComponent(G.ax, Math.random() < 0.5 ? 1 : -1).transformDirection(mesh.matrixWorld);
+    const vd = (dir ? dir.clone().lerp(out, 0.4) : out).normalize();
+    if (D.deb === 'wood' || thick < 0.03) spawnDebris(wp, 1, vd, 0.3, rnd(0.3, 1.4), D, 0, [cs1 * bs * fu * rnd(0.8, 1.05), cs2 * bs * fu * rnd(0.8, 1.05), thick]);
+    else spawnDebris(wp, 1, vd, 0.3, rnd(0.3, 1.4), D, 0, [cs1 * bs * fu * rnd(0.75, 1.0), cs2 * bs * fu * rnd(0.75, 1.0), thick * rnd(0.7, 1)]);
+    spawnDebris(wp, D.deb === 'wood' ? 1 : 3, vd, 0.6, rnd(0.6, 2), D, 0.012 + thick * 0.15);
   }
   const mid = fall[fall.length >> 1], mi = mid % n1, mj = (mid - mi) / n1; q.set(0, 0, 0); q.setComponent(G.a1, min1 + (mi + 0.5) * cs1); q.setComponent(G.a2, min2 + (mj + 0.5) * cs2);
-  dust(mesh.localToWorld(q.clone()), new V3(0, -1, 0), D.dust, 0.8 + Math.sqrt(fall.length) * 0.05, 0.65, 2.6); noiseHit(D.deb === 'rock' ? 300 : 520, 0.3, 0.14);
+  dust(mesh.localToWorld(q.clone()), new V3(0, -1, 0), D.dust, 1.2 + Math.sqrt(fall.length) * 0.08, 0.7, 4.5); noiseHit(D.deb === 'rock' ? 300 : 520, 0.3, 0.14);
   // craters that sat on the piece that fell go with it
   for (const c of ud.dmg) c.chips = c.chips.filter(ch => { q.set(0, 0, 0); q.setComponent((c.ax + 1) % 3, ch.u); q.setComponent((c.ax + 2) % 3, ch.v); const w = mesh.localToWorld(q.clone()); if (gridOpenW(mesh, w)) { dropDecal(ch.m); return false; } return true; });
 }
@@ -199,21 +209,29 @@ function chipCanvas(draw, clear) {
 const cracks = (g, c, r0, r1, n, col, lw) => { g.strokeStyle = col; g.lineCap = 'round'; for (let i = 0; i < n; i++) { let a = Math.random() * 6.283, x = c + Math.cos(a) * r0, y = c + Math.sin(a) * r0; g.lineWidth = lw * rnd(0.6, 1.3); g.beginPath(); g.moveTo(x, y); const st = 5, L = rnd(0.6, 1) * (r1 - r0) / st; for (let k = 0; k < st; k++) { a += rnd(-0.45, 0.45); x += Math.cos(a) * L; y += Math.sin(a) * L; g.lineTo(x, y); if (Math.random() < 0.25) { g.stroke(); g.lineWidth *= 0.6; g.beginPath(); g.moveTo(x, y); } } g.stroke(); } };
 const speck = (g, c, r0, r1, n, cols, a0, a1) => { for (let i = 0; i < n; i++) { const a = Math.random() * 6.283, d = rnd(r0, r1), sz = rnd(a0, a1); g.fillStyle = cols[i % cols.length]; g.beginPath(); g.ellipse(c + Math.cos(a) * d, c + Math.sin(a) * d, sz, sz * rnd(0.5, 1), Math.random() * 3, 0, 7); g.fill(); } };
 const CHIP_TEX = {
-  rock: [0, 1, 2].map(() => chipCanvas((g, s, c) => {
-    const du = g.createRadialGradient(c, c, s * 0.18, c, c, s * 0.5); du.addColorStop(0, 'rgba(205,200,190,0.55)'); du.addColorStop(1, 'rgba(205,200,190,0)'); g.fillStyle = du; g.fillRect(0, 0, s, s);
-    irregular(g, c, c, s * 0.33, 13, 0.3, 'rgba(196,190,178,1)');
-    irregular(g, c, c, s * 0.26, 11, 0.32, 'rgba(160,154,143,1)');
-    speck(g, c, 0, s * 0.27, 26, ['rgba(120,114,104,1)', 'rgba(215,210,200,1)', 'rgba(95,90,82,1)'], 1.5, 4.5);
-    const h = g.createRadialGradient(c, c, 0, c, c, s * 0.16); h.addColorStop(0, 'rgba(48,45,40,1)'); h.addColorStop(0.6, 'rgba(85,80,72,0.95)'); h.addColorStop(1, 'rgba(120,114,104,0)'); g.fillStyle = h; g.beginPath(); g.arc(c, c, s * 0.16, 0, 7); g.fill();
-    cracks(g, c, s * 0.2, s * 0.48, 6, 'rgba(55,52,47,0.85)', 1.6);
+  // a bullet strike on concrete: a shallow spalled crater of fresh, slightly paler concrete, broken aggregate, a dark pocket
+  // where the round bit in, shaded as if lit from above, and hairline cracks. Twelve of them, no two alike; laid over the
+  // wall's own texture half-transparent so they take on its colour instead of sitting on it like stickers
+  rock: Array.from({ length: 12 }, () => chipCanvas((g, s, c) => {
+    const R = s * rnd(0.26, 0.4), ox = rnd(-0.03, 0.03) * s, oy = rnd(-0.03, 0.03) * s;
+    const du = g.createRadialGradient(c, c, R * 0.6, c, c, R * 1.5); du.addColorStop(0, 'rgba(120,116,108,0.22)'); du.addColorStop(1, 'rgba(120,116,108,0)'); g.fillStyle = du; g.fillRect(0, 0, s, s);
+    irregular(g, c + ox, c + oy, R, Math.floor(rnd(9, 17)), rnd(0.25, 0.45), 'rgba(128,124,116,0.5)');
+    irregular(g, c + ox * 0.5, c + oy * 0.5, R * rnd(0.6, 0.78), Math.floor(rnd(8, 14)), rnd(0.3, 0.5), 'rgba(96,92,85,0.62)');
+    // relief: the upper edge of the crater catches light, the lower inner wall is in shadow
+    const sh = g.createLinearGradient(c, c - R, c, c + R); sh.addColorStop(0, 'rgba(60,57,52,0.0)'); sh.addColorStop(0.45, 'rgba(60,57,52,0.0)'); sh.addColorStop(1, 'rgba(45,42,38,0.35)');
+    g.save(); g.beginPath(); g.arc(c, c, R * 0.75, 0, 7); g.clip(); g.fillStyle = sh; g.fillRect(0, 0, s, s); g.restore();
+    speck(g, c, 0, R * 0.95, Math.floor(rnd(30, 70)), ['rgba(80,76,70,0.85)', 'rgba(140,136,128,0.6)', 'rgba(60,57,52,0.9)', 'rgba(118,110,95,0.7)'], s * 0.004, s * 0.018);
+    const pr = R * rnd(0.22, 0.4), h = g.createRadialGradient(c, c, 0, c, c, pr); h.addColorStop(0, 'rgba(30,28,25,1)'); h.addColorStop(0.55, 'rgba(62,58,52,0.95)'); h.addColorStop(1, 'rgba(100,95,87,0)');
+    g.fillStyle = h; irregular(g, c, c, pr, 9, 0.35, h);
+    cracks(g, c, R * 0.6, R * rnd(1.1, 1.45), Math.floor(rnd(2, 7)), 'rgba(48,45,41,0.6)', s * 0.004);
   })),
-  wood: [0, 1, 2].map(() => chipCanvas((g, s, c) => {
-    g.save(); g.translate(c, c); g.scale(0.6, 1.25); irregular(g, 0, 0, s * 0.28, 16, 0.4, 'rgba(222,190,138,1)'); g.restore();
+  wood: Array.from({ length: 8 }, () => chipCanvas((g, s, c) => {
+    g.save(); g.translate(c, c); g.scale(rnd(0.5, 0.7), rnd(1.1, 1.4)); irregular(g, 0, 0, s * 0.28, 16, 0.4, 'rgba(222,190,138,1)'); g.restore();
     g.strokeStyle = 'rgba(240,214,166,1)'; for (let i = 0; i < 26; i++) { const x = c + rnd(-0.16, 0.16) * s, y0 = c + rnd(-0.2, 0.2) * s; g.lineWidth = rnd(1, 3); g.beginPath(); g.moveTo(x, y0); g.lineTo(x + rnd(-4, 4), y0 + rnd(-0.22, 0.22) * s); g.stroke(); }
     g.strokeStyle = 'rgba(150,110,62,0.9)'; for (let i = 0; i < 8; i++) { const x = c + rnd(-0.12, 0.12) * s; g.lineWidth = 1; g.beginPath(); g.moveTo(x, c - s * 0.3); g.lineTo(x + rnd(-2, 2), c + s * 0.3); g.stroke(); }
     const h = g.createRadialGradient(c, c, 0, c, c, s * 0.12); h.addColorStop(0, 'rgba(40,24,10,1)'); h.addColorStop(0.7, 'rgba(90,60,30,0.9)'); h.addColorStop(1, 'rgba(120,85,45,0)'); g.fillStyle = h; g.beginPath(); g.ellipse(c, c, s * 0.08, s * 0.13, 0, 0, 7); g.fill();
   })),
-  plaster: [0, 1, 2].map(() => chipCanvas((g, s, c) => {
+  plaster: Array.from({ length: 10 }, () => chipCanvas((g, s, c) => {
     const du = g.createRadialGradient(c, c, s * 0.2, c, c, s * 0.5); du.addColorStop(0, 'rgba(150,146,138,0.35)'); du.addColorStop(1, 'rgba(150,146,138,0)'); g.fillStyle = du; g.fillRect(0, 0, s, s);
     irregular(g, c, c, s * 0.34, 18, 0.25, 'rgba(178,172,162,1)');
     irregular(g, c, c, s * 0.31, 18, 0.22, 'rgba(250,248,244,1)');
@@ -222,19 +240,19 @@ const CHIP_TEX = {
   }))
 };
 const BREAK_TEX = {
-  rock: [0, 1].map(() => chipCanvas((g, s, c) => {
-    const du = g.createRadialGradient(c, c, s * 0.3, c, c, s * 0.5); du.addColorStop(0, 'rgba(200,195,185,0.6)'); du.addColorStop(1, 'rgba(200,195,185,0)'); g.fillStyle = du; g.fillRect(0, 0, s, s);
-    irregular(g, c, c, s * 0.41, 22, 0.12, 'rgba(178,172,160,1)'); irregular(g, c, c, s * 0.36, 22, 0.08, 'rgba(140,134,124,1)');
-    speck(g, c, s * 0.3, s * 0.4, 50, ['rgba(110,105,96,1)', 'rgba(210,205,195,1)', 'rgba(80,76,70,1)'], 1.5, 5);
+  rock: Array.from({ length: 6 }, () => chipCanvas((g, s, c) => {
+    const du = g.createRadialGradient(c, c, s * 0.3, c, c, s * 0.5); du.addColorStop(0, 'rgba(110,106,98,0.3)'); du.addColorStop(1, 'rgba(110,106,98,0)'); g.fillStyle = du; g.fillRect(0, 0, s, s);
+    irregular(g, c, c, s * rnd(0.4, 0.46), 22, rnd(0.12, 0.22), 'rgba(120,116,108,0.5)'); irregular(g, c, c, s * 0.36, 22, 0.1, 'rgba(84,80,74,0.7)');
+    speck(g, c, s * 0.3, s * 0.42, 60, ['rgba(80,76,70,0.9)', 'rgba(140,136,128,0.7)', 'rgba(58,55,50,0.9)'], 1.5, 5);
     cracks(g, c, s * 0.38, s * 0.5, 9, 'rgba(55,52,47,0.85)', 1.8);
   }, 0.3)),
-  wood: [0, 1].map(() => chipCanvas((g, s, c) => {
+  wood: Array.from({ length: 4 }, () => chipCanvas((g, s, c) => {
     for (let i = 0; i < 70; i++) { const a = Math.random() * 6.283, L = s * (0.32 + Math.pow(Math.random(), 3) * 0.17), w = rnd(0.015, 0.05); g.fillStyle = ['rgba(214,180,130,0.95)', 'rgba(180,140,92,0.95)', 'rgba(120,86,50,0.9)'][i % 3]; g.beginPath(); g.moveTo(c + Math.cos(a - w) * s * 0.28, c + Math.sin(a - w) * s * 0.28); g.lineTo(c + Math.cos(a) * L, c + Math.sin(a) * L); g.lineTo(c + Math.cos(a + w) * s * 0.28, c + Math.sin(a + w) * s * 0.28); g.fill(); }
     irregular(g, c, c, s * 0.335, 30, 0.05, 'rgba(196,160,110,1)'); irregular(g, c, c, s * 0.315, 30, 0.04, 'rgba(110,78,44,1)');
   }, 0.3)),
-  plaster: [0, 1].map(() => chipCanvas((g, s, c) => {
+  plaster: Array.from({ length: 4 }, () => chipCanvas((g, s, c) => {
     const du = g.createRadialGradient(c, c, s * 0.3, c, c, s * 0.5); du.addColorStop(0, 'rgba(160,156,148,0.45)'); du.addColorStop(1, 'rgba(160,156,148,0)'); g.fillStyle = du; g.fillRect(0, 0, s, s);
-    irregular(g, c, c, s * 0.4, 30, 0.1, 'rgba(170,165,156,0.9)'); irregular(g, c, c, s * 0.37, 30, 0.08, 'rgba(236,233,226,1)'); irregular(g, c, c, s * 0.33, 30, 0.05, 'rgba(160,155,146,1)');
+    irregular(g, c, c, s * rnd(0.39, 0.44), 30, rnd(0.08, 0.16), 'rgba(150,146,138,0.55)'); irregular(g, c, c, s * 0.37, 30, 0.08, 'rgba(206,202,195,0.85)'); irregular(g, c, c, s * 0.33, 30, 0.05, 'rgba(140,135,127,1)');
     speck(g, c, s * 0.3, s * 0.38, 40, ['rgba(226,222,214,1)', 'rgba(200,196,188,1)'], 1.5, 3.5);
   }, 0.3))
 };
@@ -249,47 +267,72 @@ const DEB_GEO = [0, 1, 2, 3].map(() => {
   for (let i = 0; i < p.count; i++) { const k = Math.round(p.getX(i) * 100) + ',' + Math.round(p.getY(i) * 100) + ',' + Math.round(p.getZ(i) * 100); const j = J[k] || (J[k] = rnd(0.55, 1.15)); p.setXYZ(i, p.getX(i) * j, p.getY(i) * j * 0.8, p.getZ(i) * j); }
   g.computeVertexNormals(); return g;
 });
-const debris = [], DEB_MAT = {};
-const debMat = col => DEB_MAT[col] || (DEB_MAT[col] = new THREE.MeshStandardMaterial({ color: col, roughness: 1 }));
+// All debris is drawn instanced: one mesh per shape (four rough rock forms, a splinter box, a flat slab), each piece a slot
+// with its own matrix and colour. Thousands of pieces cost a handful of draw calls, so a wall can come apart into as many
+// chunks as it really would and the rubble can stay on the floor.
+const DEB_CAP = 1400, debris = [];
+const DEB_POOLS = [...DEB_GEO, fxBox, new THREE.BoxGeometry(1, 1, 1, 2, 1, 2)].map((geo, gi) => {
+  if (gi === 5) { const p = geo.attributes.position; for (let i = 0; i < p.count; i++) p.setXYZ(i, p.getX(i) * rnd(0.85, 1.15), p.getY(i), p.getZ(i) * rnd(0.85, 1.15)); geo.computeVertexNormals(); }
+  const im = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.97 }), DEB_CAP);
+  im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(DEB_CAP * 3), 3);
+  im.count = 0; im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true; im.userData.keep = true; scene.add(im);
+  return { im, next: 0, slot: new Array(DEB_CAP).fill(null), dirty: false };
+});
+const _dM = new THREE.Matrix4(), _dE = new THREE.Euler(), _dQ = new THREE.Quaternion(), _dCol = new THREE.Color(), _dZero = new THREE.Matrix4().makeScale(0, 0, 0);
+const debLimit = () => Math.round(DEB_CAP * ((typeof GFX !== 'undefined' && GFX.debris) || 1));
+function debAdd(gi, pos, rot, sc, col) {
+  const P = DEB_POOLS[gi], lim = debLimit(); let i = P.next; P.next = (P.next + 1) % lim;
+  const old = P.slot[i]; if (old) old.dead = true;
+  const d = { gi, i, p: pos, rot, sc, dead: false }; P.slot[i] = d; P.im.count = Math.max(P.im.count, i + 1);
+  P.im.setColorAt(i, _dCol.setHex(col)); P.im.instanceColor.needsUpdate = true; debWrite(d); return d;
+}
+function debWrite(d) { const P = DEB_POOLS[d.gi]; P.im.setMatrixAt(d.i, _dM.compose(d.p, _dQ.setFromEuler(d.rot), d.sc)); P.dirty = true; }
 const shade = (col, k) => { const c = new THREE.Color(col).multiplyScalar(k); return c.getHex(); };
-function spawnDebris(p, n, dir, spread, speed, D, sz) {
+// slab: a flat piece of the wall itself (sx x sy x thickness), for what breaks away in one piece
+function spawnDebris(p, n, dir, spread, speed, D, sz, slab) {
   for (let i = 0; i < n; i++) {
-    const s = sz * rnd(0.3, 1.25); let geo, sc;
-    if (D.deb === 'wood') { geo = fxBox; sc = [s * rnd(0.2, 0.45), s * rnd(0.12, 0.3), s * rnd(1.5, 4.5)]; }
-    else if (D.deb === 'plaster') { geo = pick(DEB_GEO); sc = [s, s * 0.22, s * rnd(0.7, 1.1)]; }
-    else { geo = pick(DEB_GEO); sc = [s, s * rnd(0.6, 1), s * rnd(0.7, 1.1)]; }
-    const col = D.deb === 'wood' ? (Math.random() < 0.5 ? 0xe0c08c : 0xb48a58) : shade(Math.random() < 0.35 ? D.pit : D.col, Math.round(rnd(8, 11)) / 10);
-    const m = new THREE.Mesh(geo, debMat(col)); m.scale.set(sc[0], sc[1], sc[2]);
-    m.position.copy(p).add(new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(0.012)); m.rotation.set(rnd(0, 6), rnd(0, 6), rnd(0, 6));
-    m.castShadow = s > 0.012; scene.add(m);
-    const v = dir.clone().multiplyScalar(speed * rnd(0.35, 1.1)).add(new V3(rnd(-1, 1), rnd(-0.2, 1), rnd(-1, 1)).multiplyScalar(spread * speed));
-    debris.push({ m, v, w: new V3(rnd(-25, 25), rnd(-25, 25), rnd(-25, 25)), r: Math.min(sc[0], sc[1], sc[2]) * 0.5, life: rnd(20, 35), rest: false, flake: D.deb === 'plaster' });
+    const s = sz * rnd(0.3, 1.25); let gi, sc;
+    if (slab) { gi = 5; sc = new V3(slab[0] * rnd(0.6, 1), slab[2], slab[1] * rnd(0.6, 1)); }
+    else if (D.deb === 'wood') { gi = 4; sc = new V3(s * rnd(0.2, 0.45), s * rnd(0.12, 0.3), s * rnd(1.5, 4.5)); }
+    else if (D.deb === 'plaster') { gi = Math.floor(Math.random() * 4); sc = new V3(s, s * 0.22, s * rnd(0.7, 1.1)); }
+    else { gi = Math.floor(Math.random() * 4); sc = new V3(s, s * rnd(0.6, 1), s * rnd(0.7, 1.1)); }
+    const col = D.deb === 'wood' ? (Math.random() < 0.5 ? 0xe0c08c : 0xb48a58) : shade(Math.random() < 0.35 ? D.pit : D.col, rnd(0.78, 1.08));
+    const pos = p.clone().add(new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(0.012));
+    const d = debAdd(gi, pos, new THREE.Euler(rnd(0, 6), rnd(0, 6), rnd(0, 6)), sc, col);
+    d.v = dir.clone().multiplyScalar(speed * rnd(0.35, 1.1)).add(new V3(rnd(-1, 1), rnd(-0.2, 1), rnd(-1, 1)).multiplyScalar(spread * speed));
+    d.w = new V3(rnd(-25, 25), rnd(-25, 25), rnd(-25, 25)).multiplyScalar(slab ? 0.15 : 1);
+    d.r = slab ? Math.max(sc.y * 0.5, 0.01) : Math.min(sc.x, sc.y, sc.z) * 0.5; d.life = rnd(90, 150); d.rest = false; d.flake = D.deb === 'plaster' && !slab; d.slab = !!slab;
+    debris.push(d);
   }
-  while (debris.length > 450) { const d = debris.shift(); scene.remove(d.m); }
 }
 const _dprev = new V3();
 function updateDebris(dt) {
-  for (let i = debris.length - 1; i >= 0; i--) {
-    const d = debris[i]; d.life -= dt;
-    if (d.life <= 0) { d.m.scale.multiplyScalar(Math.max(0, 1 - dt * 3)); if (d.life < -1) { scene.remove(d.m); debris.splice(i, 1); } continue; }
+  let w = 0;
+  for (let i = 0; i < debris.length; i++) {
+    const d = debris[i]; if (d.dead) continue; debris[w++] = d;
+    d.life -= dt;
+    if (d.life <= 0) { d.sc.multiplyScalar(Math.max(0, 1 - dt * 3)); debWrite(d); if (d.life < -1) { d.dead = true; DEB_POOLS[d.gi].im.setMatrixAt(d.i, _dZero); DEB_POOLS[d.gi].slot[d.i] = null; w--; } continue; }
     if (d.rest) continue;
     if (d.flake) { d.v.multiplyScalar(1 - 2.5 * dt); d.v.y -= 4 * dt; } else d.v.y -= 9.8 * dt;
-    _dprev.copy(d.m.position); d.m.position.addScaledVector(d.v, dt);
-    d.m.rotation.x += d.w.x * dt; d.m.rotation.y += d.w.y * dt; d.m.rotation.z += d.w.z * dt;
+    _dprev.copy(d.p); d.p.addScaledVector(d.v, dt);
+    d.rot.x += d.w.x * dt; d.rot.y += d.w.y * dt; d.rot.z += d.w.z * dt;
     let floor = d.r;
     for (const c of colliders) {
-      const p = d.m.position;
+      const p = d.p;
       if (p.x > c.min.x && p.x < c.max.x && p.z > c.min.z && p.z < c.max.z && p.y < c.max.y + d.r && p.y > c.min.y && !(c.mesh && gridOpenW(c.mesh, p))) {
         if (_dprev.y >= c.max.y + d.r * 0.5) floor = Math.max(floor, c.max.y + d.r);
-        else { d.m.position.x = _dprev.x; d.m.position.z = _dprev.z; if (_dprev.x <= c.min.x || _dprev.x >= c.max.x) d.v.x *= -0.3; else d.v.z *= -0.3; }
+        else { d.p.x = _dprev.x; d.p.z = _dprev.z; if (_dprev.x <= c.min.x || _dprev.x >= c.max.x) d.v.x *= -0.3; else d.v.z *= -0.3; }
       }
     }
-    if (d.m.position.y < floor) {
-      d.m.position.y = floor;
-      if (d.v.y < -0.9) { d.v.y *= -0.28; d.v.x *= 0.55; d.v.z *= 0.55; d.w.multiplyScalar(0.5); }
-      else { d.rest = true; d.m.rotation.x = Math.round(d.m.rotation.x / Math.PI) * Math.PI; d.m.rotation.z = Math.round(d.m.rotation.z / Math.PI) * Math.PI; }
+    if (d.p.y < floor) {
+      d.p.y = floor;
+      if (d.v.y < -0.9) { d.v.y *= d.slab ? -0.12 : -0.28; d.v.x *= 0.55; d.v.z *= 0.55; d.w.multiplyScalar(0.5); if (d.slab && d.v.y > 0.3) { noiseHit(260, 0.12, 0.08); dust(d.p, new V3(0, 1, 0), 0xb8b2a6, 0.5, 0.35, 1.6); } }
+      else { d.rest = true; d.rot.x = Math.round(d.rot.x / Math.PI) * Math.PI; d.rot.z = Math.round(d.rot.z / Math.PI) * Math.PI; }
     }
+    debWrite(d);
   }
+  debris.length = Math.max(0, w);
+  for (const P of DEB_POOLS) if (P.dirty) { P.im.instanceMatrix.needsUpdate = true; P.dirty = false; }
 }
 function dust(p, n, col, size, op, life) {
   for (let i = 0; i < 3; i++) {
@@ -349,6 +392,7 @@ function wallDamage(mesh, point, n, dir, E, w, side, through) {
   const nr = Math.min(D.rmax, 0.03 + cal * 1.5 + D.grow * Math.sqrt(Math.max(0, c.d / D.hp - 1) + 0.04));
   if (nr > c.r + 0.004) breakOpen(mesh, c, nr, D, dims, dir, sgn);
 }
+const REBAR_GEO = new THREE.CylinderGeometry(0.0065, 0.0065, 1, 6), REBAR_MAT = new THREE.MeshStandardMaterial({ color: 0x5a3b2a, roughness: 0.75, metalness: 0.55 });
 function breakOpen(mesh, c, nr, D, dims, dir, sgn) {
   const ud = mesh.userData, ax = c.ax, a1 = (ax + 1) % 3, a2 = (ax + 2) % 3, thick = dims[ax], old = c.r;
   if (c.slot < 0) {
@@ -371,8 +415,33 @@ function breakOpen(mesh, c, nr, D, dims, dir, sgn) {
   // craters that are now inside the hole would float in the air: take them away
   for (const o of ud.dmg) if (o.ax === ax) o.chips = o.chips.filter(ch => { if (Math.hypot(ch.u - c.u, ch.v - c.v) < nr * 1.05) { dropDecal(ch.m); return false; } return true; });
   for (const r of c.rings) dropDecal(r); c.rings = [];
+  // the broken edge round the hole on each face: a ring of spalled, cracked material (the far face, where it blew out, wider)
+  const ringed = ud.dmg.some(o => o !== c && o.ax === ax && o.rings && o.rings.length && Math.hypot(o.u - c.u, o.v - c.v) < (o.r + nr) * 1.1);
+  if (full && !ringed) for (const fs of [1, -1]) {
+    const q = p0.clone().setComponent(ax, fs * thick / 2), nW = new V3().setComponent(ax, fs).transformDirection(mesh.matrixWorld);
+    const exitSide = fs === -sgn, sz = nr / 0.3 * (exitSide && D.deb === 'rock' ? rnd(1.25, 1.5) : rnd(1.0, 1.15));
+    const m = placeDecalD(mesh, mesh.localToWorld(q), nW, sz, pick(BREAK_MAT[D.deb]), Math.min(0.04, thick * 0.5)); if (m) c.rings.push(m);
+  }
+  // reinforced concrete: the steel mesh inside shows across a big enough hole, bent a little where it was hit
+  if (D.deb === 'rock' && full && nr > 0.09 && thick > 0.12) {
+    if (c.rebar) { c.rebar.removeFromParent(); } const rg = c.rebar = new THREE.Group(); mesh.add(rg);
+    const sp = 0.16, off1 = ((c.u % sp) + sp) % sp, off2 = ((c.v % sp) + sp) % sp;
+    for (const layer of [-0.28, 0.28]) for (const along of [0, 1]) {
+      const o = along ? off1 : off2, base = along ? c.u : c.v;
+      for (let k = Math.ceil((base - nr - o) / sp); k * sp + o <= base + nr; k++) {
+        const x = k * sp + o, dd = x - base; if (Math.abs(dd) >= nr * 0.95) continue;
+        const half = Math.sqrt(nr * nr - dd * dd) + 0.03, rod = new THREE.Mesh(REBAR_GEO, REBAR_MAT);
+        rod.scale.set(1, half * 2, 1);
+        const pos = new V3(); pos.setComponent(ax, layer * thick * (1 + rnd(-0.1, 0.1))); pos.setComponent(along ? a1 : a2, x); pos.setComponent(along ? a2 : a1, along ? c.v : c.u);
+        rod.position.copy(pos);
+        const axis = new V3().setComponent(along ? a2 : a1, 1); rod.quaternion.setFromUnitVectors(_Y, axis);
+        rod.rotateOnWorldAxis(new V3().setComponent(ax, 1), 0); rod.rotateX(rnd(-0.06, 0.06)); rod.rotateZ(rnd(-0.06, 0.06));
+        rod.castShadow = true; rg.add(rod);
+      }
+    }
+  }
   // what used to fill the hole comes off as chunks, most of it out the far side
-  const area = Math.PI * (nr * nr - old * old), n = clamp(Math.round(area * 2600), 8, 45), fw = new V3().setComponent(ax, -sgn), bk = fw.clone().negate();
+  const area = Math.PI * (nr * nr - old * old), n = clamp(Math.round(area * 6000), 12, 140), fw = new V3().setComponent(ax, -sgn), bk = fw.clone().negate();
   for (let i = 0; i < n; i++) {
     const a = Math.random() * 6.283, rr = Math.sqrt(rnd(old * old, nr * nr) / (nr * nr)) * nr, q = new V3();
     q.setComponent(a1, c.u + Math.cos(a) * rr); q.setComponent(a2, c.v + Math.sin(a) * rr);

@@ -61,7 +61,7 @@ const splatIM = (() => {
 const _sM = new THREE.Matrix4(), _sQ = new THREE.Quaternion(), _sQ2 = new THREE.Quaternion(), _sS = new V3(), _sP = new V3(), _sN = new V3(), _sC = new THREE.Color();
 // p: where it hit, n: the surface's normal, r: the drop's radius, v: its velocity when it hit
 function dropSplat(p, n, r, v) {
-  const im = splatIM, i = im.userData.next; im.userData.next = (i + 1) % SPLAT_N; im.count = Math.max(im.count, i + 1);
+  const im = splatIM, i = im.userData.next; im.userData.next = (i + 1) % Math.max(50, Math.round(SPLAT_N * GFX.splats)); im.count = Math.max(im.count, i + 1);
   _sN.copy(n).normalize(); _sQ.setFromUnitVectors(_Z, _sN);
   // along the surface, the way it was going: the tile's +x (its tail) points that way, and it smears longer the faster it hit
   const vt = _sP.copy(v).addScaledVector(_sN, -v.dot(_sN)), sp = vt.length(), vn = Math.abs(v.dot(_sN));

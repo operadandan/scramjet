@@ -19,6 +19,15 @@ function bump(r, a, b) { return (r < a || r > b) ? 0 : Math.sin((r - a) / (b - a
 function ramp(r, a, b) { return smooth(clamp((r - a) / (b - a), 0, 1)); }
 
 // ---------------------------------------------------------------- renderer / scene
+// graphics settings (Esc > Settings), kept in localStorage. Presets fill in the details; any detail can be changed after.
+const GFX_PRESETS = {
+  low:    { res: 0.75, shadows: 'off',  shadowBodies: 0,  debris: 0.35, splats: 0.35 },
+  medium: { res: 1,    shadows: 'low',  shadowBodies: 4,  debris: 0.6,  splats: 0.6 },
+  high:   { res: 'auto', shadows: 'high', shadowBodies: 8, debris: 1,   splats: 1 },
+  ultra:  { res: 1.5,  shadows: 'ultra', shadowBodies: 16, debris: 1,   splats: 1 }
+};
+const GFX = Object.assign({ preset: 'high', fov: 75, sens: 1 }, GFX_PRESETS.high);
+try { Object.assign(GFX, JSON.parse(localStorage.getItem('breach_gfx') || '{}')); } catch (e) {}
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.setSize(innerWidth, innerHeight);

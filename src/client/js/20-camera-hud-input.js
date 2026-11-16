@@ -84,7 +84,7 @@ function updateCamera(dt) {
     camera.position.lerp(hp, P.reactV); camera.quaternion.slerp(hq, P.reactV);
   }
   const w = WEAPONS[P.weapon];
-  const zW = VMW[P.weapon], mag = zW && zW.lens; camera.fov = lerp(75, mag ? (w.scope ? 52 : 60) : w.fovAds, P.ads) + P.sprintBlend * 4; camera.updateProjectionMatrix();
+  const zW = VMW[P.weapon], mag = zW && zW.lens; camera.fov = lerp(GFX.fov, mag ? (w.scope ? 52 : 60) : w.fovAds * GFX.fov / 75, P.ads) + P.sprintBlend * 4; camera.updateProjectionMatrix();
 }
 const _vt = new V3(), _wr = new V3(), _fd = new V3(), _vi = new V3(), _vir = new V3(), _v0 = new V3(), _v1 = new V3(), _v2 = new V3(), _v3 = new V3(), _V1 = new V3(1, 1, 1), _q0 = new THREE.Quaternion(), _e0 = new THREE.Euler(), _m0 = new THREE.Matrix4(), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
 function updateViewmodel(dt) {
@@ -319,7 +319,7 @@ addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('mousemove', e => {
   if (!S.locked) return;
   if (!P.alive || P.downed) { P.lookX = clamp(P.lookX - e.movementX * 0.0012, -0.55, 0.55); P.lookY = clamp(P.lookY - e.movementY * 0.0012, -0.4, 0.4); return; }
-  const zl = P.slot < 2 && VMW[P.weapon] && VMW[P.weapon].lens; const sens = 0.0022 * (camera.fov / 75) * lerp(1, 0.85, P.ads) * (zl ? lerp(1, 1.5 / zl.userData.zoom, P.ads) : 1);
+  const zl = P.slot < 2 && VMW[P.weapon] && VMW[P.weapon].lens; const sens = 0.0022 * GFX.sens * (camera.fov / GFX.fov) * lerp(1, 0.85, P.ads) * (zl ? lerp(1, 1.5 / zl.userData.zoom, P.ads) : 1);
   P.yaw -= e.movementX * sens; P.pitch = clamp(P.pitch - e.movementY * sens, PITCH_MIN, 1.5);
   P.mdx = (P.mdx || 0) + e.movementX; P.mdy = (P.mdy || 0) + e.movementY;
   P.swayX = clamp(P.swayX - e.movementX * 0.00003, -0.02, 0.02); P.swayY = clamp(P.swayY + e.movementY * 0.00003, -0.02, 0.02);

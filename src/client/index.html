@@ -135,6 +135,8 @@ select{width:100%;padding:9px 10px;margin:4px 0 8px;background:#0b0e12;border:1p
 #black{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:10}
 #deathmsg{position:fixed;left:0;right:0;top:40%;text-align:center;font-size:22px;letter-spacing:3px;z-index:11;pointer-events:none;text-shadow:0 2px 6px #000;display:none}
 .optr{display:flex;align-items:center;gap:8px}.optr input[type=range]{flex:1;accent-color:#e8432d}
+#setv{display:none;max-height:80vh;overflow:auto}#setv h3{margin:14px 0 6px;font-size:12px;letter-spacing:2px;color:#8a96a3;font-weight:600}#setv h3:first-child{margin-top:0}
+.srow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:7px 0;font-size:12px;color:#c9d1d9}.srow span{flex:1}.srow select{width:170px;margin:0;padding:6px 8px}.srow input[type=range]{width:120px;margin:0}.srow b{width:44px;text-align:right;font-weight:500;color:#e8ecef}
 #pause{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5);z-index:15}
 #calc{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:radial-gradient(1200px 800px at 20% 10%,#2a3550 0,transparent 60%),radial-gradient(900px 700px at 90% 100%,#3b2440 0,transparent 55%),#0e1016;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,sans-serif;user-select:none}
 #calc .cw{width:340px;padding:22px;border-radius:30px;background:linear-gradient(160deg,rgba(40,42,50,.92),rgba(22,23,28,.96));border:1px solid rgba(255,255,255,.07);box-shadow:0 30px 80px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.06)}
@@ -244,9 +246,10 @@ select{width:100%;padding:9px 10px;margin:4px 0 8px;background:#0b0e12;border:1p
 <div id="dmgv"></div>
 <div id="black"></div>
 <div id="deathmsg"></div>
-<div id="pause"><div class="panel">
+<div id="pause"><div class="panel"><div id="pmain">
   <h2>PAUSED</h2>
   <button id="resume">Resume</button>
+  <button class="alt" id="opensettings">Settings</button>
   <div class="lo"><label>PRIMARY</label><label>SECONDARY</label>
     <select id="lo_p2"><option value="0">M4A1 (5.56)</option></select>
     <select id="lo_s2"><option value="1">Glock 17 (9mm)</option></select>
@@ -256,7 +259,7 @@ select{width:100%;padding:9px 10px;margin:4px 0 8px;background:#0b0e12;border:1p
   <label class="opt"><input type="checkbox" id="opt_target"> Show the condition panel of whoever you shoot</label>
   <button class="alt" id="leave">Leave to menu</button>
   <div class="keys" id="pauseinfo"></div>
-</div></div>
+</div><div id="setv"></div></div></div>
 
 <script type="module">
 /*@SCRIPTS@*/

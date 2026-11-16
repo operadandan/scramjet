@@ -78,7 +78,7 @@ function leave() {
   for (const d of dummies) d.dispose(); dummies.length = 0;
   while (ragdolls.length) ragdolls.pop().dispose();
   clearItems(); drops.length = 0; hlMesh.visible = false; $('pickup').style.display = 'none';
-  for (const d of decals) { scene.remove(d); if (d.geometry !== splatGeo) d.geometry.dispose(); } decals.length = 0; clearPools(); clearGore(); for (const d of debris) scene.remove(d.m); debris.length = 0;
+  for (const d of decals) { scene.remove(d); if (d.geometry !== splatGeo) d.geometry.dispose(); } decals.length = 0; clearPools(); clearGore(); debris.length = 0; for (const P of DEB_POOLS) { P.im.count = 0; P.next = 0; P.slot.fill(null); } splatIM.count = 0; splatIM.userData.next = 0;
   for (const p of props) scene.remove(p.m); props.length = 0; for (const L of limbBodies) L.dispose(); limbBodies.length = 0;
   while (bullets.length) removeBullet(bullets.length - 1);
   S.slow = false; S.ts = 1; S.target = null; S.testKills = 0; S.testDeaths = 0; P.downed = false; $('scope').style.display = 'none'; $('score').style.display = 'none'; S.filt = ''; renderer.domElement.style.filter = ''; $('slowmo').style.display = 'none';
@@ -137,7 +137,7 @@ function updateShadowCasters(dt) {
   const cp = camera.position, dist = o => { o.getWorldPosition(_shV); return _shV.distanceToSquared(cp); };
   const ds = L.map(o => [o, dist(o)]).sort((a, b) => a[1] - b[1]);
   ds.forEach(([o, d2], i) => {
-    const on = i < 8 && d2 < 30 * 30;
+    const on = i < GFX.shadowBodies && d2 < 30 * 30;
     if (o.userData.shOn === on) return; o.userData.shOn = on;
     o.traverse(m => { if (!m.isMesh) return; if (m.userData.cs0 === undefined) m.userData.cs0 = m.castShadow; m.castShadow = on && m.userData.cs0; });
   });
@@ -148,10 +148,55 @@ const _shV = new V3();
 let _drT = 0, _drE = 1 / 60, _drR = Math.min(devicePixelRatio, 1.5);
 function dynRes(dt) {
   _drE += (dt - _drE) * 0.08; if ((_drT -= dt) > 0) return; _drT = 0.5;
+  if (GFX.res !== 'auto') { const r = +GFX.res; if (Math.abs(r - renderer.getPixelRatio()) > 0.01) { _drR = r; renderer.setPixelRatio(r); renderer.setSize(innerWidth, innerHeight, false); } return; }
   const mx = Math.min(devicePixelRatio, 1.5), mn = Math.min(mx, 0.6);
   let r = _drR; if (_drE > 1 / 50) r = Math.max(mn, r * 0.88); else if (_drE < 1 / 75) r = Math.min(mx, r * 1.06);
   if (Math.abs(r - renderer.getPixelRatio()) / r > 0.03) { _drR = r; renderer.setPixelRatio(r); renderer.setSize(innerWidth, innerHeight, false); }
 }
+// ---------------------------------------------------------------- settings
+function applyGfx() {
+  const sh = GFX.shadows, want = sh !== 'off';
+  if (renderer.shadowMap.enabled !== want || (want && renderer.shadowMap.type !== (sh === 'low' ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap))) {
+    renderer.shadowMap.enabled = want; renderer.shadowMap.type = sh === 'low' ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+    scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.needsUpdate = true); });
+  }
+  const ms = sh === 'ultra' ? 4096 : sh === 'low' ? 1024 : 2048;
+  if (sun.shadow.mapSize.x !== ms) { sun.shadow.mapSize.set(ms, ms); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
+  for (const o of [...ragdolls.map(r => r.group), ...dummies.map(d => d.hum && d.hum.root)]) if (o) o.userData.shOn = undefined;
+  _shT = 0; _drT = 0;
+  try { localStorage.setItem('breach_gfx', JSON.stringify(GFX)); } catch (e) {}
+}
+function settingsUI() {
+  const box = $('setv'); if (!box) return;
+  const row = (label, html) => '<div class="srow"><span>' + label + '</span>' + html + '</div>';
+  const sel = (k, opts) => '<select data-k="' + k + '">' + opts.map(([v, t]) => '<option value="' + v + '"' + (String(GFX[k]) === String(v) ? ' selected' : '') + '>' + t + '</option>').join('') + '</select>';
+  const rng = (k, a, b, st, fmt) => '<input type="range" data-k="' + k + '" min="' + a + '" max="' + b + '" step="' + st + '" value="' + GFX[k] + '"><b>' + fmt(GFX[k]) + '</b>';
+  box.innerHTML = '<h3>GRAPHICS</h3>' +
+    row('Quality preset', sel('preset', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']])) +
+    row('Resolution', sel('res', [['auto', 'Auto'], [0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.25, '125%'], [1.5, '150%'], [2, '200%']])) +
+    row('Shadows', sel('shadows', [['off', 'Off'], ['low', 'Low'], ['high', 'High'], ['ultra', 'Ultra']])) +
+    row('Bodies casting shadows', rng('shadowBodies', 0, 24, 1, v => v)) +
+    row('Debris amount', rng('debris', 0.1, 1, 0.05, v => Math.round(v * 100) + '%')) +
+    row('Blood splats', rng('splats', 0.1, 1, 0.05, v => Math.round(v * 100) + '%')) +
+    '<h3>VIEW AND CONTROLS</h3>' +
+    row('Field of view', rng('fov', 60, 100, 1, v => v + '&deg;')) +
+    row('Mouse sensitivity', rng('sens', 0.2, 3, 0.05, v => (+v).toFixed(2) + 'x')) +
+    '<button id="setback">Back</button>';
+  box.querySelectorAll('[data-k]').forEach(el => {
+    const ev = el.tagName === 'SELECT' ? 'onchange' : 'oninput';
+    el[ev] = () => {
+      const k = el.dataset.k, v = el.value;
+      if (k === 'preset') { GFX.preset = v; if (GFX_PRESETS[v]) Object.assign(GFX, GFX_PRESETS[v]); applyGfx(); settingsUI(); return; }
+      GFX[k] = el.type === 'range' ? +v : (k === 'res' && v !== 'auto' ? +v : v);
+      if (!['fov', 'sens'].includes(k)) GFX.preset = 'custom';
+      if (el.type === 'range') el.nextElementSibling.innerHTML = { debris: 1, splats: 1 }[k] ? Math.round(v * 100) + '%' : k === 'fov' ? v + '&deg;' : k === 'sens' ? (+v).toFixed(2) + 'x' : v;
+      applyGfx(); if (k !== 'fov' && k !== 'sens' && el.tagName === 'SELECT') settingsUI();
+    };
+  });
+  $('setback').onclick = () => { $('setv').style.display = 'none'; $('pmain').style.display = 'block'; };
+}
+$('opensettings').onclick = () => { $('pmain').style.display = 'none'; $('setv').style.display = 'block'; settingsUI(); };
+applyGfx();
 function schedule() { if (!rafPending) { rafPending = true; requestAnimationFrame(loop); } }
 function loop(now) { rafPending = false; schedule(); frame(now, false); }
 try {

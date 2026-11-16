@@ -22,7 +22,7 @@ function tpCamera() {
   ray.set(camera.position, d); ray.far = len;
   const h = ray.intersectObjects(worldMeshes, false)[0];
   camera.position.copy(h ? camera.position.clone().addScaledVector(d, Math.max(0.2, h.distance - 0.2)) : want);
-  camera.fov = lerp(72, 52, P.ads); camera.updateProjectionMatrix();
+  camera.fov = lerp(GFX.fov - 3, 52, P.ads); camera.updateProjectionMatrix();
 }
 // where a third-person shot goes: from the eyes toward whatever is under the centre of the screen
 function tpAim() {
