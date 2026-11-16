@@ -119,13 +119,13 @@ BCQ.mat = new THREE.ShaderMaterial({
   fragmentShader: `uniform sampler2D map; uniform float asp, K, t; varying vec2 vUv;
     float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233)) + t * 17.0) * 43758.5453); }
     void main() {
-      // a clean action-cam lens: mild barrel bend, a soft dark rim, a touch of grain, colours left alone
       vec2 p = vUv * 2.0 - 1.0; float r2 = p.x * p.x + (p.y / asp) * (p.y / asp);
-      vec2 q = p * (1.0 - K + K * r2);
+      vec2 q = p * (1.0 - K + K * r2), qr = p * (1.0 - K + K * r2 * 1.012), qb = p * (1.0 - K + K * r2 * 0.988);
       if (abs(q.x) > 1.0 || abs(q.y) > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
-      vec3 c = texture2D(map, q * 0.5 + 0.5).rgb;
-      c *= 1.0 - smoothstep(0.75, 1.6, r2) * 0.45;
-      c += (hash(gl_FragCoord.xy) - 0.5) * 0.018;
+      vec3 c = vec3(texture2D(map, qr * 0.5 + 0.5).r, texture2D(map, q * 0.5 + 0.5).g, texture2D(map, qb * 0.5 + 0.5).b);
+      float l = dot(c, vec3(0.299, 0.587, 0.114)); c = mix(vec3(l), c, 0.82); c = (c - 0.5) * 0.92 + 0.52;
+      c *= 1.0 - smoothstep(0.55, 1.45, r2) * 0.75;
+      c += (hash(gl_FragCoord.xy) - 0.5) * 0.06;
       gl_FragColor = vec4(c, 1.0);
       #include <colorspace_fragment>
     }`

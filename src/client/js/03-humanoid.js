@@ -161,8 +161,11 @@ class Humanoid {
     this.knR.rotation.set(kneeBase - amp * 1.3 * Math.max(0, -cw) - pr * (0.15 + Math.max(0, -sw) * 0.5 * Math.min(1, a.speed)) - 0.25 * limpL * pr - (bb & 128 ? 0.35 : 0), 0, bb & 128 ? -0.3 : 0);
     this.hips.position.set(a.lean * 0.07 * (1 - pr), 0.95 - 0.38 * c - 0.04 * amp * Math.abs(cw), 0);
     this.hips.rotation.set(0, sw * amp * 0.15, 0);
-    const stance = -0.45 * rifleK * (1 - s) * (1 - pr);
-    const sx = (-0.12 * c - 0.25 * s + a.pitch * 0.25 * (1 - s)) * (1 - pr);
+    // body cam (your own body only): squared up to the front instead of bladed, and the chest tips up and down with
+    // where you look so the chest camera does too
+    this.bcW = damp(this.bcW || 0, S.bodycam && (this === localBody || this === localVis) ? 1 : 0, 8, dt || 0.016);
+    const stance = -0.45 * rifleK * (1 - s) * (1 - pr) * (1 - 0.65 * this.bcW);
+    const sx = (-0.12 * c - 0.25 * s + a.pitch * lerp(0.25, 0.6, this.bcW) * (1 - s)) * (1 - pr);
     this.spine.rotation.set(sx, stance - sw * amp * 0.08, -a.lean * 0.42 * (1 - pr));
     this.neck.rotation.set(clamp(a.pitch * (1 - s) - sx, -0.8, 0.8) * 0.75 * (1 - pr) - 0.12 * a.ads * rifleK + pr * (1.25 + a.pitch * 0.5), -stance, a.lean * 0.15 * (1 - pr));
     // hit flinch: each round gives the part it hits a shove (springs that settle in a fraction of a second)
@@ -200,12 +203,13 @@ class Humanoid {
     if ((ah & 2) || (ls & 12)) gx -= 0.5;
     // body cam: the gun is carried low, stock at the chest under the camera instead of up at the cheek (as in body-worn
     // footage); eased in and out
-    this.bcW = damp(this.bcW || 0, S.bodycam && (this === localBody || this === localVis) ? 1 : 0, 8, dt || 0.016);
     // aiming on the body cam: the gun comes up and in to the middle of the chest, sights just under the lens (the way
     // Bodycam and Unrecord do it), pointing where you look
     this.bcA = damp(this.bcA || 0, this.bcW > 0.5 && a.ads > 0.5 && rifleish ? 1 : 0, 9, dt || 0.016);
     if (this.bcW > 0.001) { const k = this.bcW * (1 - s) * (1 - this.bcA); this.rPiv.position.y -= 0.15 * k; this.rPiv.position.addScaledVector(this._t.set(0, 0, -1).applyAxisAngle(_YAX, -stance), 0.05 * k); }
     if (this.bcA > 0.001) { const A = this.bcA * (1 - s); this.rPiv.position.lerp(this._t.set(0, 0.425, -0.16), A); }
+    // the mouse's free-aim offset and sway (as in first person) move the gun on the body cam too
+    if (this.bcW > 0.001 && a.bcO) { gy -= a.bcO[0] * this.bcW; gx -= a.bcO[1] * this.bcW; }
     this.rPiv.rotation.set(gx, gy, gz);
     this.pPiv.rotation.set(lerp(P, -0.9, s) - (r > 0 ? 0.3 * Math.sin(r * Math.PI) : 0) - (med ? 0.35 : 0), lerp(0, 0.5, s), 0);
     this.pPiv.position.set(med ? 0 : 0.05, lerp(0.53, 0.38, s) - 0.14 * (this.bcW || 0) * (1 - s), lerp(0, -0.05, s) - 0.05 * (this.bcW || 0) * (1 - s));
@@ -218,7 +222,7 @@ class Humanoid {
     this.root.updateMatrixWorld(true);
     const rq = this.spine.getWorldQuaternion(_q3);
     const poleR = this._p1.set(rifleish ? 0.75 : 0.5, -1, 0.25).applyQuaternion(rq);
-    const poleL = this._p2.set(rifleish ? -0.55 : -0.5, -1, 0.1).applyQuaternion(rq);
+    const poleL = this._p2.set(rifleish ? lerp(-0.55, -0.15, this.bcW || 0) : -0.5, -1, 0.1).applyQuaternion(rq);   // body cam: support elbow tucked under
     const tR = G.grip.getWorldPosition(new V3());
     let tL = G.fore.getWorldPosition(new V3());
     if (r > 0) {

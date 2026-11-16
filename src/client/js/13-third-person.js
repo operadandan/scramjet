@@ -10,6 +10,8 @@ function updateTPBody(dt) {
   Object.assign(lv.anim, localBody.anim);
   lv.setLost(P.anat.lostMask(), P.anat.cutArr());
   setHelmet(lv, P.anat.helmetOn);
+  lv.head.visible = !S.bodycam;
+  lv.anim.bcO = [(P.aimOX || 0) * 1.6 + (P.swayX || 0) * 4, (P.aimOY || 0) * 1.6 + (P.swayY || 0) * 4];
   lv.update(dt);
 }
 // over-the-shoulder camera, pulled in when something is in the way
@@ -41,11 +43,13 @@ function tpAim() {
 // A camera clipped to the middle of the chest: it goes wherever the torso goes (every step, twist and lean), sees the arms
 // and the gun from below, and has the wide, barrel-bent lens, dark corners and grain of real body-worn footage. You still
 // aim with your eyes: where you are looking shows as a small dot.
-const BCAM = { pos: new V3(), q: new THREE.Quaternion(), tilt: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12, 0, 0)), K: 0.12 };
+const BCAM = { pos: new V3(), q: new THREE.Quaternion(), tilt: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12, 0, 0)), K: 0.2 };
 const _bcF = new V3(), _bcE = new V3(), _bcQ = new THREE.Quaternion(), _bcI = new THREE.Quaternion();
 function bodyCam() {
   if (!S.bodycam || !S.mode || !P.alive || P.downed || !localBody) return false;
-  const sp = localBody.spine; localBody.root.updateMatrixWorld(true);
+  const B = localVis || localBody, sp = B.spine; B.root.updateMatrixWorld(true);
+  // the camera sits under the chin: your own head isn't drawn (it would fill the top of the picture looking down)
+  B.head.visible = false;
   sp.localToWorld(BCAM.pos.fromArray(BCAM.off || [0, 0.50, -0.12]));
   // the chest is turned off the line of fire in a rifle stance (bladed ~25 deg); a vest-mounted camera is worn squared to
   // the front and the shoulders square up to what you look at, so the heading is pulled most of the way to the gaze. The
@@ -53,10 +57,18 @@ function bodyCam() {
   sp.getWorldQuaternion(BCAM.q);
   const f = _bcF.set(0, 0, -1).applyQuaternion(BCAM.q), e = _bcE.set(0, 0, -1).applyQuaternion(P.eyeQ || BCAM.q);
   const dy = Math.atan2(-e.x, -e.z) - Math.atan2(-f.x, -f.z), dyw = Math.atan2(Math.sin(dy), Math.cos(dy));
-  const aim = localVis && localVis.bcA || 0; BCAM.q.premultiply(_bcQ.setFromAxisAngle(_Y, dyw * lerp(0.8, 1, aim))).multiply(_bcQ.slerpQuaternions(BCAM.tilt, _bcI, aim));
+  const aim = B.bcA || 0; BCAM.q.premultiply(_bcQ.setFromAxisAngle(_Y, dyw * 0.8)).multiply(BCAM.tilt);
   BCAM.aim = aim;
+  // aiming: the view goes to the gun's own sight line (the gun is raised in front of the chest), so you look through the
+  // sights wherever the gun points, sway and free aim included
+  if (aim > 0.001) {
+    const G = B.activeGun(); G.g.updateMatrixWorld(true);
+    const o = BCAM.sight || [0, 0.088, -0.08];
+    G.g.localToWorld(_bcF.fromArray(o)); BCAM.pos.lerp(_bcF, aim);
+    BCAM.q.slerp(G.g.getWorldQuaternion(_bcQ), aim);
+  }
   camera.position.copy(BCAM.pos); camera.quaternion.copy(BCAM.q);
-  camera.fov = lerp(84, 70, BCAM.aim || 0); camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
+  camera.fov = lerp(84, 62, BCAM.aim || 0); camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
   return true;
 }
 // where the aim point lands on the bent picture: project it, then undo the lens (q = p (1 - K + K r^2), solved for p)
