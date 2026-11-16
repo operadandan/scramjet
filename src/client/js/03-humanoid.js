@@ -198,9 +198,13 @@ class Humanoid {
     let gx = lerp(P, -0.75, s), gy = -stance + lerp(0, 0.85, s), gz = 0;
     if (r > 0) { const b = Math.sin(r * Math.PI); gz = (pistol ? 0.3 : 0.6) * b; gx -= 0.35 * b; }
     if ((ah & 2) || (ls & 12)) gx -= 0.5;
+    // body cam: the gun is carried low, stock at the chest under the camera instead of up at the cheek (as in body-worn
+    // footage); eased in and out
+    this.bcW = damp(this.bcW || 0, S.bodycam && (this === localBody || this === localVis) ? 1 : 0, 8, dt || 0.016);
+    if (this.bcW > 0.001) { const k = this.bcW * (1 - s); this.rPiv.position.y -= 0.15 * k; this.rPiv.position.addScaledVector(this._t.set(0, 0, -1).applyAxisAngle(_YAX, -stance), 0.05 * k); }
     this.rPiv.rotation.set(gx, gy, gz);
     this.pPiv.rotation.set(lerp(P, -0.9, s) - (r > 0 ? 0.3 * Math.sin(r * Math.PI) : 0) - (med ? 0.35 : 0), lerp(0, 0.5, s), 0);
-    this.pPiv.position.set(med ? 0 : 0.05, lerp(0.53, 0.38, s), lerp(0, -0.05, s));
+    this.pPiv.position.set(med ? 0 : 0.05, lerp(0.53, 0.38, s) - 0.14 * (this.bcW || 0) * (1 - s), lerp(0, -0.05, s) - 0.05 * (this.bcW || 0) * (1 - s));
     const G = this.activeGun();
     for (let i = 0; i < this.tp.length; i++) this.tp[i].g.visible = i === a.weapon; this.medkit.g.visible = med && !a.unarmed;
     const magOut = r > 0 && r > 0.18 && r < 0.64;
