@@ -46,7 +46,7 @@ const _bcF = new V3(), _bcE = new V3(), _bcQ = new THREE.Quaternion();
 function bodyCam() {
   if (!S.bodycam || !S.mode || !P.alive || P.downed || !localBody) return false;
   const sp = localBody.spine; localBody.root.updateMatrixWorld(true);
-  sp.localToWorld(BCAM.pos.fromArray(BCAM.off || [0, 0.29, -0.16]));
+  sp.localToWorld(BCAM.pos.fromArray(BCAM.off || [0, 0.38, -0.17]));
   // the chest is turned off the line of fire in a rifle stance (bladed ~25 deg); a vest-mounted camera is worn squared to
   // the front and the shoulders square up to what you look at, so the heading is pulled most of the way to the gaze. The
   // torso's own pitch, roll and every bounce of the stride stay in.
