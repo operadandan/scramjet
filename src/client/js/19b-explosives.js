@@ -6,7 +6,7 @@
 //   M67: 180 g of Composition B (RE 1.35) = 0.24 kg TNT inside a 2.5 mm steel body that breaks into a few thousand fragments.
 //   Fuze M213: the striker is held by the spoon; once the spoon flies the delay burns 4 to 5.5 s. Pulling the pin alone
 //   does nothing as long as the spoon is held. Lethal radius about 5 m, casualties out to about 15 m.
-const EXPL = { c4: { W: 0.76, frags: 0 }, frag: { W: 0.24, frags: 1600 } };
+const EXPL = { c4: { W: 0.76, frags: 0 }, frag: { W: 0.24, frags: 4000 } };
 const NADE_R = 0.032, C4_REACH = 1.7;
 const CHARGES = [], NADES = [], BOOM_FX = [];
 let explSeq = 1;
@@ -222,12 +222,13 @@ function fragsAt(p, meshes, nFrag, area, owner, apply) {
   for (const m of meshes) { if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere(); const bs = m.geometry.boundingSphere, w = m.localToWorld(bs.center.clone()); sph.push([w, bs.radius]); c.add(w); }
   c.multiplyScalar(1 / sph.length); let R = 0.05; for (const [w, r] of sph) R = Math.max(R, w.distanceTo(c) + r);
   const ax = c.clone().sub(p), d = ax.length(); if (d > 60) return 0; ax.multiplyScalar(1 / Math.max(d, 1e-4));
-  const cosT = d > R ? Math.sqrt(1 - (R / d) * (R / d)) : -1, n = Math.min(900, poisson(nFrag * (1 - cosT) / 2));
+  const cosT = d > R ? Math.sqrt(1 - (R / d) * (R / d)) : -1, nAll = poisson(nFrag * (1 - cosT) / 2), n = Math.min(320, nAll), wgt = nAll / Math.max(1, n);
   // a frame around the axis, to aim rays inside the cone
   const u = Math.abs(ax.y) < 0.9 ? new V3(0, 1, 0).cross(ax).normalize() : new V3(1, 0, 0).cross(ax).normalize(), v = ax.clone().cross(u);
-  const cand = worldMeshes.filter(m => { if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere(); return true; }).concat(meshes);
+  // only what could stand between the burst and the body: things within reach of the segment, plus the ground
+  const reach = d + R, cand = worldMeshes.filter(m => { const b = m.userData.box; if (!b) return true; const q = new V3(clamp(p.x, b.min.x, b.max.x), clamp(p.y, b.min.y, b.max.y), clamp(p.z, b.min.z, b.max.z)); if (q.distanceTo(p) > reach) return false; const cb = new V3(clamp(c.x, b.min.x, b.max.x), clamp(c.y, b.min.y, b.max.y), clamp(c.z, b.min.z, b.max.z)); return cb.distanceTo(c) < reach; }).concat(meshes);
   let hits = 0;
-  for (let i = 0; i < n && hits < 40; i++) {
+  for (let i = 0; i < n && hits < 60; i++) {
     const cz = 1 - Math.random() * (1 - cosT), sz = Math.sqrt(Math.max(0, 1 - cz * cz)), ph = Math.random() * 6.2832;
     const dir = ax.clone().multiplyScalar(cz).addScaledVector(u, sz * Math.cos(ph)).addScaledVector(v, sz * Math.sin(ph));
     _ray.set(p, dir); _ray.far = d + R;
@@ -236,9 +237,12 @@ function fragsAt(p, meshes, nFrag, area, owner, apply) {
     // real ground is never flat: dirt, stones, grass and kerbs stand a few centimetres up, and a fragment skimming
     // along under that height for a metre or two is very likely to hit something and stop
     const L = clutterRun(p.y, dir.y, h.distance); if (L > 0 && Math.random() > Math.exp(-L / 0.6)) continue;
+    // close in there are more fragments than rays cast: each ray that lands stands for its share of them
+    for (let k = Math.floor(wgt) + (Math.random() < wgt % 1 ? 1 : 0); k > 0 && hits < 60; k--) {
     hits++;
     // a fragment leaves at about 1500 m/s and sheds speed fast; expressed as the speed of a 00 buck pellet of the same energy
-    apply(h, dir, 430 * Math.exp(-h.distance / 11) * rnd(0.75, 1.2), h.distance);
+    apply(h, dir, 520 * Math.exp(-h.distance / 15) * rnd(0.8, 1.2), h.distance);
+    }
   }
   return hits;
 }
@@ -273,10 +277,10 @@ function blastBodies(p, kind, owner, isOwner) {
       fragsAt(p, tgt, E.frags, P.prone > 0.5 ? 0.18 : P.crouch > 0.5 ? 0.33 : 0.5, owner, (h, fd, v) => {
         if (an.dead) return;
         const info = hitToFrame(localBody, h.object, h.point, fd); an.lastDir.copy(fd);
-        const r = an.hit(info.frame, info.e, info.d, v, 5, info.armor, info.pd); if (!res || (r && r.blast)) res = r;
+        an.frag = true; const r = an.hit(info.frame, info.e, info.d, v, 5, info.armor, info.pd); an.frag = false; if (!res || (r && r.blast)) res = r;
       });
     }
-    if (E.frags && P.downed && P.rag) fragsAt(p, ragMeshes(P.rag), E.frags, 0.4, owner, (h, fd, v, L) => onBulletHit({ vel: fd.clone().multiplyScalar(v), w: 5, local: true, shot, dist: L, pos: p.clone() }, h, fd, L));
+    if (E.frags && P.downed && P.rag) fragsAt(p, ragMeshes(P.rag), E.frags, 0.4, owner, (h, fd, v, L) => fragHit(h, fd, v, L, shot, p));
     if (z < 0.5) { an.kill('blast'); if (z < 0.35 && kind === 'c4') an.gibHead = true; blastLimbs(an, p, z < 0.35 ? 3 : 1); }
     else if (z < 1.1 && !an.dead) an.kill('blast');
     else if (z < 2.2) { an.shock = (an.shock || 0) + 60; an.pain = Math.min(1, (an.pain || 0) + 0.5); an.wounds.push({ region: 'chest', name: 'Blast injury (lungs)', rate: 4 + 10 * (2.2 - z), treated: false }); an.version++; res = Object.assign(res || {}, { blast: { big: true } }); }
@@ -294,7 +298,7 @@ function blastBodies(p, kind, owner, isOwner) {
     const z = d / cW * (los(p, c) ? 1 : 1.7), an = dm.anat, dir = c.clone().sub(p).setY(0.3).normalize();
     if (E.frags) {
       const ms = dm.rag ? ragMeshes(dm.rag) : (dm.hum.root.updateMatrixWorld(true), dm.hum.hitMeshes.filter(m => m.visible));
-      fragsAt(p, ms, E.frags, dm.rag ? 0.4 : 0.5, owner, (h, fd, v, L) => onBulletHit({ vel: fd.clone().multiplyScalar(v), w: 5, local: true, shot, dist: L, pos: p.clone() }, h, fd, L));
+      fragsAt(p, ms, E.frags, dm.rag ? 0.4 : 0.5, owner, (h, fd, v, L) => fragHit(h, fd, v, L, shot, p));
     }
     if (dm.dead) { ragPush(dm.rag, p, clamp(10 / (z * z), 0, 14)); continue; }
     an.lastDir.copy(dir); an.lastW = 5; an.lastDist = d;
@@ -311,6 +315,12 @@ function blastBodies(p, kind, owner, isOwner) {
   }
   // loose corpses (not a player's body still being simulated by its own client)
   for (const r of ragdolls) if (!r.owner || (!r.owner.dummy && !r.owner.nd && !r.owner.remote && r !== P.rag)) { const z = r.p[1].distanceTo(p) / cW; if (z < 6) ragPush(r, p, clamp(10 / (z * z), 0, 14)); }
+}
+// a fragment into an AI body or a body on the ground: the normal hit code, with the anatomy told it is steel from a grenade
+function fragHit(h, fd, v, L, shot, p) {
+  const ud = h.object.userData, own = ud.rag ? ud.rag.owner || {} : {}, an = ud.hum && ud.hum.dummy ? ud.hum.dummy.anat : own.dummy ? own.dummy.anat : own.anat || null;
+  if (an) an.frag = true;
+  try { onBulletHit({ vel: fd.clone().multiplyScalar(v), w: 5, local: true, shot, dist: L, pos: p.clone() }, h, fd, L); } finally { if (an) an.frag = false; }
 }
 function ragMeshes(r) { const out = []; r.group.traverse(o => { if (o.isMesh && o.visible && o.userData.rag) out.push(o); }); return out; }
 // ---------------------------------------------------------------- the explosion

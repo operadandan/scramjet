@@ -184,7 +184,7 @@ class Anatomy {
         this.sever(limb[0], limb[1], t); out.severed = limb[0];
       }
     }
-    this.wounds.push({ region, name: 'Gunshot wound, ' + REGION_NAME[region].toLowerCase(), rate: 0.9 + 2.8 * cavity * Math.min(2, E0 / 600), treated: false });
+    this.wounds.push({ region, name: (this.frag ? 'Fragment wound, ' : 'Gunshot wound, ') + REGION_NAME[region].toLowerCase(), rate: 0.9 + 2.8 * cavity * Math.min(2, E0 / 600), treated: false });
     this.shock += 15 + E0 / 200;
     if ((WEAPONS[w] || {}).pellets) out.blast = this.blastHit(frame, region, e, d, E0, w, limb);
     out.dead = this.dead; out.cause = this.cause; out.helmetOff = helmetOff; out.plate = armorHit;
@@ -223,7 +223,7 @@ class Anatomy {
     } else {
       for (const st of STRUCTS_BY_FRAME[z.frame] || []) if (!st.shell && pathDist(c, c.clone().addScaledVector(d, 0.11), st)[0] < st.r + 0.02 + spread) this.damage(this.s[st.id], st, 26 * k, region);
       this.flesh[region] = Math.max(0, this.flesh[region] - 18 * k);
-      if (z.n === 3) this.wounds.push({ region, name: 'Shotgun wound, massive tissue loss', rate: 0, treated: false, blast: 1 });
+      if (z.n === 3) this.wounds.push({ region, name: this.frag ? 'Fragment wounds, massive tissue loss' : 'Shotgun wound, massive tissue loss', rate: 0, treated: false, blast: 1 });
       const bw = this.wounds.find(x => x.blast && x.region === region); if (bw) bw.rate = Math.min(70, 10 + 6 * z.n * (spread < 0.06 ? 1.4 : 1));
       this.shock += 25; this.pain = Math.min(1, this.pain + 0.2);
       if (z.n >= 6 && spread < 0.06 && region === 'abdomen') res.evisc = true;
@@ -355,8 +355,10 @@ class Anatomy {
       else if ((st.type === 'bone' || st.type === 'joint') && s.treated) list.push([20, st.name + ' splinted', '#9aa4ad']);
       else if (st.type === 'organ' && s.hp < 100) list.push([40 + (100 - s.hp) * 0.4, st.name + (s.hp <= 0 ? ' destroyed' : s.hp < 50 ? ' badly damaged' : ' damaged'), s.hp < 50 ? '#ff6a40' : '#ffd166']);
     }
-    let flesh = 0; for (const w of this.wounds) if (!w.treated && !w.artery && /Gunshot/.test(w.name)) flesh++;
+    let flesh = 0; for (const w of this.wounds) if (!w.treated && !w.artery && /^Gunshot/.test(w.name)) flesh++;
     if (flesh) list.push([35, flesh + ' open gunshot wound' + (flesh > 1 ? 's' : ''), '#ffd166']);
+    let fr = 0; for (const w of this.wounds) if (!w.treated && !w.artery && /^Fragment/.test(w.name)) fr++;
+    if (fr) list.push([35, fr + ' open fragment wound' + (fr > 1 ? 's' : ''), '#ffd166']);
     if (this.concussion > 0) list.push([25, 'Concussion', '#ffd166']);
     return list.sort((a, b) => b[0] - a[0]);
   }
