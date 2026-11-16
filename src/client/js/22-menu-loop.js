@@ -32,7 +32,7 @@ function playerName() { const n = $('name').value.trim().slice(0, 16) || ('Op' +
 function enterGame(mode) {
   S.mode = mode; $('menu').style.display = 'none'; $('hud').style.display = 'block'; $('err').textContent = '';
   $('vig').style.display = $('vigads').style.display = 'block';
-  $('help').innerHTML = mode === 'test' ? 'K test headshot death, J test body death, H take a test rifle hit<br>Shooting range on your right: 25 m to 750 m. Spare mags refill here.' : '';
+  $('help').innerHTML = mode === 'test' ? 'K test headshot death, J test body death, H take a test rifle hit<br>Shooting range on your right: 25 m to 750 m. Spare mags refill here.<br>3: C4, left mouse to stick it on, right mouse to fire. 4: M67, hold left (overhand) or right (underhand) to pull the pin, let go to throw, R to cook.' : '';
   $('pauseinfo').innerHTML = mode === 'online' ? 'Room code: <b style="color:#fff;letter-spacing:3px">' + S.room + '</b><br>Share it so friends can join.' : 'Testing mode';
   renderer.domElement.requestPointerLock();
   audio();
@@ -78,7 +78,7 @@ function leave() {
   for (const d of dummies) d.dispose(); dummies.length = 0;
   while (ragdolls.length) ragdolls.pop().dispose();
   clearItems(); drops.length = 0; hlMesh.visible = false; $('pickup').style.display = 'none';
-  for (const d of decals) { scene.remove(d); if (d.geometry !== splatGeo) d.geometry.dispose(); } decals.length = 0; clearPools(); clearGore(); debris.length = 0; for (const P of DEB_POOLS) { P.im.count = 0; P.next = 0; P.slot.fill(null); } splatIM.count = 0; splatIM.userData.next = 0;
+  for (const d of decals) { scene.remove(d); if (d.geometry !== splatGeo) d.geometry.dispose(); } decals.length = 0; clearPools(); clearGore(); debris.length = 0; clearExplosives(); for (const P of DEB_POOLS) { P.im.count = 0; P.next = 0; P.slot.fill(null); } splatIM.count = 0; splatIM.userData.next = 0;
   for (const p of props) scene.remove(p.m); props.length = 0; for (const L of limbBodies) L.dispose(); limbBodies.length = 0;
   while (bullets.length) removeBullet(bullets.length - 1);
   S.slow = false; S.ts = 1; S.target = null; S.testKills = 0; S.testDeaths = 0; P.downed = false; $('scope').style.display = 'none'; $('score').style.display = 'none'; S.filt = ''; renderer.domElement.style.filter = ''; $('slowmo').style.display = 'none';
@@ -208,7 +208,7 @@ function frame(now, hidden) {
   S.ts = damp(S.ts === undefined ? 1 : S.ts, S.slow && S.mode ? 0.08 : 1, 6, dt);
   const wdt = dt * S.ts;
   if (S.mode) {
-    updatePlayer(dt); updateWeapons(dt);
+    updatePlayer(dt); updateWeapons(dt); updateExplosives(dt);
     for (const r of S.remotes.values()) r.update(dt);
     // far bodies are stepped less often (every 2nd frame past 40 m, every 3rd past 80 m) with the time they missed: nobody
     // can see a 20 Hz animation at that range, and the AI and animation of a range full of targets was a big part of each frame

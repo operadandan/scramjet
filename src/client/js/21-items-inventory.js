@@ -358,8 +358,9 @@ function pressSlot(n) {
   if (n < 2) return switchWeapon(n);
   const t = toolSlotIndex(n - 2); if (t >= 0) switchWeapon(t); else selectEmpty(n);
 }
-const curSlot = () => P.slot === 4 ? Math.max(0, P.emptySel) : P.slot < 2 ? P.slot : (toolSlotIndex(1) === P.slot ? 3 : 2);
-function toolSlotIndex(i) { const t = P.tools[i]; return t === 'medkit' ? 2 : t === 'plate' ? 3 : -1; }
+const curSlot = () => P.slot === 4 ? Math.max(0, P.emptySel) : P.slot;
+// hotbar 3 is C4 (and its firing device while charges are out), hotbar 4 the M67
+function toolSlotIndex(i) { return i === 0 ? (P.c4N > 0 || c4Mine().length ? 2 : -1) : (P.fragN > 0 || (P.nade && P.nade.ph !== 'idle') ? 3 : -1); }
 function toolCount(t) { return t === 'medkit' ? P.medUses : t === 'plate' ? P.platesInv : 0; }
 let tbKey = '';
 function updateToolbar() {
@@ -368,7 +369,8 @@ function updateToolbar() {
   tb.style.display = 'flex';
   const lo = P.activeLo, es = n => P.slot === 4 && P.emptySel === n, gr = i => lo[i] == null ? [i + 1, 'Empty', '', es(i)] : [i + 1, WEAPONS[lo[i]].name, attSummary(lo[i]), P.slot === i];
   const rows = [gr(0), gr(1),
-    ...[0, 1].map(t => [3 + t, P.tools[t] ? TOOL_NAME[P.tools[t]] : 'Empty', P.tools[t] ? 'x' + toolCount(P.tools[t]) : '', P.tools[t] ? P.slot === toolSlotIndex(t) : es(2 + t)])];
+    (() => { const m = c4Mine().length, has = P.c4N > 0 || m; return [3, has ? 'C4 (M112)' : 'Empty', has ? 'x' + P.c4N + (m ? ', ' + m + ' set' : '') : '', has ? P.slot === 2 : es(2)]; })(),
+    [4, P.fragN > 0 ? 'M67 frag' : 'Empty', P.fragN > 0 ? 'x' + P.fragN : '', P.fragN > 0 || (P.nade && P.nade.ph !== 'idle') ? P.slot === 3 : es(3)]];
   const key = JSON.stringify(rows);
   if (key === tbKey) return; tbKey = key;
   tb.innerHTML = rows.map(r => '<div class="tb' + (r[3] ? ' on' : '') + (r[1] === 'Empty' ? ' empty' : '') + '"><b>' + r[0] + '</b><div><span>' + r[1] + '</span><small>' + r[2] + '</small></div></div>').join('');

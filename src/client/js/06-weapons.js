@@ -12,7 +12,7 @@ const WEAPONS = [
   { id: 'm870', name: 'M870', kind: 'shotgun', auto: false, rpm: 105, cap: 6, spare: 4, carrier: 8, tac: 0.62, empty: 0.62, inspect: 1.8, recoil: 0.075, fovAds: 58, shell: '12g', vel: 404, mass: 0.00349, drag: 0.0074, disp: 0.0005, pellets: 9, spread: 0.0125, zero: 25, tracerEvery: 0, snd: 4, gap: 450 }
 ];
 // only the M4 and G17 are finished; the AK-74M, M107, M870 and M9 stay in the code but can't be picked yet
-const PRIMARIES = [0], SECONDARIES = [1], MEDKIT_W = 9;
+const PRIMARIES = [0, 2, 5], SECONDARIES = [1], MEDKIT_W = 9;
 const isPistol = w => WEAPONS[w] && WEAPONS[w].kind === 'pistol';
 const isShotgun = w => WEAPONS[w] && WEAPONS[w].kind === 'shotgun';
 // what can take a limb or the head off: buckshot and heavy-calibre rounds (the .50), never rifle or pistol rounds

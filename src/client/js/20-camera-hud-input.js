@@ -89,7 +89,8 @@ function updateCamera(dt) {
 const _vt = new V3(), _wr = new V3(), _fd = new V3(), _vi = new V3(), _vir = new V3(), _v0 = new V3(), _v1 = new V3(), _v2 = new V3(), _v3 = new V3(), _V1 = new V3(1, 1, 1), _q0 = new THREE.Quaternion(), _e0 = new THREE.Euler(), _m0 = new THREE.Matrix4(), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
 function updateViewmodel(dt) {
   const W = VMW[P.weapon], w = WEAPONS[P.weapon];
-  VMW.forEach((v, i) => { v.g.visible = P.slot < 2 && i === P.weapon; }); VMK.g.visible = P.slot === 2; VMP.g.visible = P.slot === 3;
+  VMW.forEach((v, i) => { v.g.visible = P.slot < 2 && i === P.weapon; }); VMK.g.visible = false; VMP.g.visible = false; VMG.g.visible = P.slot === 3; VMC.g.visible = P.slot === 2;
+  if (P.slot === 2 || P.slot === 3) { vmExplosives(dt); return; }
   if (P.slot === 4) { $('scope').style.display = 'none'; $('acog').style.display = 'none'; $('vigads').style.opacity = '0'; return; }
   if (P.slot === 3) {
     vm.visible = !(P.reactV > 0.3); $('scope').style.display = 'none'; $('acog').style.display = 'none';
@@ -251,7 +252,7 @@ function updateViewmodel(dt) {
 const bodyPanel = makeBodyPanel($('bodyui'), 'CONDITION'), targetPanel = makeBodyPanel($('targetui'), 'TARGET');
 function updateHUD() {
   const w = WEAPONS[P.weapon];
-  $('wname').textContent = P.downed ? (P.anat.paralyzed ? 'PARALYZED' : 'UNCONSCIOUS') : P.slot === 2 ? 'MEDKIT x' + P.medUses : P.slot === 3 ? 'ARMOR PLATE x' + P.platesInv : P.slot === 4 ? 'UNARMED' : w.name + (P.anat.anyArm() ? '  (ARM DISABLED)' : '');
+  $('wname').textContent = P.downed ? (P.anat.paralyzed ? 'PARALYZED' : 'UNCONSCIOUS') : P.slot === 2 ? (P.c4N > 0 ? 'C4 x' + P.c4N : 'M57 FIRING DEVICE') + (c4Mine().length ? '  (' + c4Mine().length + ' SET)' : '') : P.slot === 3 ? 'M67 x' + P.fragN + (P.nade && P.nade.cook ? '  (COOKING)' : P.nade && P.nade.ph === 'ready' ? '  (PIN OUT)' : '') : P.slot === 4 ? 'UNARMED' : w.name + (P.anat.anyArm() ? '  (ARM DISABLED)' : '');
   if (P.downed) $('downwhy').textContent = P.anat.paralyzed ? 'Spinal cord injury. You will not get up.' : 'You blacked out from the pain. You may come to if it eases (pain ' + Math.round(P.anat.painLvl) + ').';
   if (!P.alive || P.downed || P.slot >= 2) { $('scope').style.display = 'none'; $('acog').style.display = 'none'; }
   bodyPanel.update(P.alive ? P.anat : null, P.prone > 0.5 ? (P.anat.bothLegs() ? 'Legs out: crawling' : 'Prone') : '');

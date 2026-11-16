@@ -481,13 +481,14 @@ function stampWall(mesh, G, D, u0, v0, E, cal, w, side, through, dir) {
 }
 // after a part opened: chunks of what was there, anything left hanging falls, craters inside the opening go, and the steel
 // in reinforced concrete shows across it
-function settleWall(mesh, G, D, dir, U, V, opened) {
+function settleWall(mesh, G, D, dir, U, V, opened, spd) {
+  spd = spd || 1;
   const ud = mesh.userData, gp = mesh.geometry.parameters, thick = [gp.width, gp.height, gp.depth][G.ax], q = new V3();
   const fw = dir.clone().normalize(), area = opened * G.cs1 * G.cs2, n = clamp(Math.round(area * 9000), 2, 90);
   for (let i = 0; i < n; i++) {
     q.set(0, 0, 0); q.setComponent(G.a1, U + rnd(-1, 1) * Math.sqrt(area) * 0.6); q.setComponent(G.a2, V + rnd(-1, 1) * Math.sqrt(area) * 0.6); q.setComponent(G.ax, rnd(-0.5, 0.5) * thick);
     const fwd = Math.random() < 0.75;
-    spawnDebris(mesh.localToWorld(q.clone()), 1, (fwd ? fw : fw.clone().negate()).lerp(new V3(rnd(-1, 1), rnd(-0.3, 1), rnd(-1, 1)), 0.35).normalize(), 0.45, rnd(1.2, 3.6), D,
+    spawnDebris(mesh.localToWorld(q.clone()), 1, (fwd ? fw : fw.clone().negate()).lerp(new V3(rnd(-1, 1), rnd(-0.3, 1), rnd(-1, 1)), 0.35).normalize(), 0.45, rnd(1.2, 3.6) * spd, D,
       D.deb === 'rock' ? rnd(0.008, 0.025) : D.deb === 'wood' ? rnd(0.01, 0.03) : rnd(0.008, 0.022));
   }
   q.set(0, 0, 0); q.setComponent(G.a1, U); q.setComponent(G.a2, V);
