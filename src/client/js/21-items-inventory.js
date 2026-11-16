@@ -300,13 +300,15 @@ const gunSlotOf = w => isPistol(w) ? 1 : 0;
 function equipGun(g, slot) {
   P.activeLo[slot] = g.w; P.guns[g.w] = { mag: g.mag, chamber: g.chamber, pouch: looseFor(g.w) };
   if (g.att) { ATTS[WEAPONS[g.w].id] = Object.assign({}, ATT_DEFAULT[WEAPONS[g.w].id], g.att); applyAttachments(g.w); }
-  if (P.slot === 4) { P.slot = slot; P.weapon = g.w; P.switchT = 0.45; }
+  // a gun picked up into the empty slot you are holding goes straight to your hands
+  if (P.slot === 4 && P.emptySel === slot) { P.slot = slot; P.emptySel = -1; P.weapon = g.w; P.switchT = 0.45; }
 }
 function unequipGun(slot) {
   const w = P.activeLo[slot], G = P.guns[w]; if (w == null || !G) return null;
   for (const n of G.pouch) P.loose.push({ w, n });
   delete P.guns[w]; P.activeLo[slot] = null; P.reloading = false; P.inspecting = false; P.adsOn = false;
-  if (P.slot === slot) { const o = P.activeLo[1 - slot]; if (o != null) { P.slot = 1 - slot; P.weapon = o; P.switchT = 0.5; } else P.slot = 4; }
+  // dropping what you hold leaves that slot selected, now empty: your hands stay empty until you pick another
+  if (P.slot === slot) { P.slot = 4; P.emptySel = slot; }
   return { kind: 'gun', w, mag: G.mag, chamber: G.chamber, att: Object.assign({}, attOf(w)) };
 }
 function throwPos() { const f = new V3(); camera.getWorldDirection(f); return [camera.position.clone().addScaledVector(f, 0.45).add(new V3(0, -0.25, 0)), f.multiplyScalar(1.6).add(new V3(rnd(-0.4, 0.4), 1.2, rnd(-0.4, 0.4))).add(P.vel)]; }
@@ -351,6 +353,12 @@ function pickUp() {
 }
 // ---------------------------------------------------------------- toolbar + inventory (G)
 const TOOL_NAME = { medkit: 'IFAK medkit', plate: 'Armor plate' };
+// number keys and the wheel pick a slot (0-3) whether or not anything is in it
+function pressSlot(n) {
+  if (n < 2) return switchWeapon(n);
+  const t = toolSlotIndex(n - 2); if (t >= 0) switchWeapon(t); else selectEmpty(n);
+}
+const curSlot = () => P.slot === 4 ? Math.max(0, P.emptySel) : P.slot < 2 ? P.slot : (toolSlotIndex(1) === P.slot ? 3 : 2);
 function toolSlotIndex(i) { const t = P.tools[i]; return t === 'medkit' ? 2 : t === 'plate' ? 3 : -1; }
 function toolCount(t) { return t === 'medkit' ? P.medUses : t === 'plate' ? P.platesInv : 0; }
 let tbKey = '';

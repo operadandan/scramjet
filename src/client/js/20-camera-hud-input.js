@@ -294,10 +294,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Backquote') { S.slow = !S.slow; $('slowmo').style.display = S.slow ? 'block' : 'none'; }
   if (e.code === 'KeyQ') P.leanState = P.leanState === -1 ? 0 : -1;
   if (e.code === 'KeyE') P.leanState = P.leanState === 1 ? 0 : 1;
-  if (e.code === 'Digit1') switchWeapon(0);
-  if (e.code === 'Digit2') switchWeapon(1);
-  if (e.code === 'Digit3') { if (toolSlotIndex(0) >= 0) switchWeapon(toolSlotIndex(0)); else selectEmpty(2); }
-  if (e.code === 'Digit4') { if (toolSlotIndex(1) >= 0) switchWeapon(toolSlotIndex(1)); else selectEmpty(3); }
+  { const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code); if (n >= 0) pressSlot(n); }
   if (e.code === 'Space' && P.alive && P.downed && !e.repeat) { P.anat.kill('gaveup'); localDeath(); }
   if (e.code === 'KeyC' && P.alive && !P.anat.bothLegs()) P.stance = P.stance === 1 ? 0 : 1;
   if (e.code === 'KeyX' && P.alive && !P.anat.bothLegs()) { P.stance = P.stance === 2 ? 0 : 2; if (P.stance === 2) P.leanState = 0; }
@@ -325,7 +322,7 @@ addEventListener('mousemove', e => {
   P.swayX = clamp(P.swayX - e.movementX * 0.00003, -0.02, 0.02); P.swayY = clamp(P.swayY + e.movementY * 0.00003, -0.02, 0.02);
   P.aimOX = clamp(P.aimOX + e.movementX * 0.0012, -0.08, 0.08); P.aimOY = clamp(P.aimOY + e.movementY * 0.0012, -0.06, 0.06);
 });
-addEventListener('wheel', e => { if (S.mode && S.locked) switchWeapon((P.slot + (e.deltaY > 0 ? 1 : 2)) % 3); });
+addEventListener('wheel', e => { if (S.mode && S.locked) pressSlot((curSlot() + (e.deltaY > 0 ? 1 : 3)) % 4); });
 document.addEventListener('pointerlockchange', () => {
   S.locked = document.pointerLockElement === renderer.domElement;
   $('pause').style.display = (!S.locked && S.mode && !S.inv) ? 'flex' : 'none';
