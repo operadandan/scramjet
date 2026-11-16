@@ -296,8 +296,8 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyE') P.leanState = P.leanState === 1 ? 0 : 1;
   if (e.code === 'Digit1') switchWeapon(0);
   if (e.code === 'Digit2') switchWeapon(1);
-  if (e.code === 'Digit3' && toolSlotIndex(0) >= 0) switchWeapon(toolSlotIndex(0));
-  if (e.code === 'Digit4' && toolSlotIndex(1) >= 0) switchWeapon(toolSlotIndex(1));
+  if (e.code === 'Digit3') { if (toolSlotIndex(0) >= 0) switchWeapon(toolSlotIndex(0)); else selectEmpty(2); }
+  if (e.code === 'Digit4') { if (toolSlotIndex(1) >= 0) switchWeapon(toolSlotIndex(1)); else selectEmpty(3); }
   if (e.code === 'Space' && P.alive && P.downed && !e.repeat) { P.anat.kill('gaveup'); localDeath(); }
   if (e.code === 'KeyC' && P.alive && !P.anat.bothLegs()) P.stance = P.stance === 1 ? 0 : 1;
   if (e.code === 'KeyX' && P.alive && !P.anat.bothLegs()) { P.stance = P.stance === 2 ? 0 : 2; if (P.stance === 2) P.leanState = 0; }

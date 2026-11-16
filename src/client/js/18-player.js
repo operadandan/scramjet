@@ -337,10 +337,17 @@ function magEstimate(n, cap) {
   if (f >= 1) return 'Full'; if (f > 0.8) return 'Nearly full'; if (f > 0.58) return 'More than half';
   if (f > 0.42) return 'About half'; if (f > 0.15) return 'Less than half'; return 'Nearly empty';
 }
+// selecting an empty slot puts away what you hold: empty hands (slot 4), with that slot shown as selected (P.emptySel)
+function selectEmpty(n) {
+  if (!P.alive || (P.slot === 4 && P.emptySel === n)) return;
+  P.slot = 4; P.emptySel = n;
+  P.rack = null; P.reloading = false; P.inspecting = false; P.healing = false; P.healT = 0; P.plating = false; P.plateT = 0; P.adsOn = false; P.switchT = 0.35; blip(260, 0.05, 0.05);
+}
 function switchWeapon(i) {
-  if (i === P.slot || !P.alive) return;
-  if (i < 2 && P.activeLo[i] == null) { flashMsg('NO WEAPON IN THAT SLOT', 900); return; }
-  P.slot = i; if (i < 2) P.weapon = P.activeLo[i];
+  if (!P.alive) return;
+  if (i < 2 && P.activeLo[i] == null) { selectEmpty(i); return; }
+  if (i === P.slot) return;
+  P.slot = i; P.emptySel = -1; if (i < 2) P.weapon = P.activeLo[i];
   P.rack = null; P.reloading = false; P.inspecting = false; P.healing = false; P.healT = 0; P.plating = false; P.plateT = 0; P.adsOn = false; P.switchT = 0.35; blip(320, 0.05, 0.05);
 }
 function updateWeapons(dt) {

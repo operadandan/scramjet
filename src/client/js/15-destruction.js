@@ -38,15 +38,17 @@ const BRK = 32, PIT0 = 32, SLOTS = 48;
 // A grid of 5 cm cells over the wall face records what is open: inside a hole that goes all the way through, or broken away.
 // After every break, any solid part no longer joined to something that holds it up (the floor, a wall or roof it touches)
 // falls out as chunks, so nothing hangs in the air. The same grid lets players, bodies, blood and rounds through the openings.
-const GRID_CS = 0.05;
+// 1.2 cm cells (1.5 cm on concrete): fine enough that a single rifle round through plywood makes a hole its own size
+const GRID_CS = 0.012;
 function wallGrid(mesh) {
   const ud = mesh.userData; if (ud.grid !== undefined) return ud.grid;
   const gp = mesh.geometry.parameters; if (!gp || gp.width === undefined || !ud.box) return ud.grid = null;
   const dims = [gp.width, gp.height, gp.depth]; let ax = 0; for (let k = 1; k < 3; k++) if (dims[k] < dims[ax]) ax = k;
   if (ax === 1 || dims[ax] > 0.4) return ud.grid = null;
-  const a1 = ax === 0 ? 2 : 0, a2 = 1, n1 = Math.max(2, Math.round(dims[a1] / GRID_CS)), n2 = Math.max(2, Math.round(dims[a2] / GRID_CS));
+  const cs = GRID_CS * (DESTR_OF[ud.kind] === 'concrete' ? 1.25 : 1);
+  const a1 = ax === 0 ? 2 : 0, a2 = 1, n1 = Math.max(2, Math.round(dims[a1] / cs)), n2 = Math.max(2, Math.round(dims[a2] / cs));
   const tex = new THREE.DataTexture(new Uint8Array(n1 * n2), n1, n2, THREE.RedFormat, THREE.UnsignedByteType); tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter; tex.needsUpdate = true;
-  const G = { ax, a1, a2, n1, n2, cs1: dims[a1] / n1, cs2: dims[a2] / n2, min1: -dims[a1] / 2, min2: -dims[a2] / 2, cell: new Uint8Array(n1 * n2), tex, any: false };
+  const G = { ax, a1, a2, n1, n2, cs1: dims[a1] / n1, cs2: dims[a2] / n2, min1: -dims[a1] / 2, min2: -dims[a2] / 2, cell: new Uint8Array(n1 * n2), dmg: new Float32Array(n1 * n2), tex, any: false };
   // what holds it up: the floor under it, and any other solid it touches at the sides or on top
   const b = ud.box, touch = (x, y, z) => b.min.y <= 0.02 && y < 0.01 ? true : colliders.some(c => c !== b && x > c.min.x - 0.01 && x < c.max.x + 0.01 && y > c.min.y - 0.01 && y < c.max.y + 0.01 && z > c.min.z - 0.01 && z < c.max.z + 0.01);
   const ctr = mesh.position, hs = (k, s) => ctr.getComponent(k) + s * (dims[k] / 2 + 0.02), side = s => [0.2, 0.5, 0.8].some(f => { const p = ctr.clone(); p.setComponent(a1, hs(a1, s)); p.y = b.min.y + dims[1] * f; return touch(p.x, p.y, p.z); });
@@ -70,12 +72,6 @@ function gridPass(c, pos, h, r) {
 function updateWallGrid(mesh, D, dir) {
   const G = wallGrid(mesh); if (!G) return;
   const ud = mesh.userData, { n1, n2, cs1, cs2, min1, min2, cell } = G, q = new V3();
-  const holes = ud.dmg.filter(c => c.through && c.r > 0 && c.ax === G.ax).map(c => { q.set(0, 0, 0); q.setComponent((c.ax + 1) % 3, c.u); q.setComponent((c.ax + 2) % 3, c.v); return [q.getComponent(G.a1), q.getComponent(G.a2), c.r * 1.0]; });
-  if (!holes.length) return;
-  for (let j = 0; j < n2; j++) for (let i = 0; i < n1; i++) {
-    const k = j * n1 + i; if (cell[k]) continue; const u = min1 + (i + 0.5) * cs1, v = min2 + (j + 0.5) * cs2;
-    for (const [hu, hv, r] of holes) if ((u - hu) * (u - hu) + (v - hv) * (v - hv) < r * r) { cell[k] = 1; G.any = true; G.tex.image.data[k] = 255; G.dirty = true; break; }
-  }
   // flood fill the solid part from whatever holds it up; the rest breaks away
   const seen = new Uint8Array(n1 * n2), st = [], push = k => { if (!cell[k] && !seen[k]) { seen[k] = 1; st.push(k); } };
   if (G.hold.bottom) for (let i = 0; i < n1; i++) push(i);
@@ -91,7 +87,7 @@ function updateWallGrid(mesh, D, dir) {
   const thick = [mesh.geometry.parameters.width, mesh.geometry.parameters.height, mesh.geometry.parameters.depth][G.ax], step = Math.max(1, Math.round(Math.sqrt(fall.length / 70)));
   // the loose part breaks up into slabs of the wall itself (bigger the more came loose, at most ~80 of them), each the
   // wall's full thickness, plus a scatter of rubble from the broken edges
-  const fs = new Set(fall), bs = Math.max(3, Math.round(Math.sqrt(fall.length / 80)));
+  const fs = new Set(fall), bs = Math.max(Math.round(0.09 / G.cs1), Math.round(Math.sqrt(fall.length / 80)));
   const done = new Set();
   for (const k of fall) {
     const i0 = k % n1, j0 = (k - i0) / n1, bi = Math.floor(i0 / bs), bj = Math.floor(j0 / bs), key = bi + ',' + bj; if (done.has(key)) continue; done.add(key);
@@ -109,22 +105,35 @@ function updateWallGrid(mesh, D, dir) {
   // craters that sat on the piece that fell go with it
   for (const c of ud.dmg) c.chips = c.chips.filter(ch => { q.set(0, 0, 0); q.setComponent((c.ax + 1) % 3, ch.u); q.setComponent((c.ax + 2) % 3, ch.v); const w = mesh.localToWorld(q.clone()); if (gridOpenW(mesh, w)) { dropDecal(ch.m); return false; } return true; });
 }
-// the wall shader also drops whatever the grid marks as broken away (with a slightly ragged edge)
-const MASK_GLSL = p => '{ vec2 muv = vec2((dot(' + p + ', hS1) - hMP.x) / hMP.z, (dot(' + p + ', hS2) - hMP.y) / hMP.w); float jt = fract(sin(dot(floor(' + p + ' * 70.0), vec3(12.9898, 78.233, 37.719))) * 43758.5453);' +
-  ' if (muv.x >= 0.0 && muv.x <= 1.0 && muv.y >= 0.0 && muv.y <= 1.0 && texture2D(hMask, muv).r > 0.3 + 0.35 * jt) discard; }\n';
+// The wall shader reads the damage field (0 = sound, 1 = gone; filtered between cells): past a threshold broken by fine
+// noise it is open, so every opening has a ragged, flawed edge; below it, the broken material shows (raw splintered wood
+// fibres, crumbled gypsum, fresh concrete and aggregate) in a band that follows the opening's own outline.
+const WALL_NOISE = 'float wh(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }\n' +
+  'float wn3(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(mix(wh(i), wh(i + vec3(1, 0, 0)), f.x), mix(wh(i + vec3(0, 1, 0)), wh(i + vec3(1, 1, 0)), f.x), f.y), mix(mix(wh(i + vec3(0, 0, 1)), wh(i + vec3(1, 0, 1)), f.x), mix(wh(i + vec3(0, 1, 1)), wh(i + vec3(1, 1, 1)), f.x), f.y), f.z); }\n' +
+  'float wallV = 0.0;\n';
+const MASK_GLSL = p => '{ vec2 muv = vec2((dot(' + p + ', hS1) - hMP.x) / hMP.z, (dot(' + p + ', hS2) - hMP.y) / hMP.w);' +
+  ' if (muv.x >= 0.0 && muv.x <= 1.0 && muv.y >= 0.0 && muv.y <= 1.0) { float v = texture2D(hMask, muv).r; wallV = v;' +
+  ' float nz = wn3(' + p + ' * 95.0) * 0.55 + wn3(' + p + ' * 30.0) * 0.45; if (v > 0.5 + (nz - 0.5) * 0.55) discard; } }\n';
+const WALL_EDGE = p => 'if (gl_FrontFacing && wallV > 0.02) {\n' +
+  '  float e = smoothstep(0.03, 0.42, wallV), lip = smoothstep(0.3, 0.5, wallV); vec3 bc;\n' +
+  '  if (hKind < 0.5) { float fib = wn3(vec3(dot(' + p + ', hS1) * 14.0, dot(' + p + ', hS2) * 240.0, 0.0)); bc = mix(vec3(0.86, 0.69, 0.46), vec3(0.6, 0.43, 0.25), fib); }\n' +
+  '  else if (hKind < 1.5) { float g = wn3(' + p + ' * 170.0); bc = mix(vec3(0.94, 0.93, 0.89), vec3(0.76, 0.74, 0.7), g); bc = mix(bc, vec3(0.83, 0.76, 0.64), (1.0 - lip) * step(e, 0.55) * 0.5); }\n' +
+  '  else { float a = wn3(' + p + ' * 150.0), g = wn3(' + p + ' * 40.0); bc = mix(vec3(0.66, 0.64, 0.6), vec3(0.45, 0.43, 0.4), g); bc = mix(bc, vec3(0.36, 0.34, 0.31), step(0.68, a)); }\n' +
+  '  float bn = wn3(' + p + ' * 60.0); diffuseColor.rgb = mix(diffuseColor.rgb, bc * (1.0 - 0.45 * lip * bn), e * (0.55 + 0.4 * bn));\n}\n';
 function maskUniforms(G) {
   const s1 = new V3().setComponent(G.a1, 1), s2 = new V3().setComponent(G.a2, 1);
-  return { hMask: { value: G.tex }, hMP: { value: new THREE.Vector4(G.min1, G.min2, G.n1 * G.cs1, G.n2 * G.cs2) }, hS1: { value: s1 }, hS2: { value: s2 } };
+  return { hMask: { value: G.tex }, hMP: { value: new THREE.Vector4(G.min1, G.min2, G.n1 * G.cs1, G.n2 * G.cs2) }, hS1: { value: s1 }, hS2: { value: s2 }, hKind: { value: G.kind || 0 } };
 }
 // a wall with no grid still gets the same shader, with an empty mask
-const NO_MASK = { hMask: { value: new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType) }, hMP: { value: new THREE.Vector4(0, 0, 1, 1) }, hS1: { value: new V3(1, 0, 0) }, hS2: { value: new V3(0, 1, 0) } };
+const NO_MASK = { hMask: { value: new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType) }, hMP: { value: new THREE.Vector4(0, 0, 1, 1) }, hS1: { value: new V3(1, 0, 0) }, hS2: { value: new V3(0, 1, 0) }, hKind: { value: 0 } };
 NO_MASK.hMask.value.needsUpdate = true;
-const MASK_DECL = '\nuniform sampler2D hMask; uniform vec4 hMP; uniform vec3 hS1; uniform vec3 hS2;\n';
+const MASK_DECL = '\nuniform sampler2D hMask; uniform vec4 hMP; uniform vec3 hS1; uniform vec3 hS2; uniform float hKind;\n' + WALL_NOISE;
 function wallMask(mesh) {
   const G = wallGrid(mesh), m = mesh.material; if (!G || m.userData.hMask) return;
+  G.kind = { plywood: 0, crate: 0, drywall: 1, concrete: 2 }[mesh.userData.kind] || 0;
   const U = maskUniforms(G); Object.assign(m.userData, U); const prev = m.onBeforeCompile;
-  m.onBeforeCompile = sh => { prev(sh); Object.assign(sh.uniforms, U); sh.fragmentShader = sh.fragmentShader.replace('uniform vec4 hCut;', 'uniform vec4 hCut;' + MASK_DECL).replace('if (dot(vHolePos, hCut.xyz) > hCut.w) discard;', 'if (dot(vHolePos, hCut.xyz) > hCut.w) discard;\n' + MASK_GLSL('vHolePos')); };
-  m.customProgramCacheKey = () => 'holesmask' + SLOTS; m.needsUpdate = true;
+  m.onBeforeCompile = sh => { prev(sh); Object.assign(sh.uniforms, U); sh.fragmentShader = sh.fragmentShader.replace('uniform vec4 hCut;', 'uniform vec4 hCut;' + MASK_DECL).replace('if (dot(vHolePos, hCut.xyz) > hCut.w) discard;', 'if (dot(vHolePos, hCut.xyz) > hCut.w) discard;\n' + MASK_GLSL('vHolePos')).replace('#include <emissivemap_fragment>', WALL_EDGE('vHolePos') + '#include <emissivemap_fragment>'); };
+  m.customProgramCacheKey = () => 'holesmask2' + SLOTS; m.needsUpdate = true;
   // the wall's shadow gets the same openings
   const dm = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
   dm.onBeforeCompile = sh => {
@@ -377,82 +386,119 @@ function wallDamage(mesh, point, n, dir, E, w, side, through) {
   dust(pOut, eject, D.dust, 0.35 + Math.min(0.9, E / 9000) + (side ? 0 : 0.2), D.deb === 'plaster' ? 0.75 : 0.6, rock ? 1.6 : 1.2);
   if (rock && side) particles(pOut, pistol ? 6 : 3, PMAT.spark, 3.5, 0.004, 0.14, 0.3, out, 5);
   if (side) noiseHit(D.snd[0], D.snd[1], 0.05);
-  if (c.r <= 0 && c.d < D.hp) {
-    // still holding: a crater on this face, cut a little way in on anything thicker than a sheet
-    const size = (rock ? 0.06 + cal * 4.5 : D.deb === 'wood' ? 0.045 + cal * 3.2 : 0.055 + cal * 3.5) * (side ? 1 : 1.35) * rnd(0.85, 1.2) + Math.min(0.08, E / 250000);
+  // the damage itself: what the round does to the material, stamped into the wall's damage field (see stampWall)
+  const G = wallGrid(mesh), opened = G && ax === G.ax ? stampWall(mesh, G, D, u, v, E, cal, w, side, through, dir) : 0;
+  // a crater on the face it hit, unless it is now part of an opening
+  if (side && !gridOpenW(mesh, point.clone().addScaledVector(dir, 0.005))) {
+    const size = (rock ? 0.05 + cal * 4.2 : D.deb === 'wood' ? 0.035 + cal * 2.6 : 0.05 + cal * 3.2) * rnd(0.8, 1.25) + Math.min(0.06, E / 300000);
     const m = placeDecalD(mesh, point, n, size, pick(CHIP_MAT[D.deb]), Math.min(0.03, thick * 0.45));
     if (m) c.chips.push({ m, u, v });
-    if (thick > 0.05) {
+    if (rock && thick > 0.05) {
       const i = PIT0 + ((ud.pitN = (ud.pitN || 0) + 1) % (SLOTS - PIT0)), nl = new V3(); nl.setComponent(ax, sgn);
       const depth = Math.min(thick * 0.35, 0.006 + E / D.hp * 0.05);
       cutSlot(mesh, i, pl.clone().addScaledVector(nl, 0.02), nl.clone().negate(), 0.02 + depth, size * 0.14, size * 0.07, D.pit, 0.02 / (0.02 + depth), 1, true);
     }
-    return;
   }
-  const nr = Math.min(D.rmax, 0.03 + cal * 1.5 + D.grow * Math.sqrt(Math.max(0, c.d / D.hp - 1) + 0.04));
-  if (nr > c.r + 0.004) breakOpen(mesh, c, nr, D, dims, dir, sgn);
 }
-const REBAR_GEO = new THREE.CylinderGeometry(0.0065, 0.0065, 1, 6), REBAR_MAT = new THREE.MeshStandardMaterial({ color: 0x5a3b2a, roughness: 0.75, metalness: 0.55 });
-function breakOpen(mesh, c, nr, D, dims, dir, sgn) {
-  const ud = mesh.userData, ax = c.ax, a1 = (ax + 1) % 3, a2 = (ax + 2) % 3, thick = dims[ax], old = c.r;
-  if (c.slot < 0) {
-    const used = ud.dmg.filter(o => o.slot >= 0);
-    if (used.length >= BRK) {
-      let best = used[0], bd = 1e9; for (const o of used) { if (o.ax !== ax) continue; const dd = Math.hypot(o.u - c.u, o.v - c.v) - o.r; if (dd < bd) { bd = dd; best = o; } }
-      best.d += c.d; c.d = 0; for (const ch of c.chips) dropDecal(ch.m); c.chips = [];
-      const r2 = Math.min(D.rmax, best.r + 0.03); if (r2 > best.r) { const i = ud.dmg.indexOf(c); if (i >= 0) ud.dmg.splice(i, 1); return breakOpen(mesh, best, r2, D, dims, dir, sgn); }
-      return;
+// What a round really does to the material, by material, round and energy (E, joules, as it arrived):
+//  wood: punches a clean hole a little bigger than the bullet; the far side splinters out wider along the grain
+//  drywall: crumbles, a ragged hole a couple of calibres wide, paper torn round it
+//  concrete: a rifle or pistol round only spalls a shallow crater and weakens the wall round it; enough rounds in one
+//    place (or a .50, or buckshot up close) and it breaks through
+// Every hit adds damage to the cells it reaches (1 = gone), with noise so no two are alike, and damage builds up: rounds
+// grouped in one spot weaken it until the hole grows into one ragged opening. Returns how many cells opened.
+const _sh = (a, b, c) => { const x = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453; return x - Math.floor(x); };
+function stampWall(mesh, G, D, u0, v0, E, cal, w, side, through, dir) {
+  // into the grid's own axes (a1 across, a2 up): u/v came in the face's (ax+1, ax+2) order
+  const q = new V3(); q.setComponent((G.ax + 1) % 3, u0); q.setComponent((G.ax + 2) % 3, v0);
+  const U = q.getComponent(G.a1), V = q.getComponent(G.a2), kJ = E / 1700, shot = isShotgun(w), big = cal > 0.012;
+  const seed = Math.round(U * 1000) * 0.37 + Math.round(V * 1000) * 0.61;
+  let core = 0, coreAmt = 1.25, halo, haloAmt, el = 1;
+  if (D.deb === 'wood') {
+    core = side ? Math.max(0.005, cal * (1.1 + 0.25 * kJ)) : 0;
+    halo = Math.max(0.02, cal * 4) * (side ? 1 : 1.5 + 0.3 * Math.min(2, kJ)); haloAmt = (side ? 0.16 : 0.32) * Math.min(2.2, 0.5 + kJ); el = 1.7;
+  } else if (D.deb === 'plaster') {
+    core = side ? Math.max(0.008, cal * (2.0 + 0.4 * kJ)) : 0;
+    halo = Math.max(0.03, cal * 6); haloAmt = (side ? 0.22 : 0.3) * Math.min(2.2, 0.6 + kJ);
+  } else {
+    // concrete: only something heavy breaks straight through
+    core = side && (big || (shot && E > 900)) ? (big ? 0.012 + cal * 1.6 : 0.006) * Math.min(1.6, 0.5 + kJ * 0.15) : 0;
+    halo = 0.035 + cal * 2.5 + Math.min(0.05, E / 120000); haloAmt = (side ? 0.075 : 0.05) * Math.min(4, kJ) * (isPistol(w) ? 0.35 : 1) * (shot ? 0.6 : 1);
+  }
+  holeify(mesh, SLOTS, D.inner); mesh.userData.holeMax = SLOTS; wallMask(mesh);
+  const R = Math.max(core, halo) * 1.3, i0 = Math.floor((U - R - G.min1) / G.cs1), i1 = Math.ceil((U + R - G.min1) / G.cs1), j0 = Math.floor((V - R - G.min2) / G.cs2), j1 = Math.ceil((V + R - G.min2) / G.cs2);
+  let opened = 0, ou = 0, ov = 0; const data = G.tex.image.data;
+  // the core's outline is lumpy, not round
+  const lump = a => 1 + 0.22 * Math.sin(3 * a + seed) + 0.14 * Math.sin(5 * a + seed * 1.7) + 0.08 * Math.sin(9 * a + seed * 2.3);
+  for (let j = Math.max(0, j0); j <= Math.min(G.n2 - 1, j1); j++) for (let i = Math.max(0, i0); i <= Math.min(G.n1 - 1, i1); i++) {
+    const k = j * G.n1 + i; if (G.cell[k]) continue;
+    const cu = G.min1 + (i + 0.5) * G.cs1 - U, cv = G.min2 + (j + 0.5) * G.cs2 - V, ang = Math.atan2(cv, cu);
+    const dc = Math.hypot(cu, cv), dh = Math.hypot(cu / el, cv);
+    const nz = 0.55 + 0.9 * _sh(i, j, seed);
+    let add = 0;
+    if (core > 0 && dc < core * lump(ang)) add += coreAmt;
+    if (dh < halo) { const t = 1 - dh / halo; add += haloAmt * t * t * nz; }
+    if (!add) continue;
+    // damage already there makes it give way more easily
+    G.dmg[k] += add * (1 + 0.6 * Math.min(1, G.dmg[k]));
+    if (G.dmg[k] >= 1) {
+      G.cell[k] = 1; G.any = true; data[k] = 255; opened++; ou += cu; ov += cv;
+      // the material round a fresh break is cracked and spalled too, unevenly, so the broken band is ragged, not a line
+      for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+        const ii = i + di, jj = j + dj; if ((!di && !dj) || ii < 0 || jj < 0 || ii >= G.n1 || jj >= G.n2) continue;
+        const kk = jj * G.n1 + ii; if (G.cell[kk]) continue;
+        const r = _sh(ii * 3 + 1, jj * 7 + 2, seed); if (r < 0.35) continue;
+        G.dmg[kk] = Math.min(0.9, G.dmg[kk] + (r - 0.35) * 0.55 / (Math.abs(di) + Math.abs(dj))); data[kk] = Math.round(Math.min(0.92, G.dmg[kk]) * 255);
+      }
     }
-    c.slot = used.length;
+    else data[k] = Math.round(Math.min(0.92, G.dmg[k]) * 255);
   }
-  // the hole goes all the way through anything wall-thick; a big solid block only gets a deep crater
-  const full = thick <= 0.4, p0 = new V3(), d = new V3();
-  p0.setComponent(a1, c.u); p0.setComponent(a2, c.v);
-  if (full) { p0.setComponent(ax, -(thick / 2 + 0.05)); d.setComponent(ax, 1); }
-  else { p0.setComponent(ax, sgn * (thick / 2 + 0.05)); d.setComponent(ax, -sgn); }
-  const ln = full ? thick + 0.1 : 0.3; cutSlot(mesh, c.slot, p0, d, ln, nr, nr * (D.deb === 'rock' ? 1.12 : 1.04), D.inner, 0.05 / ln, full ? (thick + 0.05) / ln : 1, !full);
-  c.r = nr; c.through = full; ud.brokeT = performance.now();
-  // craters that are now inside the hole would float in the air: take them away
-  for (const o of ud.dmg) if (o.ax === ax) o.chips = o.chips.filter(ch => { if (Math.hypot(ch.u - c.u, ch.v - c.v) < nr * 1.05) { dropDecal(ch.m); return false; } return true; });
-  for (const r of c.rings) dropDecal(r); c.rings = [];
-  // the broken edge round the hole on each face: a ring of spalled, cracked material (the far face, where it blew out, wider)
-  const ringed = ud.dmg.some(o => o !== c && o.ax === ax && o.rings && o.rings.length && Math.hypot(o.u - c.u, o.v - c.v) < (o.r + nr) * 1.1);
-  if (full && !ringed) for (const fs of [1, -1]) {
-    const q = p0.clone().setComponent(ax, fs * thick / 2), nW = new V3().setComponent(ax, fs).transformDirection(mesh.matrixWorld);
-    const exitSide = fs === -sgn, sz = nr / 0.3 * (exitSide && D.deb === 'rock' ? rnd(1.25, 1.5) : rnd(1.0, 1.15));
-    const m = placeDecalD(mesh, mesh.localToWorld(q), nW, sz, pick(BREAK_MAT[D.deb]), Math.min(0.04, thick * 0.5)); if (m) c.rings.push(m);
+  G.tex.needsUpdate = true;
+  if (opened) settleWall(mesh, G, D, dir, U + ou / opened, V + ov / opened, opened);
+  return opened;
+}
+// after a part opened: chunks of what was there, anything left hanging falls, craters inside the opening go, and the steel
+// in reinforced concrete shows across it
+function settleWall(mesh, G, D, dir, U, V, opened) {
+  const ud = mesh.userData, gp = mesh.geometry.parameters, thick = [gp.width, gp.height, gp.depth][G.ax], q = new V3();
+  const fw = dir.clone().normalize(), area = opened * G.cs1 * G.cs2, n = clamp(Math.round(area * 9000), 2, 90);
+  for (let i = 0; i < n; i++) {
+    q.set(0, 0, 0); q.setComponent(G.a1, U + rnd(-1, 1) * Math.sqrt(area) * 0.6); q.setComponent(G.a2, V + rnd(-1, 1) * Math.sqrt(area) * 0.6); q.setComponent(G.ax, rnd(-0.5, 0.5) * thick);
+    const fwd = Math.random() < 0.75;
+    spawnDebris(mesh.localToWorld(q.clone()), 1, (fwd ? fw : fw.clone().negate()).lerp(new V3(rnd(-1, 1), rnd(-0.3, 1), rnd(-1, 1)), 0.35).normalize(), 0.45, rnd(1.2, 3.6), D,
+      D.deb === 'rock' ? rnd(0.008, 0.025) : D.deb === 'wood' ? rnd(0.01, 0.03) : rnd(0.008, 0.022));
   }
-  // reinforced concrete: the steel mesh inside shows across a big enough hole, bent a little where it was hit
-  if (D.deb === 'rock' && full && nr > 0.09 && thick > 0.12) {
-    if (c.rebar) { c.rebar.removeFromParent(); } const rg = c.rebar = new THREE.Group(); mesh.add(rg);
-    const sp = 0.16, off1 = ((c.u % sp) + sp) % sp, off2 = ((c.v % sp) + sp) % sp;
-    for (const layer of [-0.28, 0.28]) for (const along of [0, 1]) {
-      const o = along ? off1 : off2, base = along ? c.u : c.v;
-      for (let k = Math.ceil((base - nr - o) / sp); k * sp + o <= base + nr; k++) {
-        const x = k * sp + o, dd = x - base; if (Math.abs(dd) >= nr * 0.95) continue;
-        const half = Math.sqrt(nr * nr - dd * dd) + 0.03, rod = new THREE.Mesh(REBAR_GEO, REBAR_MAT);
-        rod.scale.set(1, half * 2, 1);
-        const pos = new V3(); pos.setComponent(ax, layer * thick * (1 + rnd(-0.1, 0.1))); pos.setComponent(along ? a1 : a2, x); pos.setComponent(along ? a2 : a1, along ? c.v : c.u);
-        rod.position.copy(pos);
-        const axis = new V3().setComponent(along ? a2 : a1, 1); rod.quaternion.setFromUnitVectors(_Y, axis);
-        rod.rotateOnWorldAxis(new V3().setComponent(ax, 1), 0); rod.rotateX(rnd(-0.06, 0.06)); rod.rotateZ(rnd(-0.06, 0.06));
-        rod.castShadow = true; rg.add(rod);
+  q.set(0, 0, 0); q.setComponent(G.a1, U); q.setComponent(G.a2, V);
+  dust(mesh.localToWorld(q.clone()), fw, D.dust, 0.4 + Math.sqrt(area) * 6, 0.6, 2.2);
+  ud.brokeT = performance.now();
+  updateWallGrid(mesh, D, dir);
+  for (const c of ud.dmg || []) c.chips = c.chips.filter(ch => { q.set(0, 0, 0); q.setComponent((c.ax + 1) % 3, ch.u); q.setComponent((c.ax + 2) % 3, ch.v); if (gridOpenW(mesh, mesh.localToWorld(q.clone()))) { dropDecal(ch.m); return false; } return true; });
+  if (D.deb === 'rock' && thick > 0.12) rebuildRebar(mesh, G, thick);
+}
+// the reinforcing mesh: bars every 16 cm both ways in two layers; a bar shows wherever it runs across open cells
+const REBAR_GEO = new THREE.CylinderGeometry(0.0065, 0.0065, 1, 6), REBAR_MAT = new THREE.MeshStandardMaterial({ color: 0x5a3b2a, roughness: 0.75, metalness: 0.55 });
+function rebuildRebar(mesh, G, thick) {
+  const ud = mesh.userData; if (ud.rebar) ud.rebar.removeFromParent(); const rg = ud.rebar = new THREE.Group(); mesh.add(rg);
+  const sp = 0.16, open = (i, j) => i >= 0 && j >= 0 && i < G.n1 && j < G.n2 && G.cell[j * G.n1 + i] > 0;
+  for (const layer of [-0.28, 0.28]) for (const along of [0, 1]) {
+    const nL = along ? G.n1 : G.n2, nA = along ? G.n2 : G.n1, csL = along ? G.cs1 : G.cs2, csA = along ? G.cs2 : G.cs1, minL = along ? G.min1 : G.min2, minA = along ? G.min2 : G.min1;
+    for (let x = minL + sp * 0.5; x < -minL; x += sp) {
+      const li = Math.floor((x - minL) / csL); let run = -1;
+      for (let a = 0; a <= nA; a++) {
+        const o = a < nA && (along ? open(li, a) : open(a, li));
+        if (o && run < 0) run = a;
+        if (!o && run >= 0) {
+          if (a - run >= 2) {
+            const y0 = minA + run * csA - 0.02, y1 = minA + a * csA + 0.02, rod = new THREE.Mesh(REBAR_GEO, REBAR_MAT), p = new V3();
+            p.setComponent(G.ax, layer * thick); p.setComponent(along ? G.a1 : G.a2, x); p.setComponent(along ? G.a2 : G.a1, (y0 + y1) / 2);
+            rod.position.copy(p); rod.scale.set(1, y1 - y0, 1); rod.quaternion.setFromUnitVectors(_Y, new V3().setComponent(along ? G.a2 : G.a1, 1));
+            rod.rotateX(rnd(-0.05, 0.05)); rod.rotateZ(rnd(-0.05, 0.05)); rod.castShadow = true; rg.add(rod);
+          }
+          run = -1;
+        }
       }
     }
   }
-  // what used to fill the hole comes off as chunks, most of it out the far side
-  const area = Math.PI * (nr * nr - old * old), n = clamp(Math.round(area * 6000), 12, 140), fw = new V3().setComponent(ax, -sgn), bk = fw.clone().negate();
-  for (let i = 0; i < n; i++) {
-    const a = Math.random() * 6.283, rr = Math.sqrt(rnd(old * old, nr * nr) / (nr * nr)) * nr, q = new V3();
-    q.setComponent(a1, c.u + Math.cos(a) * rr); q.setComponent(a2, c.v + Math.sin(a) * rr);
-    const fwd = Math.random() < 0.72; q.setComponent(ax, (fwd ? -sgn : sgn) * (thick / 2 + 0.015));
-    spawnDebris(mesh.localToWorld(q), 1, (fwd ? dir.clone().lerp(fw, 0.4) : bk).normalize(), 0.5, rnd(1.5, 4.2), D, D.deb === 'rock' ? 0.022 : D.deb === 'wood' ? 0.03 : 0.028);
-  }
-  const cw = mesh.localToWorld(p0.clone().setComponent(ax, -sgn * thick / 2));
-  dust(cw, fw, D.dust, 0.9 + nr * 3, 0.7, 2.4);
-  dust(mesh.localToWorld(p0.clone().setComponent(ax, sgn * thick / 2)), bk, D.dust, 0.6 + nr * 2, 0.55, 2);
-  noiseHit(D.deb === 'rock' ? 400 : 650, 0.18, 0.12);
-  if (full) updateWallGrid(mesh, D, dir);
 }
 // a hit on a ragdoll piece, expressed in the skeleton frame that piece stands for, so the anatomy sees the right body part
 function ragHitInfo(hit, dir) {

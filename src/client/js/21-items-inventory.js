@@ -358,9 +358,9 @@ function updateToolbar() {
   const tb = $('toolbar');
   if (!S.mode || !P.alive || P.downed) { tb.style.display = 'none'; tbKey = ''; return; }
   tb.style.display = 'flex';
-  const lo = P.activeLo, gr = i => lo[i] == null ? [i + 1, 'Empty', '', false] : [i + 1, WEAPONS[lo[i]].name, attSummary(lo[i]), P.slot === i];
+  const lo = P.activeLo, es = n => P.slot === 4 && P.emptySel === n, gr = i => lo[i] == null ? [i + 1, 'Empty', '', es(i)] : [i + 1, WEAPONS[lo[i]].name, attSummary(lo[i]), P.slot === i];
   const rows = [gr(0), gr(1),
-    [3, P.tools[0] ? TOOL_NAME[P.tools[0]] : 'Empty', P.tools[0] ? 'x' + toolCount(P.tools[0]) : '', P.slot === toolSlotIndex(0)]];
+    ...[0, 1].map(t => [3 + t, P.tools[t] ? TOOL_NAME[P.tools[t]] : 'Empty', P.tools[t] ? 'x' + toolCount(P.tools[t]) : '', P.tools[t] ? P.slot === toolSlotIndex(t) : es(2 + t)])];
   const key = JSON.stringify(rows);
   if (key === tbKey) return; tbKey = key;
   tb.innerHTML = rows.map(r => '<div class="tb' + (r[3] ? ' on' : '') + (r[1] === 'Empty' ? ' empty' : '') + '"><b>' + r[0] + '</b><div><span>' + r[1] + '</span><small>' + r[2] + '</small></div></div>').join('');
