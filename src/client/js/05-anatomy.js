@@ -112,6 +112,16 @@ class Anatomy {
   }
   // frame: skeleton group name, e/d: entry point and direction in that frame, v: impact velocity (m/s), w: weapon index, armor: 'plate'|'helmet'|undefined
   hit(frame, e, d, v, w, armor, pd) {
+    const r = this.hit0(frame, e, d, v, w, armor, pd);
+    // any round to the head that does not kill outright puts the lights out: the brain is shaken hard even by a grazing or
+    // jaw hit. Several seconds to most of a minute, longer the harder the hit
+    if (r && !r.missing && !r.stopped && r.region === 'head' && !this.dead) {
+      const E = 0.5 * (WEAPONS[w] || WEAPONS[0]).mass * v * v;
+      this.koT = Math.max(this.koT || 0, clamp(8 + E / 120, 10, 45) * rnd(0.8, 1.2)); this.concussion = Math.max(this.concussion, 20); r.ko = true;
+    }
+    return r;
+  }
+  hit0(frame, e, d, v, w, armor, pd) {
     this.version++;
     const m = (WEAPONS[w] || WEAPONS[0]).mass;
     const region = regionOf(frame, e);

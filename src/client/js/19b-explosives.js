@@ -309,8 +309,8 @@ function blastLimbs(an, near, maxN) {
 //   Z < 2.4: half the time dead, otherwise blast lung and thrown down
 //   Z < 4: thrown down with lung injury and burst eardrums
 function blastFate(z, contact, kind) {
-  if (contact || z < 0.45) return { kill: 1, limbs: 4, gib: 1, gore: 3 };
-  if (z < 0.9) return { kill: 1, limbs: 2 + (Math.random() < 0.5 ? 1 : 0), gib: kind === 'c4' && Math.random() < 0.35 ? 1 : 0, gore: 2 };
+  if (contact || z < 0.45) return { kill: 1, limbs: 4, gore: 3 };
+  if (z < 0.9) return { kill: 1, limbs: 2 + (Math.random() < 0.5 ? 1 : 0), gore: 2 };
   if (z < 1.6) return { kill: 1, limbs: Math.random() < 0.4 ? 1 : 0, gore: 1 };
   if (z < 2.4) return Math.random() < 0.5 ? { kill: 1 } : { lung: 14 * (2.4 - z) + 6, down: 1 };
   if (z < 4) return { lung: 2 + 2 * (4 - z), down: Math.random() < 0.7 ? 1 : 0, stun: 0.6 };
@@ -327,6 +327,17 @@ function applyFate(an, F, kind) {
   if (F.limbs) blastLimbs(an, null, F.limbs);
   if (F.lung) { an.shock = (an.shock || 0) + 40 + F.lung * 2; an.pain = Math.min(1, (an.pain || 0) + 0.5); an.wounds.push({ region: 'chest', name: 'Blast injury (lungs)', rate: F.lung, treated: false }); an.version++; }
   if (F.kill) an.kill('blast');
+}
+// the blocks of trunk and head the blast reaches are blown out: anything inside about 0.4 m of a C4 block, 0.2 m of a grenade
+function blastChunks(root, p, cW, kind, an, dir, skin) {
+  const R = (kind === 'c4' ? 0.42 : 0.3) * cW, ch = destroyChunks(root, c => c.p.distanceTo(p) < R * rnd(0.8, 1.2), dir, skin);
+  if (an && ch.t + ch.h) {
+    if (ch.h) an.wounds.push({ region: 'head', name: 'Head blown apart', rate: 150, treated: false, artery: 1 });
+    if (ch.t) an.wounds.push({ region: 'chest', name: 'Torso blown open', rate: 150, treated: false, artery: 1 });
+    an.version++; if (!an.dead) an.kill(ch.h ? 'brain' : 'blast');
+    if (chunkCount(root, 'H') >= 13) an.gibHead = true;
+  }
+  return ch;
 }
 function blastBodies(p, kind, owner, isOwner, onBody) {
   const E = EXPL[kind], cW = Math.cbrt(E.W), shot = { hits: new Map() };
@@ -348,7 +359,8 @@ function blastBodies(p, kind, owner, isOwner, onBody) {
       }, vs);
     }
     if (P.downed && P.rag) fragsAt(p, ragMeshes(P.rag), nF, 0, owner, (h, fd, v, L) => fragHit(h, fd, v, L, shot, p), vs);
-    const F = blastFate(z, onBody && d < 0.6, kind), wasDead = an.dead; applyFate(an, F, kind);
+    const wasDead = an.dead; blastChunks(P.rag ? P.rag.group : localBody.root, p, cW, kind, an, dir);
+    const F = blastFate(z, onBody && d < 0.6, kind); applyFate(an, F, kind);
     if (F.gore && !wasDead) blastGore(c, dir, F.gore);
     if (F.down && !an.dead) res = Object.assign(res || {}, { blast: { big: true } });
     if (F.stun) P.stun = Math.max(P.stun || 0, F.stun);
@@ -365,6 +377,8 @@ function blastBodies(p, kind, owner, isOwner, onBody) {
     const z = d / cW * (los(p, c) ? 1 : 1.7), an = dm.anat, dir = c.clone().sub(p).setY(0.3).normalize();
     const ms = dm.rag ? ragMeshes(dm.rag) : (dm.hum.root.updateMatrixWorld(true), dm.hum.hitMeshes.filter(m => m.visible));
     fragsAt(p, ms, nF, 0, owner, (h, fd, v, L) => fragHit(h, fd, v, L, shot, p), vs);
+    const croot = dm.rag ? dm.rag.group : dm.hum.root, ch = blastChunks(croot, p, cW, kind, dm.dead ? null : an, dir, dm.hum.pal && dm.hum.pal.skin);
+    if (dm.dead && dm.rag && chunkCount(croot, 'H') >= 13 && dm.rag.headG.visible) dm.rag.gibHead(dir);
     const F = blastFate(z, onBody && d < 0.6, kind);
     if (dm.dead) {
       // a body already down still comes apart in a close blast
@@ -382,7 +396,7 @@ function blastBodies(p, kind, owner, isOwner, onBody) {
     if (dm.rag) ragPush(dm.rag, p, clamp(12 / (z * z), 0, 18));
   }
   // loose corpses (not a player's body still being simulated by its own client)
-  for (const r of ragdolls) if (!r.owner || (!r.owner.dummy && !r.owner.nd && !r.owner.remote && r !== P.rag)) { const z = r.p[1].distanceTo(p) / cW; if (z < 7) ragPush(r, p, clamp(12 / (z * z), 0, 18)); }
+  for (const r of ragdolls) if (!r.owner || (!r.owner.dummy && !r.owner.nd && !r.owner.remote && r !== P.rag)) { const z = r.p[1].distanceTo(p) / cW; if (z < 7) { if (z < 1.5) { blastChunks(r.group, p, cW, kind, null, r.p[1].clone().sub(p).normalize(), r.skin); if (chunkCount(r.group, 'H') >= 13 && r.headG.visible) r.gibHead(r.p[0].clone().sub(p).normalize()); } ragPush(r, p, clamp(12 / (z * z), 0, 18)); } }
 }
 // a fragment into an AI body or a body on the ground: the normal hit code, with the anatomy told it is steel from a grenade
 function fragHit(h, fd, v, L, shot, p) {

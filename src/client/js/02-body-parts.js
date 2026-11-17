@@ -280,14 +280,15 @@ function tintShader(sh, mesh) {
 function bodyPatches(sh, mesh) {
   if (!mesh._skin) return;
   const a = mesh.geometry.attributes; skinShader(sh, mesh._skin.U);
+  if (a.bz) chunkShader(sh, mesh._skin.U, !a.fab);
   if (a.ck) clothMoveShader(sh); if (a.fab) clothShader(sh); if (mesh.userData.tint !== undefined && a.tm) tintShader(sh, mesh);
 }
-const bodyKey = mesh => { const a = mesh.geometry.attributes; return (mesh._skin ? 'sk' : '') + (mesh._skin && a.ck ? 'm' : '') + (mesh._skin && a.fab ? 'c' : '') + (mesh._skin && a.tm && mesh.userData.tint !== undefined ? 't' : ''); };
+const bodyKey = mesh => { const a = mesh.geometry.attributes; return (mesh._skin ? 'sk' : '') + (mesh._skin && a.bz ? 'z' : '') + (mesh._skin && a.ck ? 'm' : '') + (mesh._skin && a.fab ? 'c' : '') + (mesh._skin && a.tm && mesh.userData.tint !== undefined ? 't' : ''); };
 function attachSkin(root, at) {
-  let sim = null;
+  let sim = null; root.userData.chunkAt = at;
   root.traverse(o => {
     if (!o.isMesh || !o.geometry.attributes.nw || o.material === shadowMat || o._skin) return;
-    const U = { segM: { value: Array.from({ length: 16 }, () => new THREE.Matrix4()) }, segOK: { value: new Array(16).fill(0) } };
+    const U = Object.assign({ segM: { value: Array.from({ length: 16 }, () => new THREE.Matrix4()) }, segOK: { value: new Array(16).fill(0) } }, chunkUniforms(root));
     if (o.geometry.attributes.ck) { U.cD = { value: Array.from({ length: 56 }, () => new THREE.Vector3()) }; sim = sim || new ClothSim(root, at); }
     o._skin = { U, at, sim };
     const m = o.material.clone(); if (o.geometry.attributes.fab) m.side = THREE.DoubleSide; m.onBeforeCompile = sh => bodyPatches(sh, o); m.customProgramCacheKey = () => 'body' + bodyKey(o); o.material = m;
@@ -322,7 +323,7 @@ function mergeChildren(group, matl, pick) {
     const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
     g.applyMatrix4(m.matrix);
     const tn = g.attributes.tint ? g.attributes.tint.array : null;
-    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv' && k !== 'p2' && k !== 'p3' && k !== 'nb' && k !== 'nw' && k !== 'hc' && k !== 'fab' && k !== 'ck' && k !== 'cr' && k !== 'ca') g.deleteAttribute(k);
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv' && k !== 'p2' && k !== 'p3' && k !== 'nb' && k !== 'nw' && k !== 'hc' && k !== 'fab' && k !== 'ck' && k !== 'cr' && k !== 'ca' && k !== 'bz') g.deleteAttribute(k);
     if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
     const col = m.material.color || new THREE.Color(1, 1, 1), n = g.attributes.position.count, arr = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { arr[i * 3] = col.r * (tn ? tn[i * 3] : 1); arr[i * 3 + 1] = col.g * (tn ? tn[i * 3 + 1] : 1); arr[i * 3 + 2] = col.b * (tn ? tn[i * 3 + 2] : 1); }
@@ -332,6 +333,7 @@ function mergeChildren(group, matl, pick) {
     group.remove(m);
   }
   // skinned and plain parts merge together: plain parts get zero skin weight
+  if (geos.some(g => g.attributes.bz)) for (const g of geos) if (!g.attributes.bz) g.setAttribute('bz', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 4), 4));
   if (geos.some(g => g.attributes.nw)) for (const g of geos) if (!g.attributes.nw) { const n = g.attributes.position.count; g.setAttribute('p2', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('p3', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('nb', new THREE.BufferAttribute(new Float32Array(n * 2), 2)); g.setAttribute('nw', new THREE.BufferAttribute(new Float32Array(n * 2), 2)); }
   if (geos.some(g => g.attributes.fab)) for (const g of geos) if (!g.attributes.fab) { const n = g.attributes.position.count; g.setAttribute('hc', new THREE.BufferAttribute(new Float32Array(n).fill(1), 1)); g.setAttribute('fab', new THREE.BufferAttribute(new Float32Array(n), 1)); for (const k of ['ck', 'cr', 'ca']) g.setAttribute(k, new THREE.BufferAttribute(new Float32Array(n), 1)); }
   const merged = new THREE.Mesh(mergeGeometries(geos), matl);
@@ -488,16 +490,16 @@ class Body {
     const DENIM = [0x2e3d57, 0x384a66, 0x29344a, 0x43546f];
     const c = this.c, col = [c.skin, c.shirt, DENIM[((c.pants >>> 0) * 2654435761 >>> 28) & 3], c.boots, c.sole, c.hair];
     (this.segAt = this.segAt || {})[seg] = [p, y];
-    for (let r = 0; r < 6; r++) { const g = humGeo(seg, r); if (g) this.add(g, col[r], p, 0, y, 0, f); }
+    for (let r = 0; r < 6; r++) { const g = ensureBZ(humGeo(seg, r), seg); if (g) this.add(g, col[r], p, 0, y, 0, f); }
     // the skin under the clothes and hair: hidden (and free) until the clothes over it are shot open
-    const hg = humGeo(seg, 7); if (hg) this.add(hg, c.hair, p, 0, y, 0, f);
-    const sk = humGeo(seg, 8); if (sk) this.add(sk, 0x3a3936, p, 0, y, 0, f);   // socks
+    const hg = ensureBZ(humGeo(seg, 7), seg); if (hg) this.add(hg, c.hair, p, 0, y, 0, f);
+    const sk = ensureBZ(humGeo(seg, 8), seg); if (sk) this.add(sk, 0x3a3936, p, 0, y, 0, f);   // socks
     for (const g of ['suit', 'shoes']) {
-      const geo = garmGeo(g, seg); if (!geo) continue;
+      const geo = ensureBZ(garmGeo(g, seg), seg); if (!geo) continue;
       const m = this.add(geo, GARM_MAT[g], p, 0, y, 0, f); m.userData.tex = true;
       if (g === 'suit') m.userData.tint = c.shirt;            // the shirt part is dyed the outfit's colour
     }
-    const u = humGeo(seg, 6); if (u && this.M(0) !== shadowMat) { const m = this.add(u, c.skin, p, 0, y, 0, null); m.userData.under = true; m.visible = false; m.castShadow = false; }
+    const u = ensureBZ(humGeo(seg, 6), seg); if (u && this.M(0) !== shadowMat) { const m = this.add(u, c.skin, p, 0, y, 0, null); m.userData.under = true; m.visible = false; m.castShadow = false; }
   }
   pelvis(p, y, f) {
     f = f && 'hips';

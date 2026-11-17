@@ -5,7 +5,7 @@
 // the same place, and the whole thing rides on the same bob, sway, breathing drift and draw as a gun.
 const TV = { g: new THREE.Group(), ok: !!ARM_DATA };
 TV.g.visible = false; vm.add(TV.g);
-const TSH = { R: new V3(0.2, -0.3, 0.05), L: new V3(-0.2, -0.3, 0.05) }, REACH = 0.535;
+const TSH = { R: new V3(0.25, -0.32, 0.05), L: new V3(-0.21, -0.3, 0.05) }, REACH = 0.535;
 const tvHolder = () => { const h = new THREE.Group(); TV.g.add(h); return h; };
 TV.nadeH = tvHolder(); TV.nade = makeFrag(); TV.nadeH.add(TV.nade.g);
 TV.c4H = tvHolder(); TV.c4 = makeC4(true); TV.c4H.add(TV.c4);
@@ -42,7 +42,7 @@ if (TV.ok) {
     L.setHand(q, w); const c = { thumb: [0.3, 0.3, 0.25, 0.6], middle: [1.1, 1.3, 0.9, 0], ring: [1.2, 1.4, 0.9, 0.05], pinky: [1.25, 1.4, 0.9, 0.1] };
     c.index = fingerTo(L, cl, 'index', rp.clone().add(new V3(0.003, 0.0, -0.012))); TV.gripRing = { q, w, c }; }
   // the C4 block on the right palm, fingers up its far side, thumb on top
-  TV.gripC4 = solveGrip(R, TV.c4H, { pn: [0, 1, 0.05], fwd: [-0.25, 0.05, -1], mcp: [0.07, -0.034, -0.012], thumb: [0.06, 0.03, 0.03], squeeze: 0.05 });
+  TV.gripC4 = solveGrip(R, TV.c4H, { pn: [0, -1, 0.1], fwd: [-0.3, -0.05, -1], mcp: [0.075, 0.036, -0.004], thumb: [0.055, -0.004, 0.044], squeeze: 0.1 });
   // the remote in the left hand like a phone, face to you, thumb over the cover
   TV.gripRem = solveGrip(L, TV.remH, { pn: [1, 0, 0.1], fwd: [0.1, 0.3, -1], mcp: [-0.04, -0.012, -0.004], thumb: [0.0, 0.02, 0.026] });
   L.setHand(TV.gripRem.q, TV.gripRem.w);
@@ -82,9 +82,9 @@ function driveArm(rig, hand, curls, S, lost) {
 }
 const setH = (h, P_) => { h.position.copy(P_.p); h.quaternion.copy(P_.q); };
 // ---- poses (object frames in camera space)
-const G_ = { idle: tpose(0.135, -0.16, -0.36, 0.1, -0.35, 0.05), pres: tpose(0.085, -0.15, -0.37, 0.15, -0.7, 0.15), over: tpose(0.24, -0.01, -0.1, -0.6, -0.5, 0.4), under: tpose(0.2, -0.4, -0.2, 0.7, -0.3, 0),
+const G_ = { idle: tpose(0.185, -0.165, -0.35, 0.1, -0.15, -0.05), pres: tpose(0.11, -0.15, -0.37, 0.15, -0.6, 0.1), over: tpose(0.24, -0.01, -0.1, -0.6, -0.5, 0.4), under: tpose(0.2, -0.4, -0.2, 0.7, -0.3, 0),
   relO: tpose(0.06, -0.07, -0.43, 0.5, 0, 0), relU: tpose(0.06, -0.15, -0.41, -0.4, 0, 0), folO: tpose(-0.02, -0.36, -0.3, 1.2, 0.3, 0), folU: tpose(0.04, -0.03, -0.4, -0.9, 0, 0), low: tpose(0.14, -0.5, -0.28, 0.6, -0.3, 0) };
-const B_ = { idle: tpose(0.06, -0.17, -0.38, 0.45, 0.35, 0.05), back: tpose(0.18, -0.03, -0.15, -0.3, 0.2, 0.4), rel: tpose(0.0, -0.09, -0.42, 0.4, 0.3, 0), fol: tpose(-0.04, -0.36, -0.3, 1, 0.5, 0), low: tpose(0.08, -0.5, -0.3, 0.8, 0.3, 0) };
+const B_ = { idle: tpose(0.07, -0.2, -0.37, 0.35, 0.3, 0.0), back: tpose(0.18, -0.03, -0.15, -0.3, 0.2, 0.4), rel: tpose(0.0, -0.09, -0.42, 0.4, 0.3, 0), fol: tpose(-0.04, -0.36, -0.3, 1, 0.5, 0), low: tpose(0.08, -0.5, -0.3, 0.8, 0.3, 0) };
 const RM_ = { idle: tpose(-0.13, -0.2, -0.37, 0.25, 0.35, -0.1), up: tpose(-0.075, -0.125, -0.35, 0.12, 0.28, -0.05), tuck: tpose(-0.1, -0.29, -0.3, 0.4, 0.4, -0.1) };
 // ---- per frame
 function vmTools(dt) {

@@ -221,7 +221,7 @@ class Ragdoll {
         clipGroup(piece, c.y, true); addStump(piece, new V3(0, c.y, 0), new V3(0, 1, 0), segs[0] < 4 ? 0.04 : 0.06);
         scene.add(piece); addProp(piece, dir.clone().multiplyScalar(rnd(0.6, 1.6)).add(new V3(rnd(-0.6, 0.6), rnd(0.4, 1.2), rnd(-0.6, 0.6))), new V3(rnd(-7, 7), rnd(-7, 7), rnd(-7, 7)), segs[0] < 4 ? 0.05 : 0.07, 'limb', 60);
         const at = c.l.g.localToWorld(new V3(0, c.y, 0));
-        for (let i = this.limbs.length - 1; i >= 0; i--) { const l = this.limbs[i]; if (!segs.slice(1).includes(l.seg)) continue; this.limbs.splice(i, 1); scene.attach(l.g); l.g.traverse(o => { if (o.isMesh) o.userData.rag = null; }); addProp(l.g, dir.clone().multiplyScalar(rnd(0.6, 1.6)).add(new V3(rnd(-0.6, 0.6), rnd(0.4, 1.2), rnd(-0.6, 0.6))), new V3(rnd(-7, 7), rnd(-7, 7), rnd(-7, 7)), l.seg < 4 ? 0.05 : 0.07, 'limb', 60); }
+        for (let i = this.limbs.length - 1; i >= 0; i--) { const l = this.limbs[i]; if (!segs.slice(1).includes(l.seg)) continue; this.limbs.splice(i, 1); scene.attach(l.g); detachSkin(l.g); l.g.traverse(o => { if (o.isMesh) o.userData.rag = null; }); addProp(l.g, dir.clone().multiplyScalar(rnd(0.6, 1.6)).add(new V3(rnd(-0.6, 0.6), rnd(0.4, 1.2), rnd(-0.6, 0.6))), new V3(rnd(-7, 7), rnd(-7, 7), rnd(-7, 7)), l.seg < 4 ? 0.05 : 0.07, 'limb', 60); }
         for (let i = 0; i < 3; i++) bloodFx(at.clone().add(new V3(rnd(-0.03, 0.03), rnd(-0.03, 0.03), rnd(-0.03, 0.03))), dir.clone().add(new V3(rnd(-0.5, 0.5), rnd(0, 0.4), rnd(-0.5, 0.5))).normalize(), true);
         noiseHit(300, 0.25, 0.12);
         continue;
@@ -230,7 +230,7 @@ class Ragdoll {
       const at = this.p[RAG_LIMBS[segs[0]][0]].clone();
       for (let i = this.limbs.length - 1; i >= 0; i--) {
         const l = this.limbs[i]; if (!segs.includes(l.seg)) continue;
-        this.limbs.splice(i, 1); scene.attach(l.g);
+        this.limbs.splice(i, 1); scene.attach(l.g); detachSkin(l.g);
         if (l.seg === segs[0] && l.first) addStump(l.g, new V3(0, l.top, 0), new V3(0, 1, 0), l.seg < 4 ? 0.045 : 0.065);
         l.g.traverse(o => { if (o.isMesh) { o.userData.rag = null; } });
         addProp(l.g, dir.clone().multiplyScalar(rnd(0.6, 1.6)).add(new V3(rnd(-0.6, 0.6), rnd(0.4, 1.2), rnd(-0.6, 0.6))), new V3(rnd(-7, 7), rnd(-7, 7), rnd(-7, 7)), l.seg < 4 ? 0.05 : 0.07, 'limb', 60);
@@ -434,6 +434,7 @@ function spawnRagdoll(hum, vel, dir, part, head, masks) {
   }
   const r = new Ragdoll(hum.capture(), hum.pal, vel || new V3(), part === 'arm' ? (Math.random() < 0.5 ? 4 : 7) : part === 'leg' ? (Math.random() < 0.5 ? 10 : 13) : PART_IDX[part] || 1, dir, masks.soft ? 0.25 : head ? 5.5 : 3, masks);
   { const BN = ['shL', 'elL', 'shR', 'elR', 'lgL', 'knL', 'lgR', 'knR']; for (const l of r.limbs) { const b = hum[BN[l.seg]]; if (b) l.q0 = b.getWorldQuaternion(new THREE.Quaternion()); } r.sync(); }
+  chunkCopy(hum.root, r.group);
   ragdolls.push(r);
   while (ragdolls.length > 14) { const i = ragdolls.findIndex(x => !x.keep); if (i < 0) break; ragdolls.splice(i, 1)[0].dispose(); }
   // a dummy that goes down lets go of its weapon, which becomes an item on the ground
@@ -596,3 +597,14 @@ function syncLost(hum, mask, dir, cuts) {
   hum.setLost(mask, cuts);
 }
 
+
+// a limb that has come off: its skin stops blending with the body's bones, and the body's skin stops blending with it
+// (otherwise the skin between them stretches across the ground as the piece flies off)
+function detachSkin(g) {
+  g.userData.gone = true;
+  g.traverse(o => {
+    if (!o._skin) return; const at = o._skin.at, keep = {};
+    for (const k in at) { let inside = false; for (let q = at[k][0]; q; q = q.parent) if (q === g) { inside = true; break; } if (inside) keep[k] = at[k]; }
+    o._skin.at = keep;
+  });
+}

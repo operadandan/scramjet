@@ -195,12 +195,12 @@ function woundBits(frame, p, dir, E, through, hum) {
   let n = Math.round(clamp((0.8 + e * 1.5 + rnd(-1, 1.5)) * k, 0, 26)); if (n < 1 && Math.random() < 0.6) n = 1; if (n < 1) return;
   const sz = 0.006 + 0.0042 * Math.sqrt(e), v = (through ? 1.4 : 0.8) + Math.min(5, e * 0.3), d = through ? dir : dir.clone().negate();
   if (head) {
-    spawnGore(p, d, 'flesh', Math.ceil(n * 0.4), v, 0.5, sz);
-    spawnGore(p, d, 'brain', Math.ceil(n * (e > 4 ? 0.35 : 0.15)), v * 0.9, 0.5, sz * (e > 4 ? 1.1 : 0.7));
+    if (e > 4) { spawnGore(p, d, 'flesh', Math.ceil(n * 0.4), v, 0.5, sz); spawnGore(p, d, 'brain', Math.ceil(n * 0.35), v * 0.9, 0.5, sz * 1.1); }
+    else { spawnGore(p, d, 'flesh', Math.max(1, Math.round(n * 0.2)), v * 0.7, 0.4, sz * 0.8); if (through && Math.random() < 0.3) spawnGore(p, d, 'brain', 1, v * 0.7, 0.4, sz * 0.6); }
     // rifle and pistol rounds leave a hole: only a crumb or two of bone, no skin-covered skull pieces (those, flying off,
     // read as the head coming apart); big pieces only from the .50
     if (e > 4) spawnGore(p, d, 'skull', Math.max(1, Math.round(n * 0.2)), v, 0.5, sz * 1.6, hum && hum.pal && hum.pal.skin);
-    if (Math.random() < 0.5) spawnGore(p, d, 'bone', Math.ceil(n * 0.15), v * 1.2, 0.55, sz * 0.7);
+    if (Math.random() < (e > 4 ? 0.5 : 0.2)) spawnGore(p, d, 'bone', 1, v * 1.2, 0.55, sz * 0.7);
   } else {
     spawnGore(p, d, 'flesh', n, v, 0.45, sz);
     if (Math.random() < 0.25 + e * 0.05) spawnGore(p, d, 'bone', Math.ceil(n * 0.25), v * 1.2, 0.5, sz * 0.7);
@@ -235,7 +235,8 @@ function onBulletHit(b, hit, dir, dist) {
       else rag.cutFibers(hit.point, b.w === 2 ? 99 : b.shot ? 2 : 1);
       if (b.w === 2) cont = null;
     }
-    else if (b.w === 2 && info.frame === 'head' && rag.headG.visible && b.local) { rag.gibHead(dir); cont = null; }
+    else if (b.w === 2 && info.frame === 'head' && rag.headG.visible) { chunkShot(rag.group, hit.point, dir, 'head', rag.skin); cont = null; if (chunkCount(rag.group, 'H') >= 13) rag.gibHead(dir); }
+    else if (b.w === 2 && (info.frame === 'spine' || info.frame === 'hips')) chunkShot(rag.group, hit.point, dir, info.frame, rag.skin);
     else if (cont && (info.frame === 'head' || info.frame === 'neck')) wallSpatter(cont.point, dir, rnd(0.55, 0.8), true);
     let ni = 1, nd = 1e9; for (let i = 0; i < 16; i++) { const dd = rag.p[i].distanceToSquared(hit.point); if (dd < nd) { nd = dd; ni = i; } }
     // the shove is the momentum the round actually leaves in the body (a round that goes through leaves about a third), on
@@ -274,6 +275,7 @@ function onBulletHit(b, hit, dir, dist) {
       if (ud.hum.flinch && ud.hum.root.visible) ud.hum.flinch(info.frame, info.d, clamp(Eh / 1700, 0.3, 2.2) * (b.shot ? 0.45 : 1));
       if (b.shot) blastVisual(b.shot, hit, dir, info, ud.hum, ud.hum);
       if (b.w === 2 && !b.shot && b.local) erode(ud.hum, hit.object.parent, info.frame, hit.object.parent.worldToLocal(hit.point.clone()), 0.045, info, dir);
+      if (b.w === 2 && !b.shot) chunkShot(ud.hum.root, hit.point, dir, info.frame, ud.hum.pal && ud.hum.pal.skin);
     }
     if (!b.local) return cont;
     if (ud.hum.remote) net.send({ t: 'hit', id: ud.hum.remote.id, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });

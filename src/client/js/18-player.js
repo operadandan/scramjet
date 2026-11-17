@@ -556,7 +556,7 @@ function testSelfHit() {
   onSelfHurt(res);
 }
 function respawnLocal(sp) {
-  P.forceDown = false; P.react = null; P.reactDone = false; P.stun = 0; P.deathM = null;
+  P.forceDown = false; P.react = null; P.reactDone = false; P.stun = 0; P.deathM = null; chunkReset(localBody.root);
   P.pos.copy(sp); P.vel.set(0, 0, 0); P.yaw = Math.atan2(sp.x, sp.z); P.pitch = 0;
   if (S.mode === 'test') P.yaw = 0;
   if (P.rag) { P.rag.keep = false; P.rag.headG.visible = true; }

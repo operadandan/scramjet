@@ -243,7 +243,7 @@ function deathMasks(an) {
     bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(),
     bleed: Math.min(160, Math.max(an.bleedRate() * 0.8, 12 + 7 * an.wounds.length) + (headW ? 28 : 0)),
     twitch: /brain|spinal/.test(an.cause) || an.gibHead ? rnd(2, 5) : Math.random() < 0.3 ? rnd(1, 2.5) : 0,
-    gib: !!(an.gibHead || (an.cause === 'brain' && an.lastW === 2)), tear: !!(an.neckTear || (an.lastRegion === 'neck' && an.lastW === 2))
+    gib: !!an.gibHead, tear: !!(an.neckTear || (an.lastRegion === 'neck' && an.lastW === 2))
   };
 }
 class Dummy {
@@ -263,9 +263,11 @@ class Dummy {
     if (this.dead) {
       // the heart has stopped: wounds keep draining by gravity for a while, slowing down, and the pool under the body keeps spreading
       this.deadT = (this.deadT || 0) + dt;
-      this.respawnT -= dt; if (this.respawnT <= 0) { this.deadT = 0; this.neckHits = 0; this.dead = false; this.unarmed = false; this.credited = false; this.stag = undefined; this.react = undefined; this.reactDone = false; this.forceDown = false; this.anat = new Anatomy(); this.rag = null; clearWounds(this.hum); this.hum.lostKey = null; this.hum.setLost(0); for (const [o, v] of this.vis0) o.visible = v; this.hum.root.visible = true; setHelmet(this.hum, true); } return; }
+      this.respawnT -= dt; if (this.respawnT <= 0) { this.deadT = 0; this.neckHits = 0; this.dead = false; this.unarmed = false; this.credited = false; this.stag = undefined; this.react = undefined; this.reactDone = false; this.forceDown = false; this.anat = new Anatomy(); this.rag = null; chunkReset(this.hum.root); clearWounds(this.hum); Object.assign(this.hum.anim, { clutchT: 0, clutchW: 0, clutchF: null, woundF: null, woundP: null, hurt: 0 }); this.hum.lostKey = null; this.hum.setLost(0); for (const [o, v] of this.vis0) o.visible = v; this.hum.root.visible = true; setHelmet(this.hum, true); } return; }
     this.anat.update(dt);
     if (this.anat.dead) { this.die(); return; }
+    // knocked out: drops where it stands, no stumble, and gets up when it comes round
+    if (this.anat.koT > 0 && !this.rag && !this.forceDown && !this.anat.paralyzed && !this.anat.bothLegs()) { this.react = undefined; this.stag = undefined; this.dropGun(); this.goLimp(true); }
     const down = this.anat.isDowned() || this.anat.bothLegs() || this.forceDown || this.react !== undefined;
     if (down && !this.rag) {
       // hurt badly but not dropped outright: let go of the gun, react to the wound, then collapse
