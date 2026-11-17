@@ -23,79 +23,116 @@ const EXM = {
   ink: new THREE.MeshStandardMaterial({ color: 0x1c1c18, roughness: 0.8 }),
   cap: new THREE.MeshStandardMaterial({ color: 0xc8c4b8, roughness: 0.25, metalness: 0.95 }),
   wire: new THREE.MeshStandardMaterial({ color: 0x2a2d1c, roughness: 0.7 }),
-  red: new THREE.MeshStandardMaterial({ color: 0x9a1c14, roughness: 0.6 })
+  red: new THREE.MeshStandardMaterial({ color: 0x9a1c14, roughness: 0.6 }),
+  redT: new THREE.MeshStandardMaterial({ color: 0xc02818, roughness: 0.35, transparent: true, opacity: 0.85 }),
+  tape: new THREE.MeshStandardMaterial({ color: 0x3d4128, roughness: 0.85 }),
+  rem: new THREE.MeshStandardMaterial({ color: 0x2e3324, roughness: 0.55, metalness: 0.15 }),
+  rubber: new THREE.MeshStandardMaterial({ color: 0x16170f, roughness: 0.9 }),
+  panel: new THREE.MeshStandardMaterial({ color: 0x1c1d18, roughness: 0.5 })
 };
-// the M67: a 63.5 mm steel ball, the M213 fuze on top, the spoon down one side, the pull ring and pin on the other
-function makeFrag() {
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.SphereGeometry(NADE_R, 20, 14), EXM.od); body.scale.set(1, 1.04, 1); g.add(body);
-  const band = new THREE.Mesh(new THREE.TorusGeometry(NADE_R * 0.985, 0.0012, 4, 28), EXM.yellow); band.rotation.x = Math.PI / 2; band.position.y = 0.012; g.add(band);
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.0105, 0.012, 0.012, 14), EXM.fuze); neck.position.y = NADE_R + 0.002; g.add(neck);
-  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.0085, 0.0105, 0.016, 14), EXM.fuze); head.position.y = NADE_R + 0.015; g.add(head);
-  const spoon = new THREE.Group(); spoon.position.set(0.006, NADE_R + 0.022, 0); g.add(spoon);
-  vbox(0.022, 0.0025, 0.013, EXM.spoon, spoon, 0.008, 0, 0);
-  vbox(0.0025, 0.062, 0.013, EXM.spoon, spoon, 0.019, -0.03, 0, 0, 0, 0.12);
-  vbox(0.0025, 0.012, 0.01, EXM.spoon, spoon, 0.022, -0.065, 0, 0, 0, 0.5);
-  const pin = new THREE.Group(); pin.position.set(-0.004, NADE_R + 0.018, 0); g.add(pin);
-  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.0009, 0.0009, 0.03, 6), EXM.ring); bar.rotation.z = Math.PI / 2; pin.add(bar);
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.012, 0.0013, 6, 20), EXM.ring); ring.position.set(-0.022, -0.004, 0.004); ring.rotation.set(0.3, 0.9, 0); pin.add(ring);
-  const clip = new THREE.Mesh(new THREE.TorusGeometry(0.008, 0.0008, 4, 14, Math.PI), EXM.ring); clip.position.set(0.004, -0.004, 0.012); clip.rotation.y = Math.PI / 2; pin.add(clip);
-  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
-  return { g, spoon, pin };
+// ---- the M67. Body: two pressed steel cups welded at the equator, 63.5 mm across, olive drab paint worn at the high spots,
+// a yellow band (high explosive filler) and yellow stencilling. Fuze M213 screwed into the top: threaded neck, the fuze body,
+// two ears carrying the hinge pin of the safety lever (spoon), which runs down the body on one side. The pull ring and its
+// split pin go through the fuze from the other side, and a safety clip loops over the spoon.
+const FRAG_TEX = canvasTex((g, s) => {
+  g.fillStyle = '#4b5232'; g.fillRect(0, 0, s, s);
+  for (let i = 0; i < 2600; i++) { const x = Math.random() * s, y = Math.random() * s, l = Math.random(); g.fillStyle = l < 0.5 ? 'rgba(30,34,18,0.18)' : 'rgba(110,116,80,0.12)'; g.fillRect(x, y, 1 + Math.random() * 3, 1 + Math.random() * 2); }
+  // worn paint: bare steel showing through in scuffs
+  for (let i = 0; i < 70; i++) { const x = Math.random() * s, y = s * (0.15 + Math.random() * 0.75); g.fillStyle = 'rgba(120,120,112,' + (0.15 + Math.random() * 0.35) + ')'; g.fillRect(x, y, 1 + Math.random() * 6, 1); }
+  g.fillStyle = '#c4a12c'; g.fillRect(0, s * 0.215, s, s * 0.035);
+  g.fillStyle = '#c9a832'; g.font = 'bold ' + Math.round(s * 0.045) + 'px monospace'; g.textAlign = 'center';
+  g.fillText('GRENADE HAND FRAG M67', s * 0.25, s * 0.42); g.fillText('LOT KMR-41-118', s * 0.25, s * 0.48);
+  g.fillText('GRENADE HAND FRAG M67', s * 0.75, s * 0.42); g.fillText('COMP B', s * 0.75, s * 0.48);
+}, 512);
+const FRAG_MAT = new THREE.MeshStandardMaterial({ map: FRAG_TEX, roughness: 0.62, metalness: 0.25 });
+function arcStrip(pts, w, t, m, parent) {
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1], L = a.distanceTo(b), o = new THREE.Mesh(new THREE.BoxGeometry(t, L * 1.04, w), m);
+    o.position.copy(a).add(b).multiplyScalar(0.5); o.quaternion.setFromUnitVectors(new V3(0, 1, 0), b.clone().sub(a).normalize()); parent.add(o);
+  }
 }
-// the M112 block: 28 x 5 x 7.6 cm in olive mylar film, with an adhesive face; an M7-style cap and its leads in one end
+function makeFrag() {
+  const g = new THREE.Group(), R = NADE_R;
+  const body = new THREE.Mesh(new THREE.SphereGeometry(R, 28, 20), FRAG_MAT); body.scale.set(1, 1.03, 1); body.rotation.y = Math.PI * 0.5; g.add(body);
+  const seam = new THREE.Mesh(new THREE.TorusGeometry(R * 1.002, 0.0007, 4, 40), EXM.odDark); seam.rotation.x = Math.PI / 2; g.add(seam);
+  // fuze M213
+  const prof = [[0.0125, 0], [0.0125, 0.003], [0.011, 0.004], [0.011, 0.009], [0.0095, 0.0105], [0.0095, 0.022], [0.0085, 0.025], [0.006, 0.027], [0, 0.027]].map(a => new THREE.Vector2(a[0], a[1]));
+  const fz = new THREE.Mesh(new THREE.LatheGeometry(prof, 18), EXM.fuze); fz.position.y = R * 0.93; g.add(fz);
+  for (let i = 0; i < 4; i++) { const th = new THREE.Mesh(new THREE.TorusGeometry(0.0113, 0.0005, 3, 18), EXM.fuze); th.rotation.x = Math.PI / 2; th.position.y = R * 0.93 + 0.0045 + i * 0.0012; g.add(th); }
+  const top = R * 0.93 + 0.022;
+  for (const zz of [-0.0055, 0.0055]) vbox(0.009, 0.01, 0.002, EXM.fuze, g, 0.008, top - 0.002, zz);
+  const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.0013, 0.0013, 0.014, 6), EXM.ring); hinge.rotation.x = Math.PI / 2; hinge.position.set(0.0105, top, 0); g.add(hinge);
+  // spoon: from the hinge out over the shoulder of the fuze, then down along the body a few millimetres off it
+  const spoon = new THREE.Group(); g.add(spoon);
+  const pts = [new V3(0.009, top + 0.0025, 0), new V3(0.016, top + 0.001, 0), new V3(0.019, top - 0.008, 0)];
+  for (let k = 0; k <= 7; k++) { const a = 0.55 + k / 7 * 1.25, r = R + 0.0032; pts.push(new V3(Math.sin(a) * r, Math.cos(a) * r, 0)); }
+  pts.push(new V3(Math.sin(1.9) * (R + 0.007), Math.cos(1.9) * (R + 0.007), 0));
+  arcStrip(pts, 0.014, 0.0013, EXM.spoon, spoon);
+  for (const zz of [-0.0072, 0.0072]) arcStrip(pts.slice(3, 9).map(v => v.clone().multiplyScalar(1.03).setZ(zz)), 0.0018, 0.0026, EXM.spoon, spoon);   // turned-up edges
+  // pull ring and pin from the far side, safety clip over the spoon
+  const pin = new THREE.Group(); g.add(pin);
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.0009, 0.0009, 0.034, 6), EXM.ring); bar.rotation.z = Math.PI / 2; bar.position.set(-0.004, top - 0.009, 0); pin.add(bar);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.0115, 0.0014, 6, 22), EXM.ring); ring.position.set(-0.033, top - 0.012, 0.001); ring.rotation.set(0, 0.25, 0.15); pin.add(ring);
+  const eye = new THREE.Mesh(new THREE.TorusGeometry(0.0028, 0.0008, 4, 10), EXM.ring); eye.position.set(-0.022, top - 0.009, 0); eye.rotation.y = Math.PI / 2; pin.add(eye);
+  const clip = new THREE.Mesh(new THREE.TorusGeometry(0.0115, 0.0008, 4, 16, Math.PI * 1.3), EXM.ring); clip.position.set(0.01, R * 0.93 + 0.004, 0); clip.rotation.set(Math.PI / 2, 0, -0.6); pin.add(clip);
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  return { g, spoon, pin, ring, top };
+}
+// ---- the M112 block: 1.25 lb of C4 in olive mylar film, 28 x 5 x 7.6 cm, black stencilling, a pressure-sensitive adhesive
+// face. A wireless initiator with its blasting cap pushed into one end (the M57 is wired; a thrown charge is fired by radio).
+const C4_TEX = canvasTex((g, s) => {
+  // drawn squashed 3.7 : 1 so it comes out right on the 262 x 70 mm face
+  g.fillStyle = '#525a31'; g.fillRect(0, 0, s, s);
+  for (let i = 0; i < 320; i++) { const y = Math.random() * s, x = Math.random() * s; g.strokeStyle = Math.random() < 0.5 ? 'rgba(170,180,120,0.12)' : 'rgba(20,24,8,0.15)'; g.lineWidth = 2 + Math.random() * 6; g.beginPath(); g.moveTo(x, y); g.lineTo(x + rnd(-40, 40), y + rnd(-25, 25)); g.stroke(); }
+  g.save(); g.scale(1, 3.7); const h = s / 3.7;
+  g.fillStyle = 'rgba(14,14,10,0.92)'; g.textAlign = 'center';
+  g.font = 'bold ' + Math.round(h * 0.15) + 'px sans-serif'; g.fillText('CHARGE, DEMOLITION, M112', s / 2, h * 0.24);
+  g.font = 'bold ' + Math.round(h * 0.13) + 'px sans-serif'; g.fillText('1 1/4 LB  COMPOSITION C-4', s / 2, h * 0.44);
+  g.font = Math.round(h * 0.09) + 'px sans-serif'; g.fillText('LOT MA-91H112-004      CAUTION: EXPLOSIVE', s / 2, h * 0.62); g.fillText('REMOVE PAPER TO EXPOSE ADHESIVE', s / 2, h * 0.76);
+  g.fillRect(s * 0.05, h * 0.86, s * 0.9, h * 0.025);
+  g.restore();
+}, 1024);
+const C4_FILM = new THREE.MeshStandardMaterial({ color: 0x5a6136, roughness: 0.42, metalness: 0.08 });
+const C4_LABEL = new THREE.MeshStandardMaterial({ map: C4_TEX, roughness: 0.42, metalness: 0.08, polygonOffset: true, polygonOffsetFactor: -2 });
 function makeC4(cap) {
   const g = new THREE.Group();
-  const b = new THREE.Mesh(new RoundedBoxGeometry(0.279, 0.051, 0.076, 2, 0.004), EXM.mylar); g.add(b);
-  vbox(0.2, 0.052, 0.04, EXM.label, g, 0.01, 0, 0);
-  for (let i = 0; i < 3; i++) vbox(0.15 - i * 0.04, 0.0525, 0.003, EXM.ink, g, -0.005, 0, -0.012 + i * 0.009);
+  const b = new THREE.Mesh(new RoundedBoxGeometry(0.279, 0.051, 0.076, 3, 0.005), C4_FILM); g.add(b);
+  // folded film ends
+  for (const s of [-1, 1]) { const f = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.044, 0.07), C4_FILM); f.position.x = s * 0.1385; g.add(f); for (let i = 0; i < 3; i++) vbox(0.002, 0.04, 0.0015, EXM.odDark, g, s * 0.1395, 0, -0.02 + i * 0.02); }
+  const lab = new THREE.Mesh(new THREE.PlaneGeometry(0.262, 0.07), C4_LABEL); lab.rotation.x = -Math.PI / 2; lab.position.y = 0.0256; g.add(lab);
+  const lab2 = lab.clone(); lab2.rotation.x = Math.PI / 2; lab2.position.y = -0.0256; g.add(lab2);
   if (cap) {
-    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.0038, 0.0038, 0.05, 8), EXM.cap); c.rotation.z = Math.PI / 2; c.position.set(0.15, 0.008, 0.012); g.add(c);
-    const rx = new THREE.Mesh(new RoundedBoxGeometry(0.04, 0.022, 0.03, 2, 0.003), EXM.odDark); rx.position.set(0.19, 0.012, 0.012); g.add(rx);
-    const led = new THREE.Mesh(new THREE.SphereGeometry(0.0025, 6, 4), new THREE.MeshBasicMaterial({ color: 0xff2a10 })); led.position.set(0.19, 0.024, 0.012); g.add(led); g.userData.led = led;
-    for (const s of [-1, 1]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.0012, 0.0012, 0.05, 4), EXM.wire); w.position.set(0.172, 0.01, 0.012 + s * 0.004); w.rotation.z = Math.PI / 2; g.add(w); }
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.0036, 0.0036, 0.036, 10), EXM.cap); c.rotation.z = Math.PI / 2; c.position.set(0.148, 0.004, 0.016); g.add(c);
+    const crimp = new THREE.Mesh(new THREE.CylinderGeometry(0.0042, 0.0042, 0.004, 10), EXM.cap); crimp.rotation.z = Math.PI / 2; crimp.position.set(0.158, 0.004, 0.016); g.add(crimp);
+    const rx = new THREE.Mesh(new RoundedBoxGeometry(0.046, 0.026, 0.036, 2, 0.004), EXM.odDark); rx.position.set(0.186, 0.009, 0.012); g.add(rx);
+    vbox(0.03, 0.002, 0.02, EXM.ink, g, 0.186, 0.0225, 0.012);
+    const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.0016, 0.0022, 0.07, 6), EXM.ink); ant.position.set(0.2, 0.05, 0.022); ant.rotation.z = -0.25; g.add(ant);
+    const sw = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.005, 8), EXM.fuze); sw.rotation.x = Math.PI / 2; sw.position.set(0.175, 0.012, 0.031); g.add(sw);
+    const led = new THREE.Mesh(new THREE.SphereGeometry(0.0022, 6, 4), new THREE.MeshBasicMaterial({ color: 0xff2a10 })); led.position.set(0.198, 0.023, 0.004); g.add(led); g.userData.led = led;
+    // tape holding the initiator on
+    for (const x of [0.17, 0.2]) vbox(0.012, 0.03, 0.04, EXM.tape, g, x, 0.008, 0.012);
   }
   g.traverse(o => { if (o.isMesh) o.castShadow = true; });
   return g;
 }
-// the M57 firing device ("clacker"): squeeze the handle three times hard and it fires
-function makeClacker() {
+// ---- the remote firing device: a ruggedised transmitter. Arm switch under a flip-up red cover, the fire button beside it,
+// a ready lamp, a stubby rubber antenna.
+function makeRemote() {
   const g = new THREE.Group();
-  vrbox(0.035, 0.1, 0.03, 0.006, EXM.od, g, 0, 0, 0);
-  const lever = new THREE.Group(); lever.position.set(0.018, 0.045, 0); g.add(lever);
-  vrbox(0.012, 0.095, 0.026, 0.004, EXM.odDark, lever, 0.008, -0.045, 0);
-  vbox(0.006, 0.016, 0.02, EXM.red, g, 0.0, 0.058, 0.0);
-  const c = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.08, 5), EXM.wire); c.position.set(0, -0.08, 0); g.add(c);
-  return { g, lever };
+  const body = new THREE.Mesh(new RoundedBoxGeometry(0.056, 0.104, 0.03, 3, 0.007), EXM.rem); g.add(body);
+  for (const s of [-1, 1]) { const grip = new THREE.Mesh(new RoundedBoxGeometry(0.006, 0.07, 0.026, 2, 0.002), EXM.rubber); grip.position.set(s * 0.028, -0.012, 0); g.add(grip); }
+  const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.0045, 0.006, 0.058, 8), EXM.rubber); ant.position.set(-0.016, 0.08, -0.002); g.add(ant);
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.0045, 8, 6), EXM.rubber); tip.position.set(-0.016, 0.109, -0.002); g.add(tip);
+  vbox(0.04, 0.03, 0.002, EXM.panel, g, 0, 0.025, 0.0152);
+  const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.0075, 0.0075, 0.006, 16), EXM.red); btn.rotation.x = Math.PI / 2; btn.position.set(0.0, 0.022, 0.017); g.add(btn);
+  const coverP = new THREE.Group(); coverP.position.set(0, 0.04, 0.018); g.add(coverP);
+  vbox(0.026, 0.03, 0.004, EXM.redT, coverP, 0, -0.016, 0.003);
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.0025, 8, 6), new THREE.MeshBasicMaterial({ color: 0x2aff40 })); lamp.position.set(0.018, 0.044, 0.0155); g.add(lamp);
+  const key = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.004, 10), EXM.fuze); key.rotation.x = Math.PI / 2; key.position.set(-0.014, -0.012, 0.016); g.add(key);
+  vbox(0.03, 0.012, 0.001, EXM.label, g, 0.006, -0.03, 0.0152);
+  g.traverse(o => { if (o.isMesh) o.castShadow = false; });
+  return { g, cover: coverP, btn, lamp };
 }
-// one gloved hand gripping something of half-width hw, as on the medkit
-function oneHand(g, sx, hw, y) {
-  const h = new THREE.Group(); g.add(h);
-  ell(h, KMAT.glove, 0.03, [sx * (hw + 0.008), y, 0.004], [0.45, 1.35, 1.25]);
-  for (let i = 0; i < 4; i++) fingerChain(h, KMAT.glove, [sx * (hw + 0.004), y + 0.03 - i * 0.02, -0.022], [-sx, 0, -0.55], [0, -sx, 0], [0.034, 0.024, 0.02], [0.35, 0.5, 0.3], i === 3 ? 0.0086 : 0.0096);
-  fingerChain(h, KMAT.glove, [sx * (hw + 0.004), y + 0.03, 0.026], [-sx, -0.15, 0.45], [0, sx, 0], [0.03, 0.026], [0.2, 0.4], 0.0105);
-  gloveCuff(h, [sx * (hw + 0.012), y - 0.04, 0.03], [sx * 0.3, -0.75, 0.6]);
-  compact(h);
-  vsleeve(h, [sx * (hw + 0.02), y - 0.062, 0.05], [sx * (hw + 0.09), y - 0.22, 0.3]);
-  return h;
-}
-function buildFragVM() {
-  const g = new THREE.Group(); g.visible = false; vm.add(g);
-  const R = new THREE.Group(); R.position.set(0.1, 0, 0); g.add(R);
-  const n = makeFrag(); n.g.position.set(0, 0.012, -0.01); n.g.rotation.set(0, -0.4, -0.15); R.add(n.g);
-  oneHand(R, 1, NADE_R, -0.012);
-  const L = new THREE.Group(); L.position.set(-0.11, -0.02, 0.02); g.add(L); oneHand(L, -1, 0.012, -0.01);
-  return { g, R, L, nade: n, hip: new V3(0.03, -0.115, -0.3) };
-}
-function buildC4VM() {
-  const g = new THREE.Group(); g.visible = false; vm.add(g);
-  const blk = makeC4(true); blk.rotation.set(0.5, 0, 0); blk.position.set(0, 0.0, 0.0); g.add(blk);
-  const hg = new THREE.Group(); g.add(hg); holdHands(hg, 0.14, -0.01);
-  const det = new THREE.Group(); det.visible = false; g.add(det);
-  const c = makeClacker(); c.g.position.set(0.04, 0.02, -0.02); c.g.rotation.set(0.2, 0, -0.1); det.add(c.g); oneHand(det, 1, 0.018, 0.0).position.x = 0.04;
-  return { g, blk, det, lever: c.lever, hands: hg, hip: new V3(0.0, -0.2, -0.46) };
-}
-const VMG = buildFragVM(), VMC = buildC4VM();
 // ---------------------------------------------------------------- fireball, smoke, scorch, sound
 const FIRE_TEX = canvasTex((g, s) => { const c = s / 2, gr = g.createRadialGradient(c, c, 0, c, c, c); gr.addColorStop(0, 'rgba(255,250,220,1)'); gr.addColorStop(0.25, 'rgba(255,200,90,0.95)'); gr.addColorStop(0.55, 'rgba(230,90,20,0.55)'); gr.addColorStop(1, 'rgba(120,20,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); }, 128);
 const SCORCH_TEX = canvasTex((g, s) => {
@@ -216,7 +253,8 @@ function poisson(l) { if (l > 30) return Math.round(l + Math.sqrt(l) * rnd(-1, 1
 // stays small. That is what makes going prone work: a grenade bursts just above the ground, everything below the horizon
 // goes into the dirt, and a body lying flat only shows the burst a thin strip about 25 cm high, so most of the steel
 // passes over it. Standing, you show it your whole height.
-function fragsAt(p, meshes, nFrag, area, owner, apply) {
+function fragsAt(p, meshes, nFrag, area, owner, apply, vs) {
+  vs = vs || 1;
   if (!meshes.length) return 0;
   const c = new V3(), sph = [];
   for (const m of meshes) { if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere(); const bs = m.geometry.boundingSphere, w = m.localToWorld(bs.center.clone()); sph.push([w, bs.radius]); c.add(w); }
@@ -241,7 +279,7 @@ function fragsAt(p, meshes, nFrag, area, owner, apply) {
     for (let k = Math.floor(wgt) + (Math.random() < wgt % 1 ? 1 : 0); k > 0 && hits < 60; k--) {
     hits++;
     // a fragment leaves at about 1500 m/s and sheds speed fast; expressed as the speed of a 00 buck pellet of the same energy
-    apply(h, dir, 520 * Math.exp(-h.distance / 15) * rnd(0.8, 1.2), h.distance);
+    apply(h, dir, 520 * vs * Math.exp(-h.distance / 15) * rnd(0.8, 1.2), h.distance);
     }
   }
   return hits;
@@ -263,58 +301,88 @@ function blastLimbs(an, near, maxN) {
   for (const l of L) an.sever(l, Math.random() < 0.5 ? 1 : 2, rnd(0.2, 0.8));
   return L.length;
 }
-function blastBodies(p, kind, owner, isOwner) {
+// What the blast wave does to a body, by scaled distance Z (m / kg^1/3, already lengthened for cover). The same physics for
+// C4 and the grenade; the grenade's small charge just puts every band much closer in.
+//   contact or Z < 0.45: the body comes apart (head, all four limbs, the torso opened)
+//   Z < 0.9: dead, two or three limbs torn off
+//   Z < 1.6: dead from overpressure (lungs, brain), a limb sometimes off
+//   Z < 2.4: half the time dead, otherwise blast lung and thrown down
+//   Z < 4: thrown down with lung injury and burst eardrums
+function blastFate(z, contact, kind) {
+  if (contact || z < 0.45) return { kill: 1, limbs: 4, gib: 1, gore: 3 };
+  if (z < 0.9) return { kill: 1, limbs: 2 + (Math.random() < 0.5 ? 1 : 0), gib: kind === 'c4' && Math.random() < 0.35 ? 1 : 0, gore: 2 };
+  if (z < 1.6) return { kill: 1, limbs: Math.random() < 0.4 ? 1 : 0, gore: 1 };
+  if (z < 2.4) return Math.random() < 0.5 ? { kill: 1 } : { lung: 14 * (2.4 - z) + 6, down: 1 };
+  if (z < 4) return { lung: 2 + 2 * (4 - z), down: Math.random() < 0.7 ? 1 : 0, stun: 0.6 };
+  if (z < 7) return { stun: 0.3 };
+  return {};
+}
+function blastGore(c, dir, lvl, skin) {
+  if (lvl >= 3) { spawnGore(c, dir, 'flesh', 24, 9, 0.9, 0.05, skin); spawnGore(c, dir, 'bone', 10, 9, 0.9, 0.03, skin); spawnGore(c, dir, 'gut', 6, 6, 0.8, 0.035, skin); spawnGore(c, dir, 'lung', 3, 6, 0.7, 0.04, skin); spawnGore(c, dir, 'liver', 2, 5, 0.6, 0.04, skin); }
+  else if (lvl === 2) { spawnGore(c, dir, 'flesh', 10, 7, 0.8, 0.04, skin); spawnGore(c, dir, 'bone', 5, 7, 0.8, 0.025, skin); spawnGore(c, dir, 'gut', 1, 4, 0.6, 0.03, skin); }
+  else if (lvl === 1) { spawnGore(c, dir, 'flesh', 3, 5, 0.7, 0.03, skin); spawnGore(c, dir, 'bone', 1, 5, 0.7, 0.02, skin); }
+}
+function applyFate(an, F, kind) {
+  if (F.gib) an.gibHead = true;
+  if (F.limbs) blastLimbs(an, null, F.limbs);
+  if (F.lung) { an.shock = (an.shock || 0) + 40 + F.lung * 2; an.pain = Math.min(1, (an.pain || 0) + 0.5); an.wounds.push({ region: 'chest', name: 'Blast injury (lungs)', rate: F.lung, treated: false }); an.version++; }
+  if (F.kill) an.kill('blast');
+}
+function blastBodies(p, kind, owner, isOwner, onBody) {
   const E = EXPL[kind], cW = Math.cbrt(E.W), shot = { hits: new Map() };
+  // fragments: the grenade's steel body; for C4, what the blast tears off whatever it sat on (concrete, wood, or bone when it was on a person)
+  const nF = E.frags || (onBody ? 140 : 260), vs = E.frags ? 1 : onBody ? 0.4 : 0.5;
   // the local player, on every client: nobody else can know where you stand
   if (P.alive) {
     const tgt = P.downed && P.rag ? null : localBody.hitMeshes.filter(m => m.visible);
-    const c = P.pos.clone().setY(P.downed ? 0.3 : P.pos.y + (P.prone > 0.5 ? 0.25 : 0.95)), d = Math.max(0.15, c.distanceTo(p)), cover = !los(p, c);
+    const c = P.pos.clone().setY(P.downed ? 0.3 : P.pos.y + (P.prone > 0.5 ? 0.25 : 0.95)), d = Math.max(0.1, c.distanceTo(p)), cover = !los(p, c);
     const z = d / cW * (cover ? 1.7 : 1), an = P.anat, dir = c.clone().sub(p).setY(Math.max(0.1, c.y - p.y)).normalize();
     an.lastBy = owner; an.lastDir.copy(dir); an.lastDist = d;
     let res = null;
-    if (E.frags && tgt) {
+    if (tgt) {
       localBody.root.updateMatrixWorld(true);
-      fragsAt(p, tgt, E.frags, P.prone > 0.5 ? 0.18 : P.crouch > 0.5 ? 0.33 : 0.5, owner, (h, fd, v) => {
+      fragsAt(p, tgt, nF, 0, owner, (h, fd, v) => {
         if (an.dead) return;
         const info = hitToFrame(localBody, h.object, h.point, fd); an.lastDir.copy(fd);
         an.frag = true; const r = an.hit(info.frame, info.e, info.d, v, 5, info.armor, info.pd); an.frag = false; if (!res || (r && r.blast)) res = r;
-      });
+      }, vs);
     }
-    if (E.frags && P.downed && P.rag) fragsAt(p, ragMeshes(P.rag), E.frags, 0.4, owner, (h, fd, v, L) => fragHit(h, fd, v, L, shot, p));
-    if (z < 0.5) { an.kill('blast'); if (z < 0.35 && kind === 'c4') an.gibHead = true; blastLimbs(an, p, z < 0.35 ? 3 : 1); }
-    else if (z < 1.1 && !an.dead) an.kill('blast');
-    else if (z < 2.2) { an.shock = (an.shock || 0) + 60; an.pain = Math.min(1, (an.pain || 0) + 0.5); an.wounds.push({ region: 'chest', name: 'Blast injury (lungs)', rate: 4 + 10 * (2.2 - z), treated: false }); an.version++; res = Object.assign(res || {}, { blast: { big: true } }); }
-    else if (z < 4) { P.stun = Math.max(P.stun || 0, 0.5); }
-    if (z < 6) deafen(clamp(1 - z / 6, 0, 1));
-    P.vel.addScaledVector(dir, clamp(5 / (z * z), 0, 8)); if (P.rag) ragPush(P.rag, p, clamp(10 / (z * z), 0, 14));
+    if (P.downed && P.rag) fragsAt(p, ragMeshes(P.rag), nF, 0, owner, (h, fd, v, L) => fragHit(h, fd, v, L, shot, p), vs);
+    const F = blastFate(z, onBody && d < 0.6, kind), wasDead = an.dead; applyFate(an, F, kind);
+    if (F.gore && !wasDead) blastGore(c, dir, F.gore);
+    if (F.down && !an.dead) res = Object.assign(res || {}, { blast: { big: true } });
+    if (F.stun) P.stun = Math.max(P.stun || 0, F.stun);
+    if (z < 7) deafen(clamp(1 - z / 7, 0, 1));
+    P.vel.addScaledVector(dir, clamp(6 / (z * z), 0, 10));
     if (res || an.dead) onSelfHurt(res || {});
-    if (P.rag && an.dead) ragPush(P.rag, p, clamp(10 / (z * z), 0, 14));
+    if (P.rag) ragPush(P.rag, p, clamp(12 / (z * z), 0, 18));
   }
   if (!isOwner) return;
   // the AI bodies and bodies on the ground: worked out once, by whoever set it off
   for (const dm of dummies) {
     if (dm.dead && !dm.rag) continue;
-    const c = (dm.rag ? dm.rag.p[1] : dm.hum.root.position.clone().setY(0.95)).clone(), d = Math.max(0.15, c.distanceTo(p)); if (d > 50) continue;
+    const c = (dm.rag ? dm.rag.p[1] : dm.hum.root.position.clone().setY(0.95)).clone(), d = Math.max(0.1, c.distanceTo(p)); if (d > 60) continue;
     const z = d / cW * (los(p, c) ? 1 : 1.7), an = dm.anat, dir = c.clone().sub(p).setY(0.3).normalize();
-    if (E.frags) {
-      const ms = dm.rag ? ragMeshes(dm.rag) : (dm.hum.root.updateMatrixWorld(true), dm.hum.hitMeshes.filter(m => m.visible));
-      fragsAt(p, ms, E.frags, dm.rag ? 0.4 : 0.5, owner, (h, fd, v, L) => fragHit(h, fd, v, L, shot, p));
+    const ms = dm.rag ? ragMeshes(dm.rag) : (dm.hum.root.updateMatrixWorld(true), dm.hum.hitMeshes.filter(m => m.visible));
+    fragsAt(p, ms, nF, 0, owner, (h, fd, v, L) => fragHit(h, fd, v, L, shot, p), vs);
+    const F = blastFate(z, onBody && d < 0.6, kind);
+    if (dm.dead) {
+      // a body already down still comes apart in a close blast
+      if (F.limbs || F.gib) { const l0 = an.lostMask(); applyFate(an, Object.assign({}, F, { kill: 0, lung: 0 }), kind); if (an.lostMask() !== l0) dm.rag.applyLost(an.lostMask(), dir, an.cutArr()); if (an.gibHead && dm.rag.headG.visible) dm.rag.gibHead(dir); if (F.gore >= 2) blastGore(c, dir, F.gore - 1); }
+      ragPush(dm.rag, p, clamp(12 / (z * z), 0, 18)); continue;
     }
-    if (dm.dead) { ragPush(dm.rag, p, clamp(10 / (z * z), 0, 14)); continue; }
     an.lastDir.copy(dir); an.lastW = 5; an.lastDist = d;
-    let gone = false;
-    if (z < 0.5) { if (z < 0.35 && kind === 'c4') an.gibHead = true; blastLimbs(an, p, z < 0.35 ? 3 : 1); an.kill('blast'); gone = true; }
-    else if (z < 1.1) { an.kill('blast'); gone = true; }
-    else if (z < 2.2) { an.shock = (an.shock || 0) + 60; an.wounds.push({ region: 'chest', name: 'Blast injury (lungs)', rate: 4 + 10 * (2.2 - z), treated: false }); dm.blastFall(dir); }
-    if (gone) {
+    applyFate(an, F, kind);
+    if (F.gore) blastGore(c, dir, F.gore);
+    if (an.dead) {
       if (!dm.credited) { dm.credited = true; S.testKills = (S.testKills || 0) + 1; killNotice('AI'); }
       if (dm.rag) dm.rag.applyLost(an.lostMask(), dir, an.cutArr()); else syncLost(dm.hum, an.lostMask(), dir, an.cutArr());
       dm.die(); if (an.gibHead && dm.rag && dm.rag.headG.visible) dm.rag.gibHead(dir);
-    }
-    if (dm.rag) ragPush(dm.rag, p, clamp(10 / (z * z), 0, 14));
+    } else if (F.down) dm.blastFall(dir);
+    if (dm.rag) ragPush(dm.rag, p, clamp(12 / (z * z), 0, 18));
   }
   // loose corpses (not a player's body still being simulated by its own client)
-  for (const r of ragdolls) if (!r.owner || (!r.owner.dummy && !r.owner.nd && !r.owner.remote && r !== P.rag)) { const z = r.p[1].distanceTo(p) / cW; if (z < 6) ragPush(r, p, clamp(10 / (z * z), 0, 14)); }
+  for (const r of ragdolls) if (!r.owner || (!r.owner.dummy && !r.owner.nd && !r.owner.remote && r !== P.rag)) { const z = r.p[1].distanceTo(p) / cW; if (z < 7) ragPush(r, p, clamp(12 / (z * z), 0, 18)); }
 }
 // a fragment into an AI body or a body on the ground: the normal hit code, with the anatomy told it is steel from a grenade
 function fragHit(h, fd, v, L, shot, p) {
@@ -324,7 +392,7 @@ function fragHit(h, fd, v, L, shot, p) {
 }
 function ragMeshes(r) { const out = []; r.group.traverse(o => { if (o.isMesh && o.visible && o.userData.rag) out.push(o); }); return out; }
 // ---------------------------------------------------------------- the explosion
-function explode(p, kind, owner, isOwner, n) {
+function explode(p, kind, owner, isOwner, n, onBody) {
   const E = EXPL[kind]; n = n || new V3(0, 1, 0);
   boomVisual(p, n, E.W, kind);
   blastWalls(p, E.W, owner);
@@ -333,7 +401,7 @@ function explode(p, kind, owner, isOwner, n) {
     const d = new V3(rnd(-1, 1), rnd(-0.6, 1), rnd(-1, 1)).normalize(); spawnBullet(p.clone().addScaledVector(d, 0.05), d, 5, false, false, owner, null);
     const b = bullets[bullets.length - 1]; b.vel.setLength(rnd(500, 900)); b.drag *= 6; b.frag = true;
   }
-  blastBodies(p, kind, owner, isOwner);
+  blastBodies(p, kind, owner, isOwner, onBody);
   // charges close enough go off with it (sympathetic detonation)
   for (const c of CHARGES.slice()) if (c.p.distanceTo(p) < 1.2 * Math.cbrt(E.W) && c.owner === S.myIdOr0()) { removeCharge(c); setTimeout(() => detonateCharge(c, true), 30); }
 }
@@ -345,11 +413,14 @@ function addCharge(owner, id, p, n) {
   const q = new THREE.Quaternion().setFromUnitVectors(new V3(0, 1, 0), n); g.quaternion.copy(q); if (Math.abs(n.y) < 0.7) g.rotateY(rnd(-0.2, 0.2));
   scene.add(g); const c = { g, p: p.clone().addScaledVector(n, 0.03), n: n.clone(), owner, id, t: 0 }; CHARGES.push(c); return c;
 }
-function removeCharge(c) { const i = CHARGES.indexOf(c); if (i >= 0) CHARGES.splice(i, 1); scene.remove(c.g); }
+function removeCharge(c) { const i = CHARGES.indexOf(c); if (i >= 0) CHARGES.splice(i, 1); if (c.g.parent) chargePos(c); }
 function detonateCharge(c, already) {
   if (!already) removeCharge(c);
-  if (S.mode === 'online') net.send({ t: 'x', a: 'boom', k: 'c4', i: c.id, p: c.p.toArray().map(r3), n: c.n.toArray().map(r3) });
-  explode(c.p, 'c4', S.myIdOr0(), true, c.n);
+  if (c.g.parent) chargePos(c); const host = c.host;
+  if (c.g.parent) c.g.parent.remove(c.g);
+  if (host && host.userData) c.onBody = true;
+  if (S.mode === 'online') net.send({ t: 'x', a: 'boom', k: 'c4', i: c.id, p: c.p.toArray().map(r3), n: c.n.toArray().map(r3), ob: c.onBody ? 1 : 0 });
+  explode(c.p.clone(), 'c4', S.myIdOr0(), true, c.n, c.onBody);
 }
 const r3 = x => Math.round(x * 1000) / 1000;
 // ---------------------------------------------------------------- grenades in flight: bounce, roll, then go off
@@ -475,28 +546,31 @@ function updateSpoons(dt) {
   }
 }
 // ---------------------------------------------------------------- held: the grenade
-// Left button pulls the pin and keeps the spoon held; letting go throws overhand. Right button the same, underhand (a short
-// lob or a roll). R with the pin out lets the spoon fly while you still hold it: the fuse is burning ("cooking").
-function nadeReset() { P.nade = { ph: 'idle', t: 0, btn: 0, fuse: 0, cook: false }; VMG.nade.pin.visible = true; VMG.nade.spoon.visible = true; VMG.nade.g.visible = true; }
+// Left button pulls the pin (the off hand hooks the ring and draws it) and keeps the spoon held; letting go throws overhand.
+// Right button the same, underhand (a short lob or a roll). R with the pin out lets the spoon fly while you still hold it:
+// the fuse is burning ("cooking"). A throw leaves the hand exactly along the line of sight, from a point on it, so it goes
+// where the crosshair is; gravity then brings it down.
+const FRAG_V = { over: 17, under: 7 }, C4_V = 11;
+function nadeReset() { P.nade = { ph: 'idle', t: 0, btn: 0, fuse: 0, cook: false, pinOut: false, spoonOff: false, inHand: true, draw: P.nade ? 0.45 : 0 }; }
+function throwOrigin(d) { return camera.position.clone().addScaledVector(d, 0.45); }
 function updateFrag(dt) {
-  const N = P.nade || (nadeReset(), P.nade); N.t += dt;
+  const N = P.nade || (nadeReset(), P.nade); N.t += dt; N.draw = Math.max(0, N.draw - dt);
   if (N.cook) { N.fuse -= dt; if (N.fuse <= 0) { const hp = camera.position.clone().add(new V3(0.12, -0.15, -0.3).applyQuaternion(camera.quaternion)); N.cook = false; P.fragN = Math.max(0, P.fragN - 1); nadeReset(); if (S.mode === 'online') net.send({ t: 'x', a: 'boom', k: 'frag', i: 0, p: hp.toArray().map(r3) }); explode(hp, 'frag', S.myIdOr0(), true); return; } }
   if (N.ph === 'idle') {
-    if (P.fragN <= 0) { VMG.nade.g.visible = false; if (N.t > 0.3) selectEmpty(3); return; }
-    VMG.nade.g.visible = true;
-    if (P.switchT <= 0 && S.locked && (mouse.left || mouse.right)) { N.ph = 'pin'; N.t = 0; N.btn = mouse.left ? 0 : 2; }
+    N.inHand = P.fragN > 0;
+    if (P.fragN <= 0) { if (N.t > 0.3) selectEmpty(3); return; }
+    if (P.switchT <= 0 && N.draw <= 0 && S.locked && (mouse.left || mouse.right)) { N.ph = 'pin'; N.t = 0; N.btn = mouse.left ? 0 : 2; }
   } else if (N.ph === 'pin') {
-    if (N.t > 0.3 && VMG.nade.pin.visible) { VMG.nade.pin.visible = false; noiseHit(3800, 0.05, 0.12); blip(2400, 0.03, 0.03, 'triangle'); }
-    if (N.t > 0.45) { N.ph = 'ready'; N.t = 0; }
+    if (N.t > 0.3 && !N.pinOut) { N.pinOut = true; noiseHit(3800, 0.05, 0.12); blip(2400, 0.03, 0.03, 'triangle'); }
+    if (N.t > 0.42 && !N.pinDropped) { N.pinDropped = true; const q = camera.quaternion; flyPin(camera.position.clone().add(new V3(-0.2, -0.12, -0.42).applyQuaternion(q)), new V3(-0.6, 0.3, 0).applyQuaternion(q).add(P.vel)); }
+    if (N.t > 0.5) { N.ph = 'ready'; N.t = 0; }
   } else if (N.ph === 'ready') {
     if (!(N.btn === 0 ? mouse.left : mouse.right)) { N.ph = 'throw'; N.t = 0; }
   } else if (N.ph === 'throw') {
-    if (N.t > 0.12 && VMG.nade.g.visible) {
-      VMG.nade.g.visible = false;
-      const q = camera.quaternion, fwd = new V3(0, 0, -1).applyQuaternion(q), over = N.btn === 0;
-      const dir = fwd.clone().add(new V3(0, over ? 0.2 : 0.02, 0)).normalize(), speed = over ? rnd(16, 18.5) : rnd(5.5, 7.5);
-      const p0 = camera.position.clone().add(new V3(over ? 0.18 : 0.1, over ? 0.05 : -0.35, -0.35).applyQuaternion(q));
-      const v = dir.multiplyScalar(speed).add(P.vel.clone().multiplyScalar(0.8)), fuse = N.cook ? N.fuse : rnd(4, 5.5), id = explSeq++;
+    if (N.t > 0.13 && N.inHand) {
+      N.inHand = false;
+      const q = camera.quaternion, fwd = new V3(0, 0, -1).applyQuaternion(q), over = N.btn === 0, speed = over ? FRAG_V.over : FRAG_V.under;
+      const p0 = throwOrigin(fwd), v = fwd.clone().multiplyScalar(speed), fuse = N.cook ? N.fuse : rnd(4, 5.5), id = explSeq++;
       // spin: overhand it leaves the fingertips with backspin; underhand it is bowled with forward roll
       const side = new V3(1, 0, 0).applyQuaternion(q).setY(0).normalize();
       const w = side.multiplyScalar(over ? rnd(8, 16) : -rnd(0.5, 0.8) * speed / NADE_R * 0.35).add(new V3(rnd(-3, 3), rnd(-3, 3), rnd(-3, 3))), curl = rnd(-0.12, 0.12);
@@ -505,11 +579,11 @@ function updateFrag(dt) {
       if (!N.cook) { blip(3000, 0.04, 0.05, 'triangle'); flySpoon(p0.clone(), v.clone().multiplyScalar(0.3).add(new V3(rnd(-1, 1), rnd(2, 3.5), rnd(-1, 1)))); }      // the spoon flies off
       noiseHit(700, 0.12, 0.06); N.cook = false; P.fragN = Math.max(0, P.fragN - 1);
     }
-    if (N.t > 0.55) { nadeReset(); P.nade.t = 0; }
+    if (N.t > 0.6) { nadeReset(); P.nade.t = 0; }
   }
 }
 addEventListener('keydown', e => {
-  if (e.code === 'KeyR' && P.slot === 3 && P.nade && (P.nade.ph === 'ready' || P.nade.ph === 'pin') && !P.nade.cook) { P.nade.cook = true; P.nade.fuse = rnd(4, 5.5); VMG.nade.spoon.visible = false; flySpoon(camera.position.clone().add(new V3(0.12, -0.1, -0.3).applyQuaternion(camera.quaternion)), new V3(rnd(-1, 1), rnd(2, 3), rnd(-1, 1)).add(P.vel)); blip(3000, 0.04, 0.05, 'triangle'); flashMsg('SPOON RELEASED<small>The fuse is burning</small>', 900); }
+  if (e.code === 'KeyR' && P.slot === 3 && P.nade && (P.nade.ph === 'ready' || (P.nade.ph === 'pin' && P.nade.pinOut)) && !P.nade.cook) { P.nade.cook = true; P.nade.spoonOff = true; P.nade.fuse = rnd(4, 5.5); flySpoon(camera.position.clone().add(new V3(0.12, -0.1, -0.3).applyQuaternion(camera.quaternion)), new V3(rnd(-1, 1), rnd(2, 3), rnd(-1, 1)).add(P.vel)); blip(3000, 0.04, 0.05, 'triangle'); flashMsg('SPOON RELEASED<small>The fuse is burning</small>', 900); }
 });
 addEventListener('mousedown', e => { if (e.button === 2) mouse.right = true; });
 addEventListener('mouseup', e => { if (e.button === 2) mouse.right = false; });
@@ -519,39 +593,124 @@ function nadeAbandon() {
   if (N.cook) { const p0 = P.pos.clone().setY(0.6); throwNade(S.myIdOr0(), explSeq++, p0, new V3(rnd(-0.5, 0.5), 0, rnd(-0.5, 0.5)), N.fuse, true); P.fragN = Math.max(0, P.fragN - 1); flashMsg('LIVE GRENADE DROPPED', 1500); }
   nadeReset();
 }
-// ---------------------------------------------------------------- held: C4 and the firing device
-function c4Mine() { const me = S.myIdOr0(); return CHARGES.filter(c => c.owner === me); }
+// the pin and ring, dropped once they are pulled
+function flyPin(p, v) {
+  const g = new THREE.Group(), r = new THREE.Mesh(new THREE.TorusGeometry(0.0115, 0.0014, 6, 22), EXM.ring); g.add(r);
+  const b = new THREE.Mesh(new THREE.CylinderGeometry(0.0009, 0.0009, 0.034, 6), EXM.ring); b.position.x = 0.026; b.rotation.z = Math.PI / 2; g.add(b);
+  g.position.copy(p); scene.add(g); SPOONS.push({ g, v: v.clone(), w: new V3(rnd(-20, 20), rnd(-20, 20), rnd(-20, 20)), t: 0, rest: false });
+}
+// ---------------------------------------------------------------- held: C4 and the remote firing device
+// Left button throws a block underhand-overhand like a brick; its adhesive face takes on whatever it lands on: wall, floor,
+// crate, or a person, and it rides along on them. Right button (or left with no blocks left) arms and fires every charge you
+// have out.
+function c4Mine() { const me = S.myIdOr0(); return CHARGES.filter(c => c.owner === me).concat(C4_FLY.filter(c => c.owner === me)); }
 function updateC4(dt) {
-  const C = P.c4 || (P.c4 = { ph: 'idle', t: 0 }); C.t += dt;
+  const C = P.c4 || (P.c4 = { ph: 'idle', t: 0, draw: 0, inHand: true }); C.t += dt; C.draw = Math.max(0, (C.draw || 0) - dt);
   const mine = c4Mine(), haveBlock = P.c4N > 0;
-  VMC.blk.visible = haveBlock && C.ph !== 'det'; VMC.hands.visible = VMC.blk.visible; VMC.det.visible = !VMC.blk.visible;
   if (C.ph === 'idle') {
+    C.inHand = haveBlock;
     if (!haveBlock && !mine.length) { if (C.t > 0.3) selectEmpty(2); return; }
-    if (P.switchT > 0 || !S.locked) return;
-    if (mouse.left && haveBlock && P.semiReady) {
-      P.semiReady = false;
-      const d = new V3(0, 0, -1).applyQuaternion(camera.quaternion), h = worldHit(camera.position, d, C4_REACH);
-      const gy = d.y < -0.05 ? -camera.position.y / d.y : 1e9;
-      if (h && h.face) { C.ph = 'plant'; C.t = 0; C.at = h.point.clone(); C.n = h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize(); }
-      else if (gy < C4_REACH) { C.ph = 'plant'; C.t = 0; C.at = camera.position.clone().addScaledVector(d, gy); C.at.y = 0; C.n = new V3(0, 1, 0); }
-      else flashMsg('NOTHING IN REACH TO STICK IT TO', 900);
-    } else if ((mouse.right || (mouse.left && !haveBlock && P.semiReady)) && mine.length) { P.semiReady = false; C.ph = 'det'; C.t = 0; }
-  } else if (C.ph === 'plant') {
-    if (C.t > 0.7) {
-      const id = explSeq++; addCharge(S.myIdOr0(), id, C.at, C.n); P.c4N--; noiseHit(500, 0.08, 0.1); blip(1800, 0.05, 0.04, 'sine');
-      if (S.mode === 'online') net.send({ t: 'x', a: 'c4p', i: id, p: C.at.toArray().map(r3), n: C.n.toArray().map(r3) });
-      flashMsg('CHARGE SET<small>' + (P.c4N ? P.c4N + ' left. ' : '') + 'Right mouse to fire' + (P.c4N ? '' : ' (or left)') + '</small>', 1600);
-      C.ph = 'idle'; C.t = 0;
+    if (P.switchT > 0 || !S.locked || C.draw > 0) return;
+    if (mouse.left && haveBlock && P.semiReady) { P.semiReady = false; C.ph = 'throw'; C.t = 0; }
+    else if ((mouse.right || (mouse.left && !haveBlock && P.semiReady)) && mine.length) { P.semiReady = false; C.ph = 'det'; C.t = 0; C.fired = false; }
+  } else if (C.ph === 'throw') {
+    if (C.t > 0.17 && C.inHand) {
+      C.inHand = false;
+      const q = camera.quaternion, fwd = new V3(0, 0, -1).applyQuaternion(q), p0 = throwOrigin(fwd), v = fwd.clone().multiplyScalar(C4_V), id = explSeq++;
+      const w = new V3(1, 0, 0).applyQuaternion(q).multiplyScalar(rnd(4, 8)).add(new V3(rnd(-2, 2), rnd(-2, 2), rnd(-2, 2)));
+      throwC4(S.myIdOr0(), id, p0, v, w, true); P.c4N--; noiseHit(500, 0.1, 0.07);
+      if (S.mode === 'online') net.send({ t: 'x', a: 'c4t', i: id, p: p0.toArray().map(r3), v: v.toArray().map(r3), w: w.toArray().map(r3) });
     }
+    if (C.t > 0.6) { C.ph = 'idle'; C.t = 0; C.draw = haveBlock ? 0.45 : 0; }
   } else if (C.ph === 'det') {
-    // the handle has to be squeezed hard, three times, before it fires
-    const sq = Math.floor(C.t / 0.16); if (sq !== C.sq) { C.sq = sq; if (sq < 3) noiseHit(1300, 0.03, 0.12); }
-    if (C.t > 0.5) { for (const c of mine) { removeCharge(c); setTimeout(() => detonateCharge(c, true), rnd(0, 40)); } C.ph = 'idle'; C.t = 0; C.sq = -1; }
+    // flip the cover, press the button
+    if (C.t > 0.1 && !C.cov) { C.cov = true; blip(1400, 0.02, 0.04, 'square'); }
+    if (C.t > 0.3 && !C.fired) { C.fired = true; noiseHit(1800, 0.02, 0.1); blip(900, 0.06, 0.05, 'square'); for (const c of mine) { if (C4_FLY.includes(c)) { c.boomNow = true; continue; } removeCharge(c); setTimeout(() => detonateCharge(c, true), rnd(0, 40)); } }
+    if (C.t > 0.65) { C.ph = 'idle'; C.t = 0; C.cov = false; }
+  }
+}
+// ---------------------------------------------------------------- C4 in flight, and sticking
+const C4_FLY = [];
+function throwC4(owner, id, p, v, w, local) {
+  const g = makeC4(true); g.position.copy(p); scene.add(g);
+  C4_FLY.push({ g, p: p.clone(), v: v.clone(), w: w.clone(), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.atan2(v.x, v.z) + Math.PI / 2, 0)), owner, id, local, t: 0 });
+}
+// everything a thrown block can land on: the world, standing people and bodies on the ground (not yourself as it leaves)
+function stickTargets(o) {
+  const out = worldMeshes.slice();
+  for (const d of dummies) { if (d.rag) out.push(...ragMeshes(d.rag)); else if (d.hum.root.visible) out.push(...d.hum.hitMeshes.filter(m => m.visible)); }
+  if (S.remotes) for (const r of S.remotes.values()) if (r.hum && r.hum.root.visible) out.push(...r.hum.hitMeshes.filter(m => m.visible));
+  for (const r of ragdolls) if (!r.owner || !r.owner.dummy) out.push(...ragMeshes(r));
+  if (o.t > 0.4 && P.alive && localBody) out.push(...localBody.hitMeshes.filter(m => m.visible));
+  return out;
+}
+const _c4r = new THREE.Raycaster();
+function updateC4Fly(dt) {
+  for (let i = C4_FLY.length - 1; i >= 0; i--) {
+    const o = C4_FLY[i]; o.t += dt;
+    const sp = o.v.length(); o.v.y -= 9.81 * dt; o.v.multiplyScalar(1 - 0.012 * sp * dt);
+    const step = o.v.clone().multiplyScalar(dt), L = step.length(), dir = step.clone().multiplyScalar(1 / Math.max(L, 1e-6));
+    let hit = null;
+    // someone else's throw only flies here: where it sticks comes from them
+    if (!o.local) { if (o.p.y + step.y < 0.026) { o.v.set(0, 0, 0); step.set(0, 0, 0); } if (o.t > 3) { scene.remove(o.g); C4_FLY.splice(i, 1); continue; } }
+    else {
+      _c4r.set(o.p, dir); _c4r.far = L + 0.03;
+      for (const h of _c4r.intersectObjects(stickTargets(o), false)) { if (h.object.userData.grid && gridOpenW(h.object, h.point.clone().addScaledVector(dir, 0.01))) continue; hit = h; break; }
+    }
+    const ny = o.p.y + step.y;
+    if (o.local && !hit && ny <= 0.026) { const k = (o.p.y - 0.026) / Math.max(1e-5, -step.y); hit = { point: o.p.clone().addScaledVector(step, clamp(k, 0, 1)).setY(0), ground: true }; }
+    if (hit || o.boomNow || o.t > 20) {
+      C4_FLY.splice(i, 1);
+      if (!hit) { scene.remove(o.g); if (o.boomNow && o.local) { const c = { g: o.g, p: o.p.clone(), n: new V3(0, 1, 0), owner: o.owner, id: o.id }; detonateCharge(c, true); } continue; }
+      const c = stickCharge(o, hit, dir);
+      if (o.local && S.mode === 'online') net.send(Object.assign({ t: 'x', a: 'c4p', i: o.id, p: c.p.toArray().map(r3), n: c.n.toArray().map(r3) }, c.net || {}));
+      if (o.boomNow && o.local) { removeCharge(c); detonateCharge(c, true); }
+      continue;
+    }
+    o.p.add(step); const wl = o.w.length(); if (wl > 1e-4) o.q.premultiply(_nwq.setFromAxisAngle(o.w.clone().multiplyScalar(1 / wl), wl * dt));
+    o.g.position.copy(o.p); o.g.quaternion.copy(o.q);
+  }
+}
+// lay the block flat on what it hit, adhesive face down, long side along the way it was travelling; on a body it is carried
+function stickCharge(o, h, dir) {
+  const n = h.ground ? new V3(0, 1, 0) : h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize() : dir.clone().negate();
+  if (n.dot(dir) > 0) n.negate();
+  const along = dir.clone().addScaledVector(n, -dir.dot(n)); if (along.lengthSq() < 1e-4) along.set(1, 0, 0).addScaledVector(n, -n.x); along.normalize();
+  const g = o.g, side = new V3().crossVectors(along, n);
+  g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(along, n, side)); g.rotateY(rnd(-0.25, 0.25));
+  g.position.copy(h.point).addScaledVector(n, 0.0255);
+  noiseHit(h.object && h.object.userData.hum ? 380 : 650, 0.06, 0.09 / (1 + camera.position.distanceTo(g.position) * 0.1));
+  const c = { g, p: g.position.clone(), n: n.clone(), owner: o.owner, id: o.id, t: 0 };
+  if (h.object && !worldMeshes.includes(h.object)) {
+    h.object.updateMatrixWorld(true); h.object.attach(g); c.host = h.object;
+    const ud = h.object.userData, hum = ud.hum, idx = hum ? hum.hitMeshes.indexOf(h.object) : -1;
+    if (hum && hum.dummy) c.hostDummy = hum.dummy; if (ud.rag) c.hostRag = ud.rag;
+    if (idx >= 0) { const who = hum === localBody ? S.myId : hum.remote ? hum.remote.id : null; if (who != null) c.net = { tg: who, tp: idx, lp: g.position.toArray().map(r4x), lq: g.quaternion.toArray().map(r4x) }; }
+    if (hum === localBody) flashMsg('C4 STUCK ON YOU', 1800);
+  }
+  CHARGES.push(c); return c;
+}
+const r4x = x => Math.round(x * 10000) / 10000;
+// a charge's position right now (it may be riding on someone)
+function chargePos(c) { c.g.updateWorldMatrix(true, false); c.p.setFromMatrixPosition(c.g.matrixWorld); c.n.set(0, 1, 0).applyQuaternion(c.g.getWorldQuaternion(new THREE.Quaternion())); return c.p; }
+function updateCharges(dt) {
+  for (const c of CHARGES) {
+    c.t += dt; const led = c.g.userData.led; if (led) led.visible = (c.t % 1.2) < 0.08;
+    if (!c.host) continue;
+    // the body it was on went limp: it is on the ragdoll now, wherever the same part ended up
+    if (c.hostDummy && c.hostDummy.rag && !c.hostRag) {
+      const at = chargePos(c).clone(); let best = null, bd = 1e9;
+      for (const m of ragMeshes(c.hostDummy.rag)) { const d = m.getWorldPosition(_fv).distanceTo(at); if (d < bd) { bd = d; best = m; } }
+      if (best) { best.updateMatrixWorld(true); best.attach(c.g); c.host = best; c.hostRag = c.hostDummy.rag; }
+    }
+    // the body is gone (respawned, removed): the charge drops where it was
+    let alive = true; for (let o = c.host; o; o = o.parent) { if (o === scene) break; if (!o.parent) alive = false; }
+    if (!alive || (c.hostDummy && !c.hostDummy.rag && c.hostRag)) { const at = chargePos(c).clone(); scene.attach(c.g); c.g.position.set(at.x, 0.0255, at.z); c.g.quaternion.identity(); c.host = null; c.hostDummy = null; }
   }
 }
 function updateExplosives(dt) {
   updateNades(dt); updateBoomFx(dt);
-  for (const c of CHARGES) { c.t += dt; const led = c.g.userData.led; if (led) led.visible = (c.t % 1.2) < 0.08; }
+  updateC4Fly(dt); updateCharges(dt);
   if (P.slot !== 3 && P.nade && P.nade.ph !== 'idle') nadeAbandon();
   if (P.slot !== 2 && P.c4 && P.c4.ph !== 'idle') P.c4.ph = 'idle';
   if (P.nade && P.nade.cook && P.slot !== 3) nadeAbandon();
@@ -561,47 +720,32 @@ function updateExplosives(dt) {
     if (P.fragN <= 0 && !NADES.some(o => o.local)) { P.fragR = (P.fragR || 0) + dt; if (P.fragR > 4) { P.fragN = 3; P.fragR = 0; flashMsg('GRENADES RESTOCKED', 900); } } else P.fragR = 0;
   }
 }
-// viewmodels for slots 3 and 4 (called from updateViewmodel)
-function vmExplosives(dt) {
-  VMG.g.visible = P.slot === 3; VMC.g.visible = P.slot === 2;
-  const s2 = P.sprintBlend, bob = Math.sin(P.bobT * 0.5) * 0.008 * Math.min(1, P.speed / 4);
-  if (P.slot === 3) {
-    const N = P.nade || { ph: 'idle', t: 0 }, H = VMG.hip;
-    let x = H.x, y = H.y, z = H.z, rx = 0, ry = 0, lx = -0.11, ly = -0.02, lz = 0.02;
-    if (N.ph === 'pin') { const k = clamp(N.t / 0.45, 0, 1); lx = -0.11 + 0.1 * ramp(k, 0, 0.4) - 0.14 * ramp(k, 0.55, 1); ly = -0.02 + 0.03 * ramp(k, 0, 0.4); }
-    if (N.ph === 'ready') { y += 0.02; z += 0.02; lx = -0.2; }
-    if (N.ph === 'throw') { const k = clamp(N.t / 0.55, 0, 1), over = N.btn === 0, a = ramp(k, 0, 0.2), b = ramp(k, 0.2, 0.6); y += over ? 0.12 * a - 0.35 * b : -0.15 * a - 0.1 * b; z += over ? 0.1 * a - 0.25 * b : -0.2 * b; rx = over ? 0.8 * a - 1.6 * b : -0.6 * a + 0.4 * b; lx = -0.25; }
-    if (N.ph === 'idle' && N.t < 0.35) y -= 0.3 * (1 - N.t / 0.35);
-    vm.position.set(x + P.swayX + bob, y + P.swayY - P.switchT * 0.7 - 0.05 * s2, z); vm.rotation.set(rx - 0.3 * s2 - P.aimOY * 0.5, ry - P.aimOX * 0.5, 0);
-    VMG.L.position.set(lx, ly, lz); VMG.L.visible = N.ph !== 'throw';
-  } else {
-    const C = P.c4 || { ph: 'idle', t: 0 }, H = VMC.hip; let y = H.y, z = H.z, rx = 0;
-    if (C.ph === 'plant') { const k = clamp(C.t / 0.7, 0, 1), a = ramp(k, 0, 0.5), b = ramp(k, 0.6, 1); y += 0.05 * a - 0.3 * b; z -= 0.25 * a; rx = -0.7 * a; }
-    if (C.ph === 'det') { const sq = (C.t % 0.16) / 0.16; VMC.lever.rotation.z = -0.25 * Math.sin(sq * Math.PI); y += 0.02; }
-    vm.position.set(H.x + P.swayX + bob + (VMC.det.visible ? 0.04 : 0), y + P.swayY - P.switchT * 0.7 - 0.05 * s2, z); vm.rotation.set(rx - 0.3 * s2 - P.aimOY * 0.5, -P.aimOX * 0.5, 0);
-  }
-  vm.visible = !(P.reactV > 0.3);
-  P.aimOX = damp(P.aimOX, 0, 3, dt); P.aimOY = damp(P.aimOY, 0, 3, dt); P.swayX = damp(P.swayX, 0, 8, dt); P.swayY = damp(P.swayY, 0, 8, dt);
-  vmCamera.position.copy(camera.position); vmCamera.quaternion.copy(camera.quaternion); vmCamera.fov = camera.fov; vmCamera.updateProjectionMatrix();
-  vmSun.position.copy(camera.position).addScaledVector(sunDir, 10); vmSun.target.position.copy(camera.position);
-  $('scope').style.display = 'none'; $('acog').style.display = 'none'; $('vigads').style.opacity = '0';
-}
 // ---------------------------------------------------------------- from the network
 function onExplosiveMsg(m) {
   const ok = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
   if (!ok(m.p)) return;
   const p = new V3().fromArray(m.p);
-  if (m.a === 'c4p' && ok(m.n)) addCharge(m.id, m.i, p, new V3().fromArray(m.n).normalize());
+  if (m.a === 'c4p' && ok(m.n)) {
+    for (let i = C4_FLY.length - 1; i >= 0; i--) if (C4_FLY[i].owner === m.id && C4_FLY[i].id === m.i) { scene.remove(C4_FLY[i].g); C4_FLY.splice(i, 1); }
+    const hum = m.tg != null ? (m.tg === S.myId ? localBody : S.remotes.get(m.tg) && S.remotes.get(m.tg).hum) : null, host = hum && hum.hitMeshes[m.tp];
+    if (host && Array.isArray(m.lp) && Array.isArray(m.lq) && m.lp.length === 3 && m.lq.length === 4) {
+      const g = makeC4(true); host.add(g); g.position.fromArray(m.lp); g.quaternion.fromArray(m.lq);
+      const c = { g, p: p.clone(), n: new V3().fromArray(m.n), owner: m.id, id: m.i, t: 0, host }; CHARGES.push(c);
+      if (hum === localBody) flashMsg('C4 STUCK ON YOU', 2200);
+    } else addCharge(m.id, m.i, p, new V3().fromArray(m.n).normalize());
+  }
+  else if (m.a === 'c4t' && ok(m.v)) throwC4(m.id, m.i, p, new V3().fromArray(m.v), ok(m.w) ? new V3().fromArray(m.w) : new V3(), false);
   else if (m.a === 'nade' && ok(m.v)) throwNade(m.id, m.i, p, new V3().fromArray(m.v), clamp(Number(m.f) || 4, 0, 6) + 0.5, false, ok(m.w) ? new V3().fromArray(m.w) : null, clamp(Number(m.c) || 0, -0.2, 0.2));
   else if (m.a === 'boom') {
     const kind = m.k === 'c4' ? 'c4' : 'frag';
-    for (const c of CHARGES.slice()) if (c.owner === m.id && c.id === m.i) removeCharge(c);
+    for (const c of CHARGES.slice()) if (c.owner === m.id && c.id === m.i) { removeCharge(c); if (c.g.parent) c.g.parent.remove(c.g); }
+    for (let i = C4_FLY.length - 1; i >= 0; i--) if (C4_FLY[i].owner === m.id && C4_FLY[i].id === m.i) { scene.remove(C4_FLY[i].g); C4_FLY.splice(i, 1); }
     for (let i = NADES.length - 1; i >= 0; i--) if (NADES[i].owner === m.id && NADES[i].id === m.i) { scene.remove(NADES[i].g); NADES.splice(i, 1); }
-    explode(p, kind, m.id, false, ok(m.n) ? new V3().fromArray(m.n) : null);
+    explode(p, kind, m.id, false, ok(m.n) ? new V3().fromArray(m.n) : null, !!m.ob);
   }
 }
 function clearExplosives() {
-  for (const c of CHARGES) scene.remove(c.g); CHARGES.length = 0;
+  for (const c of CHARGES) if (c.g.parent) c.g.parent.remove(c.g); CHARGES.length = 0; for (const o of C4_FLY) scene.remove(o.g); C4_FLY.length = 0;
   for (const o of NADES) scene.remove(o.g); NADES.length = 0; for (const o of SPOONS) scene.remove(o.g); SPOONS.length = 0;
   for (const f of BOOM_FX) scene.remove(f.o); BOOM_FX.length = 0; boomLight.intensity = 0;
 }

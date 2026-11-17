@@ -373,7 +373,7 @@ function updateToolbar() {
     [4, P.fragN > 0 ? 'M67 frag' : 'Empty', P.fragN > 0 ? 'x' + P.fragN : '', P.fragN > 0 || (P.nade && P.nade.ph !== 'idle') ? P.slot === 3 : es(3)]];
   const key = JSON.stringify(rows);
   if (key === tbKey) return; tbKey = key;
-  tb.innerHTML = rows.map(r => '<div class="tb' + (r[3] ? ' on' : '') + (r[1] === 'Empty' ? ' empty' : '') + '"><b>' + r[0] + '</b><div><span>' + r[1] + '</span><small>' + r[2] + '</small></div></div>').join('');
+  tb.innerHTML = rows.map(r => '<div class="tb' + (r[3] ? ' on' : '') + (r[1] === 'Empty' ? ' empty' : '') + '"><b>' + r[0] + '</b><div><span>' + (r[1] === 'Empty' && r[3] ? 'Fists' : r[1]) + '</span><small>' + r[2] + '</small></div></div>').join('');
 }
 function attSummary(wi) {
   const A = attOf(wi), out = [];

@@ -32,7 +32,7 @@ function playerName() { const n = $('name').value.trim().slice(0, 16) || ('Op' +
 function enterGame(mode) {
   S.mode = mode; $('menu').style.display = 'none'; $('hud').style.display = 'block'; $('err').textContent = '';
   $('vig').style.display = $('vigads').style.display = 'block';
-  $('help').innerHTML = mode === 'test' ? 'K test headshot death, J test body death, H take a test rifle hit<br>Shooting range on your right: 25 m to 750 m. Spare mags refill here.<br>3: C4, left mouse to stick it on, right mouse to fire. 4: M67, hold left (overhand) or right (underhand) to pull the pin, let go to throw, R to cook.' : '';
+  $('help').innerHTML = mode === 'test' ? 'K test headshot death, J test body death, H take a test rifle hit<br>Shooting range on your right: 25 m to 750 m. Spare mags refill here.<br>3: C4, left mouse to throw it (it sticks to whatever it hits, people too), right mouse to fire. 4: M67, hold left (overhand) or right (underhand) to pull the pin, let go to throw, R to cook. An empty slot is your fists: left mouse jab, right mouse cross.' : '';
   $('pauseinfo').innerHTML = mode === 'online' ? 'Room code: <b style="color:#fff;letter-spacing:3px">' + S.room + '</b><br>Share it so friends can join.' : 'Testing mode';
   renderer.domElement.requestPointerLock();
   audio();

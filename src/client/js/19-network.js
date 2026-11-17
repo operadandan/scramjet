@@ -75,7 +75,8 @@ class HostRoom {
       }
       case 'idrop': { const s = JSON.stringify(m); if (p.ready && s.length < 600 && m.it && typeof m.it === 'object') this.broadcast({ t: 'idrop', it: m.it, p: m.p, v: m.v }, p); break; }
       case 'itake': if (p.ready) this.broadcast({ t: 'itake', iid: Number(m.iid) || 0 }, p); break;
-      case 'x': if (p.ready && JSON.stringify(m).length < 400 && ['c4p', 'nade', 'boom'].includes(m.a)) this.broadcast({ t: 'x', id: p.id, a: m.a, k: m.k, i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: m.f, w: m.w, c: m.c }, p); break;
+      case 'x': if (p.ready && JSON.stringify(m).length < 600 && ['c4p', 'c4t', 'nade', 'boom'].includes(m.a)) this.broadcast({ t: 'x', id: p.id, a: m.a, k: m.k, i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: m.f, w: m.w, c: m.c, tg: m.tg, tp: m.tp, lp: m.lp, lq: m.lq, ob: m.ob }, p); break;
+      case 'punch': { const tgt = this.players.get(m.id); if (p.ready && p.alive && tgt && tgt !== p && tgt.alive) this.send(tgt, { t: 'punched', by: p.id, f: String(m.f || '').slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)) }); break; }
       case 'hit': this.hit(p, m); break;
       case 'died': this.died(p, m); break;
       case 'down': this.down(p, m); break;
@@ -195,6 +196,7 @@ function onNet(m) {
     case 'idrop': if (m.it && WEAPONS[m.it.w === undefined ? 0 : m.it.w] && ['gun', 'mag', 'medkit', 'plate'].includes(m.it.kind) && Array.isArray(m.p) && Array.isArray(m.v)) spawnItem(m.it, new V3().fromArray(m.p), new V3().fromArray(m.v), true); break;
     case 'itake': removeItem(m.iid); break;
     case 'x': onExplosiveMsg(m); break;
+    case 'punched': onPunched(m); break;
     case 'hurt':
       if (P.alive && P.anat && Array.isArray(m.p) && Array.isArray(m.d)) {
         const an = P.anat; an.lastBy = m.by; an.lastDir.fromArray(m.wd || [0, 0, -1]); an.lastDist = m.dist || 0;

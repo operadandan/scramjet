@@ -282,6 +282,26 @@ class Anatomy {
     this.wounds.push({ sid: st.id, region, name, rate: Math.min(st.rate, rate), treated: false, artery: artery ? 1 : 0 });
   }
   kill(cause) { if (!this.dead) { this.dead = true; this.cause = cause; } }
+  // A punch: blunt force, nothing is pierced. pw is about 0.6 for a jab, 1 for a full cross. The head takes it worst: each
+  // blow adds to the trauma the brain has taken, a concussion builds, and past a point (or from one clean shot on the jaw)
+  // the lights go out for several seconds. The nose can break and bleed. The body: pain, a winding blow to the stomach, ribs
+  // that crack after enough. Arms and legs: bruising.
+  blunt(frame, e, pw) {
+    this.version++;
+    const region = regionOf(frame, e), res = { region, blunt: true }; this.lastRegion = region;
+    const limb = LIMB_OF[region]; if (limb && this.lost[limb[0]] && this.lost[limb[0]] <= limb[1]) return { region, missing: true };
+    this.shock += 5 * pw;
+    if (region === 'head') {
+      this.concussion = Math.min(12, this.concussion + 1.6 * pw); this.headTrauma = (this.headTrauma || 0) + pw * rnd(0.6, 1.4); this.shock += 6 * pw;
+      const jaw = e && e.y < 0.06 && e.z < 0;
+      if (this.headTrauma > 3.2 || (jaw && pw > 0.85 && Math.random() < 0.22) || Math.random() < 0.03 * pw) { res.ko = true; this.koT = rnd(7, 15); this.headTrauma *= 0.5; }
+      if (e && e.z < -0.03 && Math.random() < 0.18 * pw && !this.wounds.some(w => w.sid === 'nose')) this.wounds.push({ sid: 'nose', region: 'head', name: 'Broken nose (bleeding)', rate: 0.5, treated: false });
+    } else if (region === 'neck') { this.shock += 12 * pw; if (Math.random() < 0.06 * pw) { res.ko = true; this.koT = rnd(5, 10); } }
+    else if (region === 'chest') { this.damage(this.s.ribs, STRUCTS.find(s => s.id === 'ribs'), 7 * pw, region); }
+    else if (region === 'abdomen' || region === 'pelvis') { res.winded = true; this.shock += 10 * pw; }
+    if (!this.wounds.some(w => w.sid === 'bruise:' + region)) this.wounds.push({ sid: 'bruise:' + region, region, name: 'Bruising, ' + REGION_NAME[region].toLowerCase(), rate: 0, treated: true });
+    return res;
+  }
   bleedRate() { let r = 0; for (const w of this.wounds) if (!w.treated) r += w.rate; return r; }
   update(dt) {
     if (this.dead) return;
@@ -299,7 +319,7 @@ class Anatomy {
     this.shock = Math.max(0, this.shock - dt * 6); this.morphine = Math.max(0, this.morphine - dt * 0.25);
     this.painLvl = this.painLevel(); this.pain = clamp(this.painLvl / 100, 0, 1);
     if (this.painLvl >= 100) this.painDown = true; else if (this.painDown && this.painLvl < 70) this.painDown = false;
-    this.concussion = Math.max(0, this.concussion - dt);
+    this.concussion = Math.max(0, this.concussion - dt); this.koT = Math.max(0, (this.koT || 0) - dt); this.headTrauma = Math.max(0, (this.headTrauma || 0) - dt * 0.04);
     if (this.o2 <= 0) this.kill(this.circ < 0.3 ? 'cardiac' : this.breath < 0.3 ? 'asphyx' : 'bleed');
     if (this.blood < 2300) this.kill('bleed');
   }
@@ -319,7 +339,7 @@ class Anatomy {
     for (const w of this.wounds) if (!w.treated) p += w.artery ? 6 : 3;
     return Math.max(0, p - this.morphine);
   }
-  isDowned() { return this.paralyzed || this.painDown || this.bothLegs(); }
+  isDowned() { return this.paralyzed || this.painDown || this.bothLegs() || this.koT > 0; }
   bothLegs() { return !!this.lost.legL || !!this.lost.legR || (this.legBroken('L') && this.legBroken('R')); }
   anyArm() { return this.armBroken('L') || this.armBroken('R'); }
   treat() {
@@ -359,6 +379,7 @@ class Anatomy {
     if (flesh) list.push([35, flesh + ' open gunshot wound' + (flesh > 1 ? 's' : ''), '#ffd166']);
     let fr = 0; for (const w of this.wounds) if (!w.treated && !w.artery && /^Fragment/.test(w.name)) fr++;
     if (fr) list.push([35, fr + ' open fragment wound' + (fr > 1 ? 's' : ''), '#ffd166']);
+    if (this.koT > 0) list.push([10, 'Knocked out', '#ff6b6b']);
     if (this.concussion > 0) list.push([25, 'Concussion', '#ffd166']);
     return list.sort((a, b) => b[0] - a[0]);
   }

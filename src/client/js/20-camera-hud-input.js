@@ -89,33 +89,9 @@ function updateCamera(dt) {
 const _vt = new V3(), _wr = new V3(), _fd = new V3(), _vi = new V3(), _vir = new V3(), _v0 = new V3(), _v1 = new V3(), _v2 = new V3(), _v3 = new V3(), _V1 = new V3(1, 1, 1), _q0 = new THREE.Quaternion(), _e0 = new THREE.Euler(), _m0 = new THREE.Matrix4(), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
 function updateViewmodel(dt) {
   const W = VMW[P.weapon], w = WEAPONS[P.weapon];
-  VMW.forEach((v, i) => { v.g.visible = P.slot < 2 && i === P.weapon; }); VMK.g.visible = false; VMP.g.visible = false; VMG.g.visible = P.slot === 3; VMC.g.visible = P.slot === 2;
-  if (P.slot === 2 || P.slot === 3) { vmExplosives(dt); return; }
-  if (P.slot === 4) { $('scope').style.display = 'none'; $('acog').style.display = 'none'; $('vigads').style.opacity = '0'; return; }
-  if (P.slot === 3) {
-    vm.visible = !(P.reactV > 0.3); $('scope').style.display = 'none'; $('acog').style.display = 'none';
-    const k = P.plating ? P.plateT / PLATE_TIME : 0, out = ramp(k, 0.1, 0.45), back = ramp(k, 0.55, 0.95), s2 = P.sprintBlend;
-    vm.position.set(VMP.hip.x + P.swayX + Math.sin(P.bobT * 0.5) * 0.008 * Math.min(1, P.speed / 4), VMP.hip.y + P.swayY - P.switchT * 0.7 - 0.25 * out + 0.25 * back - 0.05 * s2, VMP.hip.z + 0.1 * out - 0.1 * back);
-    vm.rotation.set(-0.3 * s2 - P.aimOY * 0.5 + 0.9 * out - 0.9 * back, -P.aimOX * 0.5, 0);
-    VMP.plate.visible = P.platesInv > 0 || P.plating;
-    P.aimOX = damp(P.aimOX, 0, 3, dt); P.aimOY = damp(P.aimOY, 0, 3, dt); P.swayX = damp(P.swayX, 0, 8, dt); P.swayY = damp(P.swayY, 0, 8, dt);
-    vmCamera.position.copy(camera.position); vmCamera.quaternion.copy(camera.quaternion); vmCamera.fov = camera.fov; vmCamera.updateProjectionMatrix();
-    vmSun.position.copy(camera.position).addScaledVector(sunDir, 10); vmSun.target.position.copy(camera.position);
-    $('vigads').style.opacity = '0';
-    return;
-  }
-  if (P.slot === 2) {
-    vm.visible = !(P.reactV > 0.3); $('scope').style.display = 'none'; $('acog').style.display = 'none';
-    const tt = performance.now() / 1000, hk = P.healing ? 1 : 0, s2 = P.sprintBlend;
-    vm.position.set(VMK.hip.x + P.swayX + Math.sin(P.bobT * 0.5) * 0.008 * Math.min(1, P.speed / 4), VMK.hip.y + P.swayY - P.switchT * 0.7 - 0.06 * hk + Math.sin(tt * 9) * 0.006 * hk - 0.05 * s2, VMK.hip.z + 0.06 * hk);
-    vm.rotation.set(0.35 * hk - 0.3 * s2 - P.aimOY * 0.5, -P.aimOX * 0.5 + Math.sin(tt * 6) * 0.05 * hk, Math.sin(tt * 4) * 0.04 * hk);
-    VMK.flap.rotation.x = -1.2 * hk; VMK.flap.position.z = -0.03 * hk;
-    P.aimOX = damp(P.aimOX, 0, 3, dt); P.aimOY = damp(P.aimOY, 0, 3, dt); P.swayX = damp(P.swayX, 0, 8, dt); P.swayY = damp(P.swayY, 0, 8, dt);
-    vmCamera.position.copy(camera.position); vmCamera.quaternion.copy(camera.quaternion); vmCamera.fov = camera.fov; vmCamera.updateProjectionMatrix();
-    vmSun.position.copy(camera.position).addScaledVector(sunDir, 10); vmSun.target.position.copy(camera.position);
-    $('vigads').style.opacity = '0';
-    return;
-  }
+  VMW.forEach((v, i) => { v.g.visible = P.slot < 2 && i === P.weapon; }); VMK.g.visible = false; VMP.g.visible = false;
+  if (P.slot >= 2) { vmTools(dt); return; }
+  TV.g.visible = false;
   const a = P.ads, s = P.sprintBlend, t = _vt.copy(W.hip).lerp(W.ads, a);
   const mv = P.onGround ? clamp(P.speed / 4.3, 0, 1.7) : 0;
   const bobAmp = (0.007 + 0.01 * s) * mv * (1 - a * 0.88);
@@ -252,7 +228,7 @@ function updateViewmodel(dt) {
 const bodyPanel = makeBodyPanel($('bodyui'), 'CONDITION'), targetPanel = makeBodyPanel($('targetui'), 'TARGET');
 function updateHUD() {
   const w = WEAPONS[P.weapon];
-  $('wname').textContent = P.downed ? (P.anat.paralyzed ? 'PARALYZED' : 'UNCONSCIOUS') : P.slot === 2 ? (P.c4N > 0 ? 'C4 x' + P.c4N : 'M57 FIRING DEVICE') + (c4Mine().length ? '  (' + c4Mine().length + ' SET)' : '') : P.slot === 3 ? 'M67 x' + P.fragN + (P.nade && P.nade.cook ? '  (COOKING)' : P.nade && P.nade.ph === 'ready' ? '  (PIN OUT)' : '') : P.slot === 4 ? 'UNARMED' : w.name + (P.anat.anyArm() ? '  (ARM DISABLED)' : '');
+  $('wname').textContent = P.downed ? (P.anat.paralyzed ? 'PARALYZED' : 'UNCONSCIOUS') : P.slot === 2 ? (P.c4N > 0 ? 'C4 x' + P.c4N : 'REMOTE DETONATOR') + (c4Mine().length ? '  (' + c4Mine().length + ' SET)' : '') : P.slot === 3 ? 'M67 x' + P.fragN + (P.nade && P.nade.cook ? '  (COOKING)' : P.nade && P.nade.ph === 'ready' ? '  (PIN OUT)' : '') : P.slot === 4 ? 'FISTS' : w.name + (P.anat.anyArm() ? '  (ARM DISABLED)' : '');
   if (P.downed) $('downwhy').textContent = P.anat.paralyzed ? 'Spinal cord injury. You will not get up.' : 'You blacked out from the pain. You may come to if it eases (pain ' + Math.round(P.anat.painLvl) + ').';
   if (!P.alive || P.downed || P.slot >= 2) { $('scope').style.display = 'none'; $('acog').style.display = 'none'; }
   bodyPanel.update(P.alive ? P.anat : null, P.prone > 0.5 ? (P.anat.bothLegs() ? 'Legs out: crawling' : 'Prone') : '');

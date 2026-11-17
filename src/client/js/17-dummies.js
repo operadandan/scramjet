@@ -348,6 +348,15 @@ class Dummy {
     if (this.anat.dead) { this.die(); return { killed: true, head: this.anat.cause === 'brain' }; }
     return { killed: false };
   }
+  // a punch: blunt, never pierces. A knockout drops the body where it stands; it comes round when the knockout wears off
+  punched(info, dir, pw) {
+    if (this.dead) return null;
+    this.anat.lastDir.copy(dir);
+    const res = this.anat.blunt(info.frame, info.e, pw); if (res.missing) return res;
+    if (res.ko && !this.rag) { this.dropGun(dir.clone().multiplyScalar(0.6).add(new V3(0, 0.5, 0))); this.react = undefined; this.stag = undefined; this.goLimp(true); }
+    else if (!this.rag) hurtClutch(this.hum.anim, info.frame, info.e);
+    S.target = this; return res;
+  }
   // ---------------------------------------------------------------- reactions to being shot
   // Picked by stance and wound: standing, crouched and prone bodies each go down their own way, a neck wound brings both hands
   // to the throat, and a shotgun blast knocks the body straight over. Every reaction is put together fresh from random choices

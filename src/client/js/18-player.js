@@ -17,7 +17,7 @@ function enterDowned(extra) {
   P.rag = spawnRagdoll(localBody, P.vel.clone(), an.lastDir.clone(), PART_OF_REGION(an.lastRegion), false, Object.assign({ bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(), keep: true }, extra || {}));
   P.rag.owner = { anat: an };
   $('downmsg').style.display = 'block';
-  $('downwhy').textContent = an.paralyzed ? 'Spinal cord injury. You will not get up.' : P.forceDown ? 'You went down and cannot get back up.' : 'You blacked out from the pain. You may come to if it eases.';
+  $('downwhy').textContent = an.koT > 0 ? 'Knocked out. You will come round in a few seconds.' : an.paralyzed ? 'Spinal cord injury. You will not get up.' : P.forceDown ? 'You went down and cannot get back up.' : 'You blacked out from the pain. You may come to if it eases.';
 }
 function wakeUp() {
   const r = P.rag; P.downed = false; P.reactDone = false;
@@ -356,7 +356,7 @@ function updateWeapons(dt) {
   rackHint();
   if (P.downed || !P.alive || (!G && P.slot < 2)) { P.ads = 0; muzzleLight.intensity = 0; vmMuzzleLight.intensity = 0; return; }
   if (P.slot >= 2) {
-    if (P.slot === 2) updateC4(dt); else if (P.slot === 3) updateFrag(dt);
+    keepSlot(); if (P.slot === 2) updateC4(dt); else if (P.slot === 3) updateFrag(dt); else if (P.slot === 4) updateFists(dt);
     P.ads = damp(P.ads, 0, 14, dt); P.sprintBlend = damp(P.sprintBlend, P.sprinting ? 1 : 0, 10, dt);
     P.kick = damp(P.kick, 0, 14, dt); P.recoilPitch = damp(P.recoilPitch, 0, 9, dt);
     VMW.forEach(v => { v.flash.visible = false; }); muzzleLight.intensity = 0; vmMuzzleLight.intensity = 0;
