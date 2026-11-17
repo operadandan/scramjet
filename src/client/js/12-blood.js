@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------- blood: ballistic droplets, splats that run down walls, pooling on floors, wounds on bodies
 const BLOOD_MAX = 900, drops = [], drips = [], floorSplats = [];
-const dropIM = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshStandardMaterial({ color: 0x7a0f0c, roughness: 0.25, metalness: 0, envMapIntensity: 0.3 }), BLOOD_MAX);
+const dropIM = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshStandardMaterial({ color: 0x7a0f0c, roughness: 0.1, metalness: 0, envMapIntensity: 0.6 }), BLOOD_MAX);
 dropIM.frustumCulled = false; dropIM.count = 0; scene.add(dropIM);
-const wetMat = (tex, off) => new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: off, roughness: 0.4, metalness: 0, envMapIntensity: 0.15 });
+const wetMat = (tex, off) => new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: off, roughness: 0.22, metalness: 0, envMapIntensity: 0.4 });
 // Blood textures are built as metaball fields: soft blobs are added together, then the field is cut at a threshold.
 // That gives the smooth, surface-tension edges real blood has, and the field height doubles as depth (thicker = darker).
 function fieldTex(size, draw, opt) {
@@ -117,7 +117,7 @@ for (let i = 0; i < 12; i++) {
   const m = wetMat(fieldTex(512, st, { th: rnd(0.38, 0.45), soft: 0.012, c0: [rnd(112, 128) | 0, 14, 12], c1: clot ? [58, 10, 8] : [rnd(64, 74) | 0, 11, 9], alpha: 0.97 }), -3);
   // pools are the only blood that reads as a mirror
   // a crisp wet edge, and an alpha cut so overlapping lobes don't sort badly against each other
-  m.roughness = 0.08; m.metalness = 0; m.envMapIntensity = 0.35; m.alphaTest = 0.5; m.map.generateMipmaps = false; m.map.minFilter = THREE.LinearFilter; POOL_MAT.push(m);
+  m.roughness = 0.05; m.metalness = 0; m.envMapIntensity = 0.55; m.alphaTest = 0.5; m.map.generateMipmaps = false; m.map.minFilter = THREE.LinearFilter; POOL_MAT.push(m);
 }
 const BLOOD_MAT = {}; for (const k in BLOOD_TEX) BLOOD_MAT[k] = wetMat(BLOOD_TEX[k], k === 'stain' ? -3 : /entry|exit|rim/.test(k) ? -5 : -4);
 BLOOD_MAT.soak.side = THREE.DoubleSide; BLOOD_MAT.soak.roughness = 0.5;

@@ -18,9 +18,9 @@ function buildVfgHand(W, under, elbow) {
 }
 function trimDecals() { while (decals.length > 220) { const d = decals.shift(); scene.remove(d); if (d.geometry !== splatGeo && d.geometry !== poolGeo) d.geometry.dispose(); const i = floorSplats.indexOf(d); if (i >= 0) floorSplats.splice(i, 1); } }
 // drag goes as 1/size: a fine droplet stops within a metre, a big drop carries on
-function spawnDrop(p, v, r, g, drag, ml) { if (drops.length >= BLOOD_MAX) drops.shift(); drops.push({ p: p.clone(), v, r, life: 5, g: g === undefined ? 1 : g, drag: drag === undefined ? clamp(0.012 / r, 0.4, 8) : drag, ml }); }
-// spatter droplet radius: many fine ones, a few big (power law), 0.5 to 2.5 mm
-const spatR = () => clamp(0.0005 * Math.pow(1 - Math.random(), -1 / 1.4), 0.0005, 0.0025);
+function spawnDrop(p, v, r, g, drag, ml) { if (drops.length >= BLOOD_MAX) drops.shift(); drops.push({ p: p.clone(), v, r, life: 5, g: g === undefined ? 1 : g, drag: drag === undefined ? clamp(0.01 / r, 0.3, 6) : drag, ml }); }
+// spatter droplet radius: many small ones, a few big (power law), 0.8 to 4.5 mm
+const spatR = () => clamp(0.0008 * Math.pow(1 - Math.random(), -1 / 1.4), 0.0008, 0.0045);
 // ---------------------------------------------------------------- drop splats
 // Every drop that lands leaves its own mark. 64 different splats are painted once into one atlas at load (each its own blob
 // outline, crown of satellite droplets, wet sheen, thickness and colour), and every mark picks one, turned, scaled,
@@ -60,7 +60,7 @@ const SPLAT_N = 2400, SPLAT_T = 8, SPLAT_ATLAS = (() => {
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return t;
 })();
 const splatIM = (() => {
-  const m = new THREE.MeshStandardMaterial({ map: SPLAT_ATLAS, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, roughness: 0.4, metalness: 0, envMapIntensity: 0.15 });
+  const m = new THREE.MeshStandardMaterial({ map: SPLAT_ATLAS, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, roughness: 0.2, metalness: 0, envMapIntensity: 0.4 });
   const geo = new THREE.PlaneGeometry(1, 1), tile = new THREE.InstancedBufferAttribute(new Float32Array(SPLAT_N * 2), 2); geo.setAttribute('tile', tile);
   m.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 tile;').replace('#include <uv_vertex>', '#include <uv_vertex>\nvMapUv = clamp(vMapUv, 0.012, 0.988) * ' + (1 / SPLAT_T).toFixed(4) + ' + tile;'); };
   m.customProgramCacheKey = () => 'splatAtlas';
@@ -83,7 +83,7 @@ function dropSplat(p, n, r, v) {
   const vs = v.length(), ia = Math.asin(Math.min(1, vn / Math.max(vs, 1e-4)));
   const row = r > 0.003 ? 7 : ia < 0.35 ? 6 : ia < 1.22 ? 4 + (Math.random() * 2 | 0) : vs > 2 ? 2 + (Math.random() * 2 | 0) : (Math.random() * 2 | 0);
   const str = ia < 1.22 && sp > 0.3 ? Math.min(4, 1 / Math.max(0.25, Math.sin(ia))) : 1;
-  const base = r * rnd(3.4, 4.4) * (1 + Math.min(1.2, vn * 0.12)) * (row === 6 ? 2 : 1);
+  const base = r * rnd(5.5, 7) * (1 + Math.min(1.2, vn * 0.12)) * (row === 6 ? 2 : 1);
   _sS.set(base * str, base, 1);
   im.setMatrixAt(i, _sM.compose(_sP.copy(p).addScaledVector(_sN, 0.0015 + Math.random() * 0.002), _sQ, _sS));
   const ti = row * SPLAT_T + (Math.random() * SPLAT_T | 0); im.geometry.attributes.tile.setXY(i, (ti % SPLAT_T) / SPLAT_T, 1 - (Math.floor(ti / SPLAT_T) + 1) / SPLAT_T);
@@ -105,7 +105,7 @@ function feedPool(x, y, z, ml) {
   for (const p of pools) { if (Math.abs(p.y - y) > 0.03) continue; for (const l of p.lobes) { const d = Math.hypot(l.x - x, l.z - z); if (d < l.r * 0.9 + 0.07 && d < bd) { bd = d; best = p; bl = l; } } }
   if (best) {
     if (bd > Math.max(bl.r * 0.6, 0.06) && best.lobes.length < POOL_LOBES && ml > 1.5) { addLobe(best, x, z, ml); return; }
-    bl.vol = Math.min(2500, bl.vol + ml); return;
+    bl.vol = Math.min(4000, bl.vol + ml); return;
   }
   let sd = null; for (const q of seeds) if (Math.abs(q.y - y) < 0.03 && Math.hypot(q.x - x, q.z - z) < 0.1) { sd = q; break; }
   if (!sd) { sd = { x, y, z, vol: 0 }; seeds.push(sd); if (seeds.length > 300) seeds.shift(); }
@@ -127,7 +127,7 @@ function updatePools(dt) {
   for (const p of pools) for (const l of p.lobes) {
     // ~2.5 mm deep on a flat floor: 1 ml covers 4 cm^2. Spreads quickly at first, then slows as it thins out
     const R = Math.sqrt(l.vol * 0.0004 / Math.PI);
-    if (l.r < R) l.r = Math.min(R, l.r + Math.max(0.006, (R - l.r) * 0.8) * dt);
+    if (l.r < R) l.r = Math.min(R, l.r + Math.max(0.015, (R - l.r) * 2) * dt);
     const w = 2 * l.r / 0.72; l.m.scale.set(w * l.e, w / l.e, 1);
     // drying
     const age = clamp((now - l.born) / 120, 0, 1), mt = l.m.material;
@@ -187,14 +187,14 @@ function goreBurst(p, dir, skin) {
 function bloodFx(point, dir, strong, amt) {
   amt = amt === undefined ? 1 : amt;
   // back-spatter out of the entry: a little mist and a few fine droplets in a small cone back toward the shooter
-  mist(point.clone().addScaledVector(dir, -0.02), dir.clone().multiplyScalar(-rnd(0.4, 0.9)), 0.2, 0.3, 0x7a0f0c, 0.45);
-  for (let i = 0; i < Math.round(4 * amt); i++) spawnDrop(point, coneDir(dir.clone().negate(), 0.7).multiplyScalar(rnd(1, 3)), spatR());
+  mist(point.clone().addScaledVector(dir, -0.02), dir.clone().multiplyScalar(-rnd(0.4, 0.9)), 0.26, 0.35, 0x7a0f0c, 0.55);
+  for (let i = 0; i < Math.round(8 * amt); i++) spawnDrop(point, coneDir(dir.clone().negate(), 0.7).multiplyScalar(rnd(1, 3)), spatR());
   if (!strong) return;
   // forward spatter out of the exit: a 25-degree cone carrying most of it, fine drops and a few big ones
-  for (let i = 0; i < 3; i++) mist(point.clone().addScaledVector(dir, 0.05 + i * 0.07), dir.clone().multiplyScalar(rnd(1.5, 3.5)), 0.3 + i * 0.1, 0.6, 0x6a0c0a, 0.45 - i * 0.08);
-  const n = Math.round(22 * amt);
+  for (let i = 0; i < 4; i++) mist(point.clone().addScaledVector(dir, 0.05 + i * 0.07), dir.clone().multiplyScalar(rnd(1.5, 3.5)), 0.36 + i * 0.12, 0.7, 0x6a0c0a, 0.55 - i * 0.08);
+  const n = Math.round(50 * amt);
   for (let i = 0; i < n; i++) spawnDrop(point, coneDir(dir, 0.44).multiplyScalar(rnd(4, 10)), spatR());
-  blowSpatter(point, dir, rnd(0.5, 0.75) * Math.min(1.4, amt));
+  blowSpatter(point, dir, rnd(0.7, 1) * Math.min(1.6, amt));
 }
 function floorSplat(x, y, z, size) { feedPool(x, y, z, size * 6); }
 function floorSplatOld(x, y, z, size) {
@@ -217,8 +217,8 @@ function wallSplat(p, n, size, vdir, bottom) {
   m.position.copy(p).addScaledVector(n, 0.004 + Math.random() * 0.003); m.quaternion.setFromUnitVectors(_Z, n);
   if (cast && vdir) { const vl = vdir.clone().applyQuaternion(m.quaternion.clone().invert()); m.rotateZ(-Math.atan2(vl.x, vl.y)); } else m.rotateZ(Math.random() * 6); m.scale.setScalar(size); scene.add(m); decals.push(m);
   // the heavier splats run: a streak creeps down the wall and feeds a puddle at the bottom
-  if (size > 0.1 && p.y - bottom > 0.12) {
-    const k = Math.random() < 0.5 ? 2 : 1;
+  if (size > 0.06 && p.y - bottom > 0.12) {
+    const k = 1 + Math.floor(Math.random() * 3);
     for (let i = 0; i < k; i++) {
       const d = new THREE.Mesh(splatGeo, bmat('drip')), w = rnd(0.012, 0.024), ox = rnd(-0.3, 0.3) * size;
       const tan = new V3(-n.z, 0, n.x);
@@ -580,14 +580,14 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
     for (let j = 0; j < runs; j++) {
       let w0 = rnd(0.004, 0.0065) * k, a0 = Math.random() * 6.28, o = wp.clone().addScaledVector(t1, Math.cos(a0) * (hr * 1.2 + w0 * 2)).addScaledVector(t2, Math.sin(a0) * (hr * 1.2 + w0 * 2));
       let hn = wn.clone(), got = 0;
-      for (let s = 0; s < 22 && w0 > 0.0015; s++) {
+      for (let s = 0; s < 32 && w0 > 0.0015; s++) {
         _rt.set(0, -1, 0).addScaledVector(hn, hn.y); if (_rt.lengthSq() < 0.04) break; _rt.normalize();
         // wander up to 25 degrees either way round the surface normal
         _rt.applyAxisAngle(hn, rnd(-0.44, 0.44));
         o.addScaledVector(_rt, w0 * rnd(1.4, 1.9));
         const hit = drop(o, w0, rnd(1.8, 2.4), _rt); if (!hit) { if (got || s > 2) break; continue; }
         got++; o.copy(hit); if (lastN) hn.copy(lastN);
-        w0 *= 0.92;
+        w0 *= 0.95;
       }
     }
   }
@@ -607,22 +607,22 @@ function blowSpatter(point, dir, size, goreK) {
   const fy = floorAt(point.x, point.y, point.z), hgt = Math.max(0.03, point.y - fy);
   const dh = new V3(dir.x, 0, dir.z); let hl = dh.length(); if (hl < 0.15) { dh.set(rnd(-1, 1), 0, rnd(-1, 1)); hl = 0.3; } dh.normalize();
   // gunshot spatter lands within a metre and a half; a head burst or a blast carries to about three
-  const v = rnd(3, 6), vy = dir.y * v + 0.6, vh = Math.max(0.6, hl * v), t = (vy + Math.sqrt(vy * vy + 2 * 9.8 * hgt)) / 9.8, land = clamp(vh * t * 0.5, 0.3, goreK ? 3 : 1.5);
+  const v = rnd(3, 6), vy = dir.y * v + 0.6, vh = Math.max(0.6, hl * v), t = (vy + Math.sqrt(vy * vy + 2 * 9.8 * hgt)) / 9.8, land = clamp(vh * t * 0.6, 0.3, goreK ? 3.5 : 2.5);
   const n = _Y, m = new THREE.Mesh(splatGeo, bmat(goreK ? 'gore' : 'spray')); m.quaternion.setFromUnitVectors(_Z, n);
   const vl = dh.clone().applyQuaternion(m.quaternion.clone().invert()); m.rotateZ(-Math.atan2(vl.x, vl.y));
-  const sz = size * 0.6 * (1 + land * 0.35);
+  const sz = size * 1.1 * (1 + land * 0.35);
   m.position.set(point.x, fy + 0.004 + Math.random() * 0.002, point.z).addScaledVector(dh, land * 0.55 + sz * 0.3); m.scale.set(sz * 0.75, sz * 1.25, 1);
   m.receiveShadow = true; scene.add(m); decals.push(m); trimDecals();
-  // (spatter never makes a pool: pools come only from blood that runs out of a body)
+  for (let i = 0; i < 2; i++) { const q = new V3(point.x, fy, point.z).addScaledVector(dh, land * rnd(0.6, 1.2)).add(new V3(rnd(-0.1, 0.1), 0, rnd(-0.1, 0.1))); feedPool(q.x, fy, q.z, size * rnd(2, 4)); }
 }
 function addWound(hum, frame, group, p, n, kind, size) {
   const mk = () => { const m = new THREE.Object3D(); m.position.copy(p).addScaledVector(n, 0.004); m.userData.keep = true; group.add(m); return m; };
   const hr = kind === 'blast' ? size / 7.5 : kind === 'rimX' ? size / 6.5 : size / 5.2;
-  const m = mk(), st = soakMesh(group, p, n, kind === 'blast' ? 0.09 : 0.045, hr), tr = kind === 'blast' ? tearMesh(group, p, n, size, hr) : liquidBlood(group, p, n, clamp(size * 0.9, 0.012, 0.03), 5, 1, hr);
+  const m = mk(), st = soakMesh(group, p, n, kind === 'blast' ? 0.09 : 0.045, hr), tr = kind === 'blast' ? tearMesh(group, p, n, size, hr, 3) : liquidBlood(group, p, n, clamp(size * 1.3, 0.016, 0.045), 7, 2, hr);
   const rg = !hum && group.parent && group.parent.userData.ragObj; if (rg) rg.anchors.push({ m, n: n.clone() });
   // the clothes round it soak through over the next half minute: an exit or a blast wound much further than an entry
   const sroot = hum ? hum.root : rg ? rg.group : chunkRootOf(group);
-  if (frame && sroot) addSoak(sroot, frame, group, p, kind === 'blast' ? 0.16 : kind === 'rimX' ? 0.11 : 0.075);
+  if (frame && sroot) addSoak(sroot, frame, group, p, kind === 'blast' ? 0.22 : kind === 'rimX' ? 0.15 : 0.1);
   if (!hum || !frame) return;
   hum.wounds = hum.wounds || [];
   hum.wounds.push({ frame, p: p.clone(), n: n.clone(), kind, m, st, size, grow: clamp(size * 4, 0.12, kind === 'blast' ? 0.45 : 0.3), tear: tr ? size : 0, tr });
@@ -642,7 +642,7 @@ function updateWounds(hum, dt) {
   let budget = 1;
   for (const w of hum.wounds) {
     w.bt = (w.bt || 0) + dt; w.stage = w.stage || 0;
-    if (budget > 0 && w.stage < 3 && w.bt > [1.2, 3.5, 7][w.stage] && w.m.parent) {
+    if (budget > 0 && w.stage < 5 && w.bt > [1, 3, 6, 11, 18][w.stage] && w.m.parent) {
       const g = w.m.parent, hr = w.kind === 'blast' ? w.size / 7.5 : w.size / 5.2, tr = liquidBlood(g, w.p, w.n, clamp(w.size * (1.1 + w.stage * 0.5), 0.016, 0.07) + hr, 3, 2 + w.stage, hr);
       if (tr) { w.more = w.more || []; w.more.push(tr); } w.stage++; budget--;
     }

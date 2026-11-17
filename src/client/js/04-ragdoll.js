@@ -120,7 +120,7 @@ class Ragdoll {
     // the wet patch round each wound now; the runs only once the body has come to rest, so they run the way it lies
     if (this.liq) { this.group.updateMatrixWorld(true); this.runsTodo = []; for (const [fr, lp, n, tear, fy] of this.liq) { const [g] = this.frameGroup(fr, fy); if (g) { if (tear) tearMesh(g, lp, n, tear, 0, 0); else liquidBlood(g, lp, n, 0.022, 5, 0); this.runsTodo.push([g, lp, n, tear ? clamp(tear * 0.32, 0.04, 0.13) : 0.022, tear ? 2 : 1]); } } this.liq = null; }
     if (masks.tear && !masks.gib) { this.sync(); this.group.updateMatrixWorld(true); this.tearNeck(dir || new V3(0, 0, 1)); }
-    if (masks.gib) { addStump(this.torso, new V3(0, 0.335, 0), new V3(0, 1, 0), 0.062, 'neck'); const st = new THREE.Object3D(); st.position.set(0, 0.34, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) }); this.bleedR += 70; }
+    if (masks.gib) { addStump(this.torso, new V3(0, 0.272, 0), new V3(0, 1, 0), 0.068, 'neck'); const st = new THREE.Object3D(); st.position.set(0, 0.29, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) }); this.bleedR += 70; }
     this.sync();
   }
   // which piece of the ragdoll stands for a skeleton frame, and the y offset from frame coordinates to that piece
@@ -139,9 +139,9 @@ class Ragdoll {
   }
   gibHead(dir) {
     const hp = this.headG.getWorldPosition(new V3()); this.headG.visible = false; this.headG.traverse(o => { o.visible = false; });
-    addStump(this.torso, new V3(0, 0.335, 0), new V3(0, 1, 0), 0.062, 'neck');
+    addStump(this.torso, new V3(0, 0.272, 0), new V3(0, 1, 0), 0.068, 'neck');
     for (const a of this.anchors) if (a.m.parent === this.headG) this.anchors.splice(this.anchors.indexOf(a), 1);
-    const st = new THREE.Object3D(); st.position.set(0, 0.34, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) });
+    const st = new THREE.Object3D(); st.position.set(0, 0.29, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) });
     this.bleedR += 70; this.twitch = Math.max(this.twitch, 3); this.asleep = false;
     goreBurst(hp, dir.clone().normalize(), this.skin);
   }
@@ -386,8 +386,8 @@ class Ragdoll {
   // blood that keeps coming after death: under each wound and stump, slowing over about half a minute, into pools
   bleed(dt) {
     const own = this.owner, alive = own && own.dummy && !own.dummy.dead && own.dummy.rag === this;
-    if (alive || this.bleedR < 0.3 || !this.anchors.length || this.bledV > 2600) return;
-    const r = this.bleedR; this.bleedR *= Math.exp(-dt / 45); this.bledV += r * dt;
+    if (alive || this.bleedR < 0.3 || !this.anchors.length || this.bledV > 4000) return;
+    const r = this.bleedR; this.bleedR *= Math.exp(-dt / 60); this.bledV += r * dt;
     // the wounds keep spreading on the body for as long as it bleeds: a cut artery for a minute, a graze hardly at all
     this.wt = (this.wt || 0) + dt; this.wst = this.wst || 0;
     if (this.wst < 3 && this.wt > [4, 11, 24][this.wst] && r > 4) {

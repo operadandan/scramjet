@@ -31,6 +31,7 @@ const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a
 // colours as they look on screen (sRGB hex), converted to the renderer's linear space
 const C_ = h => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const C_MEAT = C_(0x6e1512), C_RAW = C_(0x8c2a22), C_FAT = C_(0xa88a52), C_CLOT = C_(0x2a0606), C_BONE = C_(0xcfc2a4), C_BRAIN = C_(0x9c7470), C_SULC = C_(0x6a3e3e);
+const C_BONEW = C_(0x9a7a66);
 const C_LUNG = [C_(0xa0504e), C_(0x7a3432)], C_LIVER = C_(0x4a1410), C_GUT = [C_(0xa86a5e), C_(0x7a3a30)], C_MARROW = C_(0x6a1a14), C_SKULLB = C_(0x7a1a16);
 const GORE_GEO = {
   // torn muscle: dark meat, rawer streaks, patches of yellow fat, clotted edges
@@ -47,10 +48,10 @@ const GORE_GEO = {
 };
 // a curved plate of skull: scalp on the outside, bone on the inside, a bloody rim
 function skullPiece(skin) {
-  const ph = rnd(0.5, 1.1), th = rnd(0.45, 0.9), g = new THREE.SphereGeometry(1, 8, 6, rnd(0, 6), ph, rnd(0.2, 1.5), th);
+  const ph = rnd(0.5, 1.1), th = rnd(0.45, 0.9), g = new THREE.SphereGeometry(1, 12, 8, rnd(0, 6), ph, rnd(0.2, 1.5), th);
   const sk = new THREE.Color(skin || 0xc19275);
   const out = new THREE.Mesh(paint(g, () => Math.random() < 0.25 ? C_SKULLB : [sk.r, sk.g, sk.b]), goreDry);
-  const inn = new THREE.Mesh(paint(g.clone(), () => Math.random() < 0.35 ? C_SKULLB : C_BONE), boneIn); inn.scale.setScalar(0.94);
+  const inn = new THREE.Mesh(paint(g.clone(), () => Math.random() < 0.55 ? C_SKULLB : C_BONEW), boneIn); inn.scale.setScalar(0.94);
   const grp = new THREE.Group(); grp.add(out, inn); out.castShadow = true; return grp;
 }
 // kinds: flesh, brain, bone, gut, liver, lung, skull. size is the rough radius in metres
@@ -88,7 +89,7 @@ function updateGore(dt) {
     g.m.rotation.x += g.w.x * dt; g.m.rotation.y += g.w.y * dt; g.m.rotation.z += g.w.z * dt;
     // bleeding in flight: a thin trail of drops for the first moments
     // (at an uneven rate and scattered sideways: a steady drip from a piece flying straight left a ladder of evenly spaced dots)
-    if (!g.landed && g.bleed > 0) { g.drip += dt * rnd(3, 8) * g.bleed; while (g.drip > 1) { g.drip -= rnd(0.6, 1.6); spawnDrop(g.m.position, g.v.clone().multiplyScalar(rnd(0.2, 0.6)).add(new V3(rnd(-0.5, 0.5), rnd(-0.3, 0.2), rnd(-0.5, 0.5))), spatR() * 1.3); } g.bleed -= dt * 1.5; }
+    if (!g.landed && g.bleed > 0) { g.drip += dt * rnd(8, 18) * g.bleed; while (g.drip > 1) { g.drip -= rnd(0.6, 1.6); spawnDrop(g.m.position, g.v.clone().multiplyScalar(rnd(0.2, 0.6)).add(new V3(rnd(-0.5, 0.5), rnd(-0.3, 0.2), rnd(-0.5, 0.5))), spatR() * 1.3); } g.bleed -= dt * 1.5; }
     let floor = g.r;
     for (const c of colliders) {
       const q = g.m.position;
@@ -107,12 +108,12 @@ function updateGore(dt) {
         g.landed = true;
         // where it lands: a smear along the way it was moving, and the blood it carried
         const h = new V3(g.v.x, 0, g.v.z), sp = h.length();
-        if (g.kind !== 'bone' && g.r > 0.012) {
+        if (g.kind !== 'bone' && g.r > 0.006) {
           const mk = new THREE.Mesh(splatGeo, bmat(sp > 1.2 ? 'smear' : 'splat')); mk.rotation.set(-Math.PI / 2, 0, sp > 0.1 ? Math.atan2(h.x, h.z) + Math.PI : Math.random() * 6.28);
-          const L = clamp(g.r * 4 * (1 + Math.min(1, sp * 0.15)), 0.03, 0.12);
+          const L = clamp(g.r * 6 * (1 + Math.min(1, sp * 0.2)), 0.05, 0.22);
           mk.position.set(g.m.position.x - (sp > 0.1 ? h.x / sp * L * 0.3 : 0), floor - g.r + 0.003 + Math.random() * 0.002, g.m.position.z - (sp > 0.1 ? h.z / sp * L * 0.3 : 0)); mk.scale.set(L * 0.6, L, 1);
           mk.receiveShadow = true; scene.add(mk); decals.push(mk); trimDecals();
-          feedPool(g.m.position.x, floor - g.r, g.m.position.z, 0.2);
+          feedPool(g.m.position.x, floor - g.r, g.m.position.z, 1.2);
         }
       }
       if (g.v.y < -1.2) { g.v.y *= -g.bounce; g.v.x *= 0.45; g.v.z *= 0.45; g.w.multiplyScalar(0.4); }

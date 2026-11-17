@@ -10,11 +10,13 @@ function pointBlocked(p, r) {
 const PR = 0.35;
 // how far down the player can look: about 60 degrees, the boots and the front of the rig at the bottom of the view
 const PITCH_MIN = -1.05;
+// the player's body has no wound meshes; its ragdoll gets wounds (and so bleeds from them) where the rounds actually went in
+function playerWoundMasks(an) { return (an.hitPts || []).map(h => ({ frame: h.frame, p: h.e.clone(), n: h.d.clone().negate(), tear: 0 })); }
 function enterDowned(extra) {
   const an = P.anat;
   P.downed = true; P.adsOn = false; P.reloading = false; P.healing = false; P.inspecting = false; mouse.left = false; P.react = null; P.stun = 0;
   localBody.update(0);
-  P.rag = spawnRagdoll(localBody, P.vel.clone(), an.lastDir.clone(), PART_OF_REGION(an.lastRegion), false, Object.assign({ bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(), keep: true }, extra || {}));
+  P.rag = spawnRagdoll(localBody, P.vel.clone(), an.lastDir.clone(), PART_OF_REGION(an.lastRegion), false, Object.assign({ bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(), keep: true, w: playerWoundMasks(an) }, extra || {}));
   P.rag.owner = { anat: an };
   $('downmsg').style.display = 'block';
   $('downwhy').textContent = an.koT > 0 ? 'Knocked out. You will come round in a few seconds.' : an.paralyzed ? 'Spinal cord injury. You will not get up.' : P.forceDown ? 'You went down and cannot get back up.' : 'You blacked out from the pain. You may come to if it eases.';
@@ -497,7 +499,7 @@ function killSelf(head, dir, part, byName, causeText) {
   $('downmsg').style.display = 'none';
   const dm = P.deathM || deathMasks(P.anat); P.deathM = null;
   if (P.downed && P.rag) { P.rag.keep = false; P.rag.bleedR = Math.max(P.rag.bleedR, dm.bleed); P.rag.twitch = dm.twitch; P.rag.asleep = false; }
-  else P.rag = spawnRagdoll(localBody, P.vel.clone(), dir, part, head, dm);
+  else P.rag = spawnRagdoll(localBody, P.vel.clone(), dir, part, head, Object.assign({ w: playerWoundMasks(P.anat) }, dm));
   P.rag.owner = { anat: P.anat };
   if (head) { $('black').style.transition = 'none'; $('black').style.opacity = '1'; $('deathmsg').style.display = 'none'; }
   else { $('dmgv').style.opacity = '1'; $('deathmsg').style.display = 'block'; $('deathmsg').textContent = (byName ? 'KILLED BY ' + byName.toUpperCase() : 'YOU DIED') + (causeText ? '  (' + causeText.toUpperCase() + ')' : ''); }

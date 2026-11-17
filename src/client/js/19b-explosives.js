@@ -318,8 +318,8 @@ function blastFate(z, contact, kind) {
   return {};
 }
 function blastGore(c, dir, lvl, skin) {
-  if (lvl >= 3) { spawnGore(c, dir, 'flesh', 12, rnd(4, 7), 0.9, 0.045, skin); spawnGore(c, dir, 'bone', 5, rnd(4, 7), 0.9, 0.028, skin); spawnGore(c, dir, 'gut', 3, rnd(3, 5), 0.8, 0.035, skin); spawnGore(c, dir, 'lung', 2, rnd(3, 5), 0.7, 0.04, skin); spawnGore(c, dir, 'liver', 1, rnd(3, 5), 0.6, 0.04, skin); }
-  else if (lvl === 2) { spawnGore(c, dir, 'flesh', 6, rnd(3.5, 6), 0.8, 0.04, skin); spawnGore(c, dir, 'bone', 3, rnd(3.5, 6), 0.8, 0.025, skin); spawnGore(c, dir, 'gut', 1, 3.5, 0.6, 0.03, skin); }
+  if (lvl >= 3) { spawnGore(c, dir, 'flesh', 24, rnd(5, 8), 0.9, 0.05, skin); spawnGore(c, dir, 'bone', 10, rnd(5, 8), 0.9, 0.03, skin); spawnGore(c, dir, 'gut', 6, rnd(4, 6), 0.8, 0.035, skin); spawnGore(c, dir, 'lung', 3, rnd(4, 6), 0.7, 0.04, skin); spawnGore(c, dir, 'liver', 2, rnd(4, 6), 0.6, 0.04, skin); }
+  else if (lvl === 2) { spawnGore(c, dir, 'flesh', 10, rnd(4, 7), 0.8, 0.04, skin); spawnGore(c, dir, 'bone', 5, rnd(4, 7), 0.8, 0.025, skin); spawnGore(c, dir, 'gut', 1, 3.5, 0.6, 0.03, skin); }
   else if (lvl === 1) { spawnGore(c, dir, 'flesh', 2, 4, 0.7, 0.03, skin); spawnGore(c, dir, 'bone', 1, 4, 0.7, 0.02, skin); }
 }
 function applyFate(an, F, kind) {
@@ -420,8 +420,8 @@ function blastBodies(p, kind, owner, isOwner, onBody) {
 // a fragment into an AI body or a body on the ground: the normal hit code, with the anatomy told it is steel from a grenade
 function fragGore(h, fd, v) {
   // every fragment that strikes tears a bit out: torn flesh and blood, now and then a splinter of bone
-  if (Math.random() < 0.3) spawnGore(h.point, fd, 'flesh', 1, 2 + v / 200, 0.5, 0.01 + v / 50000);
-  if (Math.random() < 0.06) spawnGore(h.point, fd, 'bone', 1, 3, 0.5, 0.007);
+  if (Math.random() < 0.6) spawnGore(h.point, fd, 'flesh', 1, 2 + v / 200, 0.5, 0.012 + v / 40000);
+  if (Math.random() < 0.15) spawnGore(h.point, fd, 'bone', 1, 3, 0.5, 0.007);
 }
 function fragHit(h, fd, v, L, shot, p) {
   fragGore(h, fd, v);

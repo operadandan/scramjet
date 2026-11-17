@@ -464,7 +464,8 @@ class Body {
     return m;
   }
   guts(kind, p, y, L) {
-    const BONE = 0xe4d9c2, MAR = 0x9a3a2a;
+    // bone and organs inside a body are wet and bloody, never clean white (a skull seen through a hole read as a white ball)
+    const BONE = 0xb89c88, MAR = 0x7a2418;
     if (kind === 'chest') {
       // spine, ribs, lungs, heart, liver, stomach
       // the spine sits a couple of centimetres in from the back (the skin runs in a groove over it): further out it came
@@ -472,19 +473,19 @@ class Body {
       this.gut(cylg(0.015, 0.38, 8), BONE, p, 0, y + 0.26, 0.016);
       for (let i = 0; i < 7; i++) this.gut(rbox(0.028, 0.02, 0.02, 0.005), BONE, p, 0, y + 0.1 + i * 0.05, 0.02);
       for (let i = 0; i < 7; i++) { const yy = y + 0.2 + i * 0.038, rr = 0.11 + Math.min(i, 3) * 0.01 - Math.max(0, i - 4) * 0.012; this.gut(GC('ribA' + i, () => new THREE.TorusGeometry(1, 0.06, 4, 18, Math.PI * 2 * 280 / 360).rotateZ(Math.PI * 130 / 180)), BONE, p, 0, yy, -0.004, [rr * 0.9, rr * 0.48, 0.009 / 0.06 * 1], [Math.PI / 2, 0, 0]); }   // an open hoop: the ribs end at the spine, they don't run round the back midline (they came out through the shirt there)
-      for (const sx of [-1, 1]) this.gut(sph(1), 0xc8838a, p, sx * 0.07, y + 0.37, 0.0, [0.058, 0.11, 0.06]);
+      for (const sx of [-1, 1]) this.gut(sph(1), 0x9a4e50, p, sx * 0.07, y + 0.37, 0.0, [0.058, 0.11, 0.06]);
       this.gut(sph(1), 0x6e1016, p, 0.025, y + 0.32, -0.025, [0.042, 0.05, 0.036]);
       this.gut(sph(1), 0x5a1a14, p, -0.035, y + 0.2, -0.005, [0.09, 0.045, 0.055]);
       this.gut(sph(1), 0xb87a74, p, 0.06, y + 0.2, -0.02, [0.05, 0.04, 0.04]);
-      for (let i = 0; i < 6; i++) this.gut(GC('gut', () => new THREE.TorusGeometry(0.024, 0.011, 6, 12)), 0xc48a82, p, ((i % 3) - 1) * 0.045, y + 0.06 + Math.floor(i / 3) * 0.05, -0.035 + (i % 2) * 0.02, null, [Math.PI / 2 + i, i * 0.7, 0]);
+      for (let i = 0; i < 6; i++) this.gut(GC('gut', () => new THREE.TorusGeometry(0.024, 0.011, 6, 12)), 0x9a5a50, p, ((i % 3) - 1) * 0.045, y + 0.06 + Math.floor(i / 3) * 0.05, -0.035 + (i % 2) * 0.02, null, [Math.PI / 2 + i, i * 0.7, 0]);
     } else if (kind === 'pelvis') {
       this.gut(GC('pbone', () => new THREE.TorusGeometry(0.1, 0.022, 5, 14, Math.PI * 1.3)), BONE, p, 0, y - 0.03, 0, [0.85, 0.72, 0.7], [Math.PI / 2, 0, Math.PI * 0.85]);
-      for (let i = 0; i < 6; i++) this.gut(GC('gut', () => new THREE.TorusGeometry(0.024, 0.011, 6, 12)), 0xc48a82, p, ((i % 3) - 1) * 0.045, y + 0.0 + Math.floor(i / 3) * 0.045, -0.035 + (i % 2) * 0.02, null, [Math.PI / 2 + i, i * 0.9, 0]);
+      for (let i = 0; i < 6; i++) this.gut(GC('gut', () => new THREE.TorusGeometry(0.024, 0.011, 6, 12)), 0x9a5a50, p, ((i % 3) - 1) * 0.045, y + 0.0 + Math.floor(i / 3) * 0.045, -0.035 + (i % 2) * 0.02, null, [Math.PI / 2 + i, i * 0.9, 0]);
     } else if (kind === 'head') {
       // skull shell (cut like skin, bone-coloured inside) and the brain
       // skull and brain fitted inside the head: at least ~1 cm under the scalp everywhere
-      this.gut(GC('face', faceGeo), BONE, p, 0, y - 0.081, -0.063, [0.85, 0.925, 0.78], null, 0xc9b8a0);
-      this.gut(GC('brain', brainGeo), 0xd4a3a3, p, 0, y - 0.06, -0.06, [0.058, 0.068, 0.072]);
+      this.gut(GC('face', faceGeo), 0x9a7466, p, 0, y - 0.081, -0.063, [0.85, 0.925, 0.78], null, 0x7a3a30);
+      this.gut(GC('brain', brainGeo), 0x8a5a58, p, 0, y - 0.06, -0.06, [0.058, 0.068, 0.072]);
     } else {
       // long bones down the middle of a limb segment (two in the forearm and shin)
       const two = kind === 'forearm' || kind === 'shin', r = kind === 'thigh' ? 0.017 : kind === 'upperArm' ? 0.013 : 0.009, len = L * 0.92;

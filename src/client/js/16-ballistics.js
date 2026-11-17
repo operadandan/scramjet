@@ -184,7 +184,16 @@ function blastVisual(shot, hit, dir, info, key, hum) {
   if (hum && g.frame) { hum.holes = hum.holes || []; hum.holes.push({ frame: g.frame, p: st, d: dL.clone(), len: 0.085, r0, r1: r0 * 0.45, sk: [0.03, 0] }); if (hum.holes.length > 14) hum.holes.shift(); }
   const f = g.frame, part = f === 'head' || f === 'neck' ? 'headwound' : f === 'spine' ? (info.e.y > 0.22 ? 'chest' : 'abdomen') : f === 'hips' ? 'pelvis' : 'limb';
   const k = clamp((g.n - 2) / 5, 0.3, 1) * (sp < 0.06 ? 1 : 0.6);
-  if (part === 'headwound') { spawnGore(c, dir, 'flesh', 3, 2.5, 0.5, 0.014); spawnGore(c, dir, 'bone', 2, 3, 0.5, 0.01); spawnGore(c, dir, 'skull', 2, 3, 0.5, 0.025, hum && hum.pal && hum.pal.skin); }
+  if (part === 'headwound') {
+    const skin = hum && hum.pal && hum.pal.skin, root = hum ? hum.root : key && key.group ? key.group : chunkRootOf(seg);
+    spawnGore(c, dir, 'flesh', 6, 3, 0.5, 0.018); spawnGore(c, dir, 'bone', 3, 3.5, 0.5, 0.012); spawnGore(c, dir, 'skull', 4, 3.5, 0.5, 0.03, skin); spawnGore(c, dir, 'brain', 3, 3, 0.5, 0.024);
+    if (root && !shot.frag) {
+      // the load tears out every head cell round where it struck, more the tighter it hit
+      const R = 0.07 + clamp(0.1 - sp, 0, 0.1) * 0.6, ex = c.clone().addScaledVector(dir, 0.08);
+      const ch = destroyChunks(root, q => q.k === 'H' && (q.p.distanceTo(c) < R || q.p.distanceTo(ex) < R * 0.9), dir, skin);
+      if (ch.h) { if (hum) hum._skullOpen = true; if (key && key.gibHead && chunkCount(root, 'H') >= CH_GIB && key.headG.visible) key.gibHead(dir); }
+    }
+  }
   else goreBlast(part, c, dir, k * (shot.frag ? 0.4 : 1));
   blowSpatter(c.clone().addScaledVector(dir, 0.1), dir, rnd(0.6, 0.95) * (0.6 + k * 0.5), true);
   noiseHit(320, 0.12, 0.1);
@@ -196,7 +205,7 @@ function blastVisual(shot, hit, dir, info, key, hum) {
 function woundBits(frame, p, dir, E, through, hum, w) {
   const e = E / 1000, k = through ? 1 : 0.3, head = frame === 'head' || frame === 'neck';
   let n = Math.round(clamp((e * 1.5 + rnd(-1, 1)) * k, 0, 26));
-  if (w !== 2 && through) n = w === 3 && Math.random() < 0.4 ? 1 : 0;
+  if (w !== 2 && through) n = Math.round(rnd(isPistol(w) ? 0.5 : 1, isPistol(w) ? 2 : 3.4));
   if (n < 1) return;
   const sz = 0.006 + 0.0042 * Math.sqrt(e), v = (through ? 1.4 : 0.8) + Math.min(5, e * 0.3), d = through ? dir : dir.clone().negate();
   if (head) {
@@ -228,7 +237,7 @@ function onBulletHit(b, hit, dir, dist) {
       const tg = hit.object.parent.children.filter(o => o.isMesh && !o.userData.keep && !o.userData.organ && !o.userData.inner && !o.userData.tube), ex = exitThrough(tg, hit.point, dir, 0.8);
       const pen = bodyPen(info.frame, info.e, info.d, ex ? ex.len : 0.3, afterArmor(info.armor, info.d), b.w);
       info.pd = pen.depth; bodyWound(hit, dir, b.w, pen, ex, null, b.frag);
-      bloodFx(hit.point, dir, false, b.frag ? 0.25 : pen.v > 0 && ex ? 1 : 0.4); if (pen.v > 0 && ex) { bloodFx(ex.point, dir, !b.frag, b.frag ? 0.3 : WEAPONS[b.w].pellets ? 0.35 : 1); cont = { point: ex.point, dir, v: pen.v }; }
+      bloodFx(hit.point, dir, false, b.frag ? 0.6 : pen.v > 0 && ex ? 1 : 0.4); if (pen.v > 0 && ex) { bloodFx(ex.point, dir, !b.frag, b.frag ? 0.6 : WEAPONS[b.w].pellets ? 0.35 : 1); cont = { point: ex.point, dir, v: pen.v }; }
       if (b.shot) blastVisual(b.shot, hit, dir, info, rag, null);
       if (b.w === 2 && !b.shot) erode(rag, hit.object.parent, info.frame, hit.object.parent.worldToLocal(hit.point.clone()), 0.045, info, dir);
     }
@@ -273,9 +282,9 @@ function onBulletHit(b, hit, dir, dist) {
       const tg = ud.hum.hitMeshes.filter(m => m.visible && m.userData.frame === hit.object.userData.frame), ex = exitThrough(tg, hit.point, dir, 0.8);
       const pen = bodyPen(info.frame, info.e, info.d, ex ? ex.len : 0.3, afterArmor(info.armor, info.d), b.w);
       info.pd = pen.depth; bodyWound(hit, dir, b.w, pen, ex, ud.hum, b.frag);
-      bloodFx(hit.point, dir, false, b.frag ? 0.25 : pen.v > 0 && ex ? 1 : 0.4);
+      bloodFx(hit.point, dir, false, b.frag ? 0.6 : pen.v > 0 && ex ? 1 : 0.4);
       // a grenade fragment or one pellet going out the far side throws a little; a bullet the full exit spray
-      if (pen.v > 0 && ex) { bloodFx(ex.point, dir, !b.frag, b.frag ? 0.3 : WEAPONS[b.w].pellets ? 0.35 : 1); cont = { point: ex.point, dir, v: pen.v }; if (!b.frag && (info.frame === 'head' || info.frame === 'neck')) wallSpatter(ex.point, dir, rnd(0.6, 0.9), true); }
+      if (pen.v > 0 && ex) { bloodFx(ex.point, dir, !b.frag, b.frag ? 0.6 : WEAPONS[b.w].pellets ? 0.35 : 1); cont = { point: ex.point, dir, v: pen.v }; if (!b.frag && (info.frame === 'head' || info.frame === 'neck')) wallSpatter(ex.point, dir, rnd(0.6, 0.9), true); }
       else if (info.frame === 'head' || info.frame === 'neck') { bloodFx(hit.point, dir, false, 2); blowSpatter(hit.point, dir, rnd(0.35, 0.55)); }
       if (!b.shot && !info.armor) woundBits(info.frame, ex && pen.v > 0 ? ex.point : hit.point, dir, Math.max(0, Eh - 0.5 * WEAPONS[b.w].mass * pen.v * pen.v), !!(ex && pen.v > 0), ud.hum, b.w);
       if (ud.hum.flinch && ud.hum.root.visible) ud.hum.flinch(info.frame, info.d, clamp(Eh / 1700, 0.3, 2.2) * (b.shot ? 0.45 : 1));

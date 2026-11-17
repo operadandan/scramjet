@@ -122,14 +122,14 @@ function destroyChunks(root, pred, dir, skin) {
     const A = c.k === 'T' ? st.T : st.H; if (A[c.i] > 0.5 || !pred(c)) continue;
     A[c.i] = 1; if (c.k === 'T') res.t++; else res.h++; res.pts.push(c.p);
     if (typeof spawnGore === 'function') {
-      spawnGore(c.p, dir, 'flesh', 2, 4, 0.5, 0.03, skin);
+      spawnGore(c.p, dir, 'flesh', 4, 4.5, 0.55, 0.03, skin); spawnGore(c.p, dir, 'bone', 1, 5, 0.55, 0.018, skin);
       if (c.k === 'H') spawnGore(c.p, dir, c.y > 0.0 && Math.random() < 0.6 ? 'brain' : 'skull', 1, 3.5, 0.45, 0.028, skin);
       else if (Math.random() < 0.5) spawnGore(c.p, dir, c.y > 0.25 ? (Math.random() < 0.5 ? 'lung' : 'bone') : 'gut', 1, 3, 0.45, 0.03, skin);
     }
   }
   if (res.t + res.h) {
     const m = new V3(); for (const p of res.pts) m.add(p); m.multiplyScalar(1 / res.pts.length);
-    if (typeof bloodFx === 'function') bloodFx(m, dir, true, Math.min(2, 0.6 + res.pts.length * 0.15));
+    if (typeof bloodFx === 'function') bloodFx(m, dir, true, Math.min(3, 1 + res.pts.length * 0.25));
     chunkOpen(root); if (typeof chunkNet === 'function') chunkNet(root);
   }
   return res;

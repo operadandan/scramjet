@@ -432,6 +432,8 @@ function woundSource(owner) {
   const hum = owner.hum; if (!hum || !hum.root.visible) return false;
   const w = hum.wounds && hum.wounds.length ? hum.wounds[hum.wounds.length - 1] : null;
   if (w && w.m.parent) { w.m.getWorldPosition(_dp); _dn.copy(w.n).transformDirection(w.m.parent.matrixWorld); return true; }
+  const hp = owner.anat && owner.anat.hitPts;
+  if (hp && hp.length) { owner._hi = ((owner._hi || 0) + 1) % hp.length; const h = hp[owner._hi], g = hum[h.frame]; if (g) { hum.root.updateMatrixWorld(true); g.localToWorld(_dp.copy(h.e)); _dn.copy(h.d).negate().transformDirection(g.matrixWorld); return true; } }
   hum.spine.getWorldPosition(_dp); _dp.y += rnd(-0.2, 0.25); _dn.set(rnd(-1, 1), 0, rnd(-1, 1)).normalize(); return true;
 }
 function bleedDrips(owner, rate, dt, artery, pressure) {
@@ -442,16 +444,16 @@ function bleedDrips(owner, rate, dt, artery, pressure) {
   while (owner.dripAcc > 1) { owner.dripAcc -= 1; spawnDrop(_dp, _dn.clone().multiplyScalar(0.12).add(new V3(rnd(-0.05, 0.05), -0.1, rnd(-0.05, 0.05))), rnd(0.005, 0.009)); }
   // the rest soaks down the clothes and collects on the floor: under the wound when lying, at the feet when standing
   const fy = floorAt(_dp.x, _dp.y, _dp.z), lying = _dp.y - fy < 0.5;
-  if (lying) feedPool(_dp.x + _dn.x * 0.06, fy, _dp.z + _dn.z * 0.06, rate * dt * 0.8);
+  if (lying) feedPool(_dp.x + _dn.x * 0.06, fy, _dp.z + _dn.z * 0.06, rate * dt * 1.3);
   // standing: it runs down from the wound itself (a thigh wound down that leg into the shoe), so it collects right below it
-  else if (hum.root.visible) feedPool(_dp.x + _dn.x * 0.03 + rnd(-0.05, 0.05), fy, _dp.z + _dn.z * 0.03 + rnd(-0.05, 0.05), rate * dt * 0.35);
+  else if (hum.root.visible) feedPool(_dp.x + _dn.x * 0.03 + rnd(-0.05, 0.05), fy, _dp.z + _dn.z * 0.03 + rnd(-0.05, 0.05), rate * dt * 0.6);
   // a cut artery pumps a jet out of the wound with every heartbeat, weaker as the blood runs out
   if (artery === undefined) artery = rate > 14 ? rate : 0;
   if (artery > 4) {
     owner.beat = ((owner.beat || 0) + dt) % 0.8;
     if (owner.beat < 0.24) {
       const k = (pressure === undefined ? 1 : pressure) * Math.sin(owner.beat / 0.24 * Math.PI), sp = (1.3 + Math.min(1.4, artery * 0.012)) * Math.max(0.35, k);
-      owner.jetAcc = (owner.jetAcc || 0) + dt * 120 * Math.max(0.3, k);
+      owner.jetAcc = (owner.jetAcc || 0) + dt * 220 * Math.max(0.3, k);
       const d = _dn.clone(); d.y = Math.min(d.y, 0.15); if (d.lengthSq() < 0.01) d.set(rnd(-1, 1), 0, rnd(-1, 1)); d.normalize();
       const ml = Math.max(0.3, artery * 0.8 / 200 / 0.24 * 0.8);
       while (owner.jetAcc > 1) { owner.jetAcc -= 1; spawnDrop(_dp.clone().addScaledVector(d, 0.015), d.clone().multiplyScalar(sp * rnd(0.9, 1.08)).add(new V3(rnd(-0.05, 0.05), rnd(-0.04, 0.04), rnd(-0.05, 0.05))), rnd(0.004, 0.007), 0.8, 0.2, ml); }
