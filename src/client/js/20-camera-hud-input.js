@@ -38,7 +38,7 @@ function updateCamera(dt) {
   // the stride goes by ground covered, not by time: one footfall every stride length (longer strides the faster you go),
   // so the bob matches the feet instead of ticking at a fixed rate
   const stride = lerp(0.62, 1.25, clamp(P.speed / 5.4, 0, 1)) * lerp(1, 0.6, P.crouch || 0);
-  P.bobT += (mv > 0.05 ? P.speed * dt / stride * Math.PI : 0);
+  { const b0 = P.bobT; P.bobT += (mv > 0.05 ? P.speed * dt / stride * Math.PI : 0); if (Math.floor(b0 / Math.PI) !== Math.floor(P.bobT / Math.PI)) footStep(); }
   P.bobA = damp(P.bobA || 0, mv * (1 - P.ads * 0.8) * (P.prone > 0.5 ? 0.4 : 1), 6, dt);
   const bob = 0.05 * P.bobA, step = Math.sin(P.bobT), sway = Math.sin(P.bobT * 0.5);
   camera.position.copy(head).addScaledVector(right, P.leanEff * 0.42 + sway * bob * 0.55);

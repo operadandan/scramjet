@@ -241,7 +241,7 @@ function deathMasks(an) {
   const headW = an.wounds.some(w => w.region === 'head' || w.region === 'neck');
   return {
     bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(),
-    bleed: Math.min(160, Math.max(an.bleedRate() * 0.8, 12 + 7 * an.wounds.length) + (headW ? 28 : 0)),
+    bleed: Math.min(180, Math.max(an.bleedRate() * 0.8, 12 + 7 * an.wounds.length) + (headW ? 28 : 0) + 20 * Object.keys(an.lost).filter(k => an.lost[k]).length),   // a torn-off limb pours
     twitch: /brain|spinal/.test(an.cause) || an.gibHead ? rnd(2, 5) : Math.random() < 0.3 ? rnd(1, 2.5) : 0,
     gib: !!an.gibHead, tear: !!(an.neckTear || (an.lastRegion === 'neck' && an.lastW === 2))
   };
@@ -427,7 +427,8 @@ const _dp = new V3();
 const _dn = new V3();
 function woundSource(owner) {
   const rag = owner.rag;
-  if (rag && rag.anchors && rag.anchors.length) { const a = rag.anchors[rag.anchors.length - 1]; a.m.getWorldPosition(_dp); _dn.copy(a.n).transformDirection(a.m.parent.matrixWorld); return true; }
+  // every open wound takes its turn, so the flow comes out of all of them and not only the newest
+  if (rag && rag.anchors && rag.anchors.length) { owner._wi = ((owner._wi || 0) + 1) % rag.anchors.length; const a = rag.anchors[owner._wi]; a.m.getWorldPosition(_dp); _dn.copy(a.n).transformDirection(a.m.parent.matrixWorld); return true; }
   const hum = owner.hum; if (!hum || !hum.root.visible) return false;
   const w = hum.wounds && hum.wounds.length ? hum.wounds[hum.wounds.length - 1] : null;
   if (w && w.m.parent) { w.m.getWorldPosition(_dp); _dn.copy(w.n).transformDirection(w.m.parent.matrixWorld); return true; }
@@ -442,14 +443,15 @@ function bleedDrips(owner, rate, dt, artery, pressure) {
   // the rest soaks down the clothes and collects on the floor: under the wound when lying, at the feet when standing
   const fy = floorAt(_dp.x, _dp.y, _dp.z), lying = _dp.y - fy < 0.5;
   if (lying) feedPool(_dp.x + _dn.x * 0.06, fy, _dp.z + _dn.z * 0.06, rate * dt * 0.8);
-  else if (hum.root.visible) feedPool(hum.root.position.x + rnd(-0.08, 0.08), floorAt(hum.root.position.x, hum.root.position.y + 0.3, hum.root.position.z), hum.root.position.z + rnd(-0.08, 0.08), rate * dt * 0.35);
+  // standing: it runs down from the wound itself (a thigh wound down that leg into the shoe), so it collects right below it
+  else if (hum.root.visible) feedPool(_dp.x + _dn.x * 0.03 + rnd(-0.05, 0.05), fy, _dp.z + _dn.z * 0.03 + rnd(-0.05, 0.05), rate * dt * 0.35);
   // a cut artery pumps a jet out of the wound with every heartbeat, weaker as the blood runs out
   if (artery === undefined) artery = rate > 14 ? rate : 0;
   if (artery > 4) {
     owner.beat = ((owner.beat || 0) + dt) % 0.8;
     if (owner.beat < 0.24) {
       const k = (pressure === undefined ? 1 : pressure) * Math.sin(owner.beat / 0.24 * Math.PI), sp = (1.3 + Math.min(1.4, artery * 0.012)) * Math.max(0.35, k);
-      owner.jetAcc = (owner.jetAcc || 0) + dt * 200 * Math.max(0.3, k);
+      owner.jetAcc = (owner.jetAcc || 0) + dt * 120 * Math.max(0.3, k);
       const d = _dn.clone(); d.y = Math.min(d.y, 0.15); if (d.lengthSq() < 0.01) d.set(rnd(-1, 1), 0, rnd(-1, 1)); d.normalize();
       const ml = Math.max(0.3, artery * 0.8 / 200 / 0.24 * 0.8);
       while (owner.jetAcc > 1) { owner.jetAcc -= 1; spawnDrop(_dp.clone().addScaledVector(d, 0.015), d.clone().multiplyScalar(sp * rnd(0.9, 1.08)).add(new V3(rnd(-0.05, 0.05), rnd(-0.04, 0.04), rnd(-0.05, 0.05))), rnd(0.004, 0.007), 0.8, 0.2, ml); }

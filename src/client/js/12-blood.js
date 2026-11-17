@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------- blood: ballistic droplets, splats that run down walls, pooling on floors, wounds on bodies
 const BLOOD_MAX = 900, drops = [], drips = [], floorSplats = [];
-const dropIM = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshStandardMaterial({ color: 0x5c0207, roughness: 0.08, metalness: 0.1 }), BLOOD_MAX);
+const dropIM = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshStandardMaterial({ color: 0x7a0f0c, roughness: 0.25, metalness: 0, envMapIntensity: 0.3 }), BLOOD_MAX);
 dropIM.frustumCulled = false; dropIM.count = 0; scene.add(dropIM);
-const wetMat = (tex, off) => new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: off, roughness: 0.14, metalness: 0 });
+const wetMat = (tex, off) => new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: off, roughness: 0.4, metalness: 0, envMapIntensity: 0.15 });
 // Blood textures are built as metaball fields: soft blobs are added together, then the field is cut at a threshold.
 // That gives the smooth, surface-tension edges real blood has, and the field height doubles as depth (thicker = darker).
 function fieldTex(size, draw, opt) {
@@ -18,7 +18,8 @@ function fieldTex(size, draw, opt) {
   for (let i = 0; i < d.length; i += 4) {
     const f = d[i] / 255, k = smooth(clamp((f - th) / soft, 0, 1)), depth = Math.pow(clamp((f - th) / (1 - th), 0, 1), 0.55);
     const n = (Math.random() - 0.5) * 10;
-    d[i] = clamp(lerp(C0[0], C1[0], depth) + n, 0, 255); d[i + 1] = clamp(lerp(C0[1], C1[1], depth) + n * 0.2, 0, 255); d[i + 2] = clamp(lerp(C0[2], C1[2], depth) + n * 0.2, 0, 255);
+    // never darker than dried blood (#3a0a08): anything below that crushes to black under the tonemapper
+    d[i] = clamp(lerp(C0[0], C1[0], depth) + n, 58, 255); d[i + 1] = clamp(lerp(C0[1], C1[1], depth) + n * 0.2, 9, 255); d[i + 2] = clamp(lerp(C0[2], C1[2], depth) + n * 0.2, 7, 255);
     d[i + 3] = 255 * k * (opt.alpha || (0.86 + 0.14 * depth));
   }
   g.globalCompositeOperation = 'source-over'; g.putImageData(im, 0, 0);
@@ -79,7 +80,7 @@ const BLOOD_TEX = {
   }, { th: 0.22, soft: 0.25, c0: [95, 6, 6], c1: [52, 0, 2], alpha: 0.85 }),
   // small entry wound: dark hole, abrasion ring, a little blood
   entry: fieldTex(256, ({ blob, s, c }) => { blob(c, c, s * 0.3); for (let i = 0; i < 6; i++) blob(c + rnd(-0.12, 0.12) * s, c + rnd(0, 0.2) * s, s * 0.12); }, { th: 0.3, c0: [140, 18, 16], c1: [70, 2, 3],
-    post: (g, s) => { const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s * 0.12); gr.addColorStop(0, 'rgba(10,0,0,1)'); gr.addColorStop(0.6, 'rgba(25,0,0,0.95)'); gr.addColorStop(1, 'rgba(60,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); } }),
+    post: (g, s) => { const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s * 0.12); gr.addColorStop(0, 'rgba(40,4,4,1)'); gr.addColorStop(0.6, 'rgba(48,6,5,0.95)'); gr.addColorStop(1, 'rgba(60,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); } }),
   // ring around a see-through hole: torn edge, transparent middle so the hole shows
   rim: fieldTex(256, ({ blob, s, c }) => { for (let i = 0; i < 18; i++) { const a = i / 18 * 6.28; blob(c + Math.cos(a) * s * 0.2, c + Math.sin(a) * s * 0.2, s * rnd(0.09, 0.15)); } for (let i = 0; i < 4; i++) blob(c + rnd(-0.1, 0.1) * s, c + rnd(0.15, 0.35) * s, s * 0.08); }, { th: 0.3, c0: [150, 16, 14], c1: [75, 2, 3],
     post: (g, s) => { g.globalCompositeOperation = 'destination-out'; const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s * 0.17); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.75, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); g.globalCompositeOperation = 'source-over'; } }),
@@ -87,7 +88,7 @@ const BLOOD_TEX = {
   rimX: fieldTex(256, ({ blob, run, s, c }) => { for (let i = 0; i < 11; i++) { const a = i / 11 * 6.28 + rnd(-0.2, 0.2); run(c + Math.cos(a) * s * 0.18, c + Math.sin(a) * s * 0.18, c + Math.cos(a) * s * rnd(0.3, 0.42), c + Math.sin(a) * s * rnd(0.3, 0.42), s * 0.08, s * 0.03, 5); } }, { th: 0.3, c0: [160, 22, 18], c1: [80, 3, 4],
     post: (g, s) => { g.globalCompositeOperation = 'destination-out'; const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s * 0.15); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.7, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); g.globalCompositeOperation = 'source-over'; } }),
   exit: fieldTex(256, ({ blob, run, s, c }) => { blob(c, c, s * 0.26); for (let i = 0; i < 9; i++) { const a = Math.random() * 6.28; run(c, c, c + Math.cos(a) * s * 0.36, c + Math.sin(a) * s * 0.36, s * 0.08, s * 0.025, 6); } }, { th: 0.3, c0: [150, 18, 16], c1: [60, 0, 2],
-    post: (g, s) => { const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s * 0.16); gr.addColorStop(0, 'rgba(12,0,0,1)'); gr.addColorStop(1, 'rgba(50,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); } })
+    post: (g, s) => { const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s * 0.16); gr.addColorStop(0, 'rgba(40,4,4,1)'); gr.addColorStop(1, 'rgba(50,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); } })
 };
 // pools: twelve shapes in six styles, wet and glossy, thin bright edges and a dark thick middle. Each pool also gets its own
 // turn, stretch and (for some) a darker clotting centre, so no two injuries leave the same mark
@@ -113,8 +114,10 @@ const POOL_STYLES = [
 const POOL_MAT = [];
 for (let i = 0; i < 12; i++) {
   const st = POOL_STYLES[i % POOL_STYLES.length], clot = i % 3 === 2;
-  const m = wetMat(fieldTex(512, st, { th: rnd(0.38, 0.45), soft: rnd(0.03, 0.06), c0: [rnd(105, 135) | 0, 8, 12], c1: clot ? [22, 0, 2] : [rnd(32, 44) | 0, 0, 3], alpha: 0.97 }), -3);
-  m.roughness = rnd(0.03, 0.12); m.metalness = 0.15; POOL_MAT.push(m);
+  const m = wetMat(fieldTex(512, st, { th: rnd(0.38, 0.45), soft: 0.012, c0: [rnd(112, 128) | 0, 14, 12], c1: clot ? [58, 10, 8] : [rnd(64, 74) | 0, 11, 9], alpha: 0.97 }), -3);
+  // pools are the only blood that reads as a mirror
+  // a crisp wet edge, and an alpha cut so overlapping lobes don't sort badly against each other
+  m.roughness = 0.08; m.metalness = 0; m.envMapIntensity = 0.35; m.alphaTest = 0.5; m.map.generateMipmaps = false; m.map.minFilter = THREE.LinearFilter; POOL_MAT.push(m);
 }
 const BLOOD_MAT = {}; for (const k in BLOOD_TEX) BLOOD_MAT[k] = wetMat(BLOOD_TEX[k], k === 'stain' ? -3 : /entry|exit|rim/.test(k) ? -5 : -4);
 BLOOD_MAT.soak.side = THREE.DoubleSide; BLOOD_MAT.soak.roughness = 0.5;
@@ -161,16 +164,18 @@ const GEN = {
   drip: ({ blob, run, s, c }) => { const x1 = c + rnd(-0.05, 0.05) * s; run(c, 0, x1, s * 0.8, s * rnd(0.05, 0.08), s * rnd(0.08, 0.11), 16); blob(x1, s * 0.85, s * rnd(0.11, 0.15)); },
   // a piece of tissue that landed and slid: heavy where it stopped (texture "up" end), streaked behind it
   smear: ({ blob, run, s, c }) => {
+    // two or three streaks of uneven width that start together where it landed and drift apart and thin out behind
     const top = s * rnd(0.15, 0.25);
-    for (let i = 0; i < 4; i++) blob(c + rnd(-0.06, 0.06) * s, top + rnd(0, 0.06) * s, s * rnd(0.07, 0.11));
-    for (let i = 0; i < 9; i++) { const x = c + rnd(-0.1, 0.1) * s; run(x, top + s * 0.05, x + rnd(-0.03, 0.03) * s, s * rnd(0.5, 0.88), s * rnd(0.02, 0.04), s * 0.008, 14); }
-    for (let i = 0; i < 12; i++) blob(c + rnd(-0.2, 0.2) * s, s * rnd(0.1, 0.9), s * rnd(0.006, 0.016));
+    for (let i = 0; i < 3; i++) blob(c + rnd(-0.05, 0.05) * s, top + rnd(0, 0.05) * s, s * rnd(0.08, 0.12));
+    const n = 2 + (Math.random() < 0.5 ? 1 : 0);
+    for (let i = 0; i < n; i++) { const x0 = c + rnd(-0.05, 0.05) * s, x1 = x0 + rnd(-0.12, 0.12) * s, L = s * rnd(0.55, 0.9); run(x0, top + s * 0.04, (x0 + x1) / 2, (top + L) / 2, s * rnd(0.05, 0.08), s * rnd(0.03, 0.05), 10); run((x0 + x1) / 2, (top + L) / 2, x1, L, s * rnd(0.03, 0.05), s * rnd(0.006, 0.014), 12); }
+    for (let i = 0; i < 6; i++) blob(c + rnd(-0.15, 0.15) * s, s * rnd(0.2, 0.85), s * rnd(0.006, 0.014));
   }
 };
 const fleck = (g, s) => {
   // bits of tissue caught in the blood: pale fatty specks, grey-pink brain matter, dark clots
-  for (let i = 0; i < 70; i++) { const a = Math.random() * 6.28, L = s * Math.pow(Math.random(), 0.7) * 0.4, x = s / 2 + Math.cos(a) * L, y = s / 2 + Math.sin(a) * L, r = s * rnd(0.004, 0.014);
-    g.fillStyle = ['rgba(214,170,160,0.95)', 'rgba(190,150,150,0.9)', 'rgba(60,4,6,0.95)', 'rgba(232,214,190,0.9)'][i % 4]; g.beginPath(); g.ellipse(x, y, r, r * rnd(0.5, 1), Math.random() * 3, 0, 7); g.fill(); }
+  for (let i = 0; i < 35; i++) { const a = Math.random() * 6.28, L = s * Math.pow(Math.random(), 0.7) * 0.25, x = s / 2 + Math.cos(a) * L, y = s / 2 + Math.sin(a) * L, r = s * rnd(0.004, 0.014);
+    g.fillStyle = ['rgba(150,100,92,0.95)', 'rgba(130,86,80,0.9)', 'rgba(60,10,8,0.95)', 'rgba(170,140,120,0.9)'][i % 4]; g.beginPath(); g.ellipse(x, y, r, r * rnd(0.5, 1), Math.random() * 3, 0, 7); g.fill(); }
 };
 bloodKind('splat', 4, 512, GEN.splat, {}, -4);
 bloodKind('cast', 4, 512, GEN.cast, { th: 0.34 }, -4);
@@ -184,6 +189,7 @@ bloodKind('tear', 3, 256, ({ blob, run, s, c }) => {
   for (let i = 0; i < 12; i++) { const a = Math.random() * 6.28; run(c + Math.cos(a) * s * 0.22, c + Math.sin(a) * s * 0.22, c + Math.cos(a) * s * rnd(0.32, 0.44), c + Math.sin(a) * s * rnd(0.32, 0.44), s * 0.05, s * 0.015, 6); }
 }, { th: 0.3, c0: [170, 28, 24], c1: [92, 6, 8], post: (g, s) => { fleck(g, s); g.globalCompositeOperation = 'destination-out'; const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s * 0.16); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.7, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); g.globalCompositeOperation = 'source-over'; } }, -5);
 bloodKind('smear', 4, 256, GEN.smear, { th: 0.34, c0: [150, 12, 16], c1: [82, 3, 6], alpha: 0.85 }, -4);
+bloodKind('brain', 3, 256, GEN.smear, { th: 0.34, c0: [120, 80, 80], c1: [70, 30, 30], alpha: 0.9 }, -4);
 // mist: a cloud of very fine droplets rather than a soft glowing ball
 const mistTex = canvasTex((g, s) => {
   g.clearRect(0, 0, s, s); const c = s / 2;

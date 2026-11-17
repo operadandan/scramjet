@@ -13,7 +13,7 @@ const PART_IDX = { head: 0, torso: 1, arm: 7, leg: 10 };
 const RAG_FRAME_SEG = { shL: 0, elL: 1, shR: 2, elR: 3, lgL: 4, knL: 5, lgR: 6, knR: 7 };
 const ragdolls = [];
 const _a = new V3(), _b = new V3(), _c = new V3(), _m4 = new THREE.Matrix4(), _Y = new V3(0, 1, 0), _rq = new THREE.Quaternion(), _fa = new V3(), _fb = new V3(), _fc = new V3();
-const fiberMat = new THREE.MeshStandardMaterial({ color: 0x7a1010, roughness: 0.45, side: THREE.DoubleSide }), fiberMat2 = new THREE.MeshStandardMaterial({ color: 0xa8686a, roughness: 0.6, side: THREE.DoubleSide });
+const fiberMat = new THREE.MeshStandardMaterial({ color: 0x7a1010, roughness: 0.45, side: THREE.DoubleSide }), fiberMat2 = new THREE.MeshStandardMaterial({ color: 0x7a3a38, roughness: 0.6, side: THREE.DoubleSide });
 const _rf = new V3(), _ru = new V3(), _rs = new V3(), _rt = new V3(), _rd = new V3();
 class Ragdoll {
   constructor(pts, pal, vel, hitIdx, dir, power, masks) {
@@ -117,9 +117,10 @@ class Ragdoll {
     this.lostMask = lost; this.sync(); this.group.updateMatrixWorld(true);
     for (const i of hidden) if ((i % 2 === 0 || !hidden.has(i - 1)) && !cutSeg[i - (i % 2)] && !(i % 2 && cutSeg[i - 1])) this.stump(i);
     for (const i in cutSeg) this.cutAt(+i, cutSeg[i]);
-    if (this.liq) { this.group.updateMatrixWorld(true); for (const [fr, lp, n, tear, fy] of this.liq) { const [g] = this.frameGroup(fr, fy); if (g) { if (tear) tearMesh(g, lp, n, tear); else liquidBlood(g, lp, n, 0.022, 5, 1); } } this.liq = null; }
+    // the wet patch round each wound now; the runs only once the body has come to rest, so they run the way it lies
+    if (this.liq) { this.group.updateMatrixWorld(true); this.runsTodo = []; for (const [fr, lp, n, tear, fy] of this.liq) { const [g] = this.frameGroup(fr, fy); if (g) { if (tear) tearMesh(g, lp, n, tear, 0, 0); else liquidBlood(g, lp, n, 0.022, 5, 0); this.runsTodo.push([g, lp, n, tear ? clamp(tear * 0.32, 0.04, 0.13) : 0.022, tear ? 2 : 1]); } } this.liq = null; }
     if (masks.tear && !masks.gib) { this.sync(); this.group.updateMatrixWorld(true); this.tearNeck(dir || new V3(0, 0, 1)); }
-    if (masks.gib) { addStump(this.torso, new V3(0, 0.33, 0), new V3(0, 1, 0), 0.05); const st = new THREE.Object3D(); st.position.set(0, 0.34, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) }); this.bleedR += 70; }
+    if (masks.gib) { addStump(this.torso, new V3(0, 0.335, 0), new V3(0, 1, 0), 0.062, 'neck'); const st = new THREE.Object3D(); st.position.set(0, 0.34, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) }); this.bleedR += 70; }
     this.sync();
   }
   // which piece of the ragdoll stands for a skeleton frame, and the y offset from frame coordinates to that piece
@@ -138,7 +139,7 @@ class Ragdoll {
   }
   gibHead(dir) {
     const hp = this.headG.getWorldPosition(new V3()); this.headG.visible = false; this.headG.traverse(o => { o.visible = false; });
-    addStump(this.torso, new V3(0, 0.33, 0), new V3(0, 1, 0), 0.05);
+    addStump(this.torso, new V3(0, 0.335, 0), new V3(0, 1, 0), 0.062, 'neck');
     for (const a of this.anchors) if (a.m.parent === this.headG) this.anchors.splice(this.anchors.indexOf(a), 1);
     const st = new THREE.Object3D(); st.position.set(0, 0.34, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) });
     this.bleedR += 70; this.twitch = Math.max(this.twitch, 3); this.asleep = false;
@@ -148,12 +149,16 @@ class Ragdoll {
   tearNeck(dir) {
     if (this.neckTorn || this.headGone || !this.headG.visible) return;
     this.neckTorn = true; this.neckTw = rnd(-0.6, 0.6);
+    // the skin and clothes stop pulling across the tear: what is on the trunk (the collar) lets go of the neck and head, what
+    // is on the head and neck lets go of the trunk, so nothing stretches out into a long cone after the swinging head
+    this.group.traverse(o => { if (!o._skin) return; let onHead = false; for (let q = o.parent; q && q !== this.group; q = q.parent) if (q === this.headG) onHead = true;
+      o._skin.cut = onHead ? { 0: 1, 1: 1, 4: 1, 6: 1, 12: 1, 13: 1, 14: 1, 15: 1 } : { 2: 1, 3: 1 }; });
     const hp = this.headG.getWorldPosition(new V3());
     // the neck no longer holds the head up: the head-to-chest link becomes a slack rope, the other head links go
     // (keeping the links that only stop the head sinking into the shoulders)
     this.c = this.c.filter(([a, b, rest, mode]) => !(a === 0 || b === 0) || mode === 1 || (mode === 0 && (a + b === 1)));
     for (const c of this.c) if (c[3] === 0 && ((c[0] === 0 && c[1] === 1) || (c[0] === 1 && c[1] === 0))) { this.c.push([0, 1, c[2] * 0.95, 1]); c[2] *= 1.5; c[3] = 3; break; }
-    addStump(this.torso, new V3(0, 0.3, 0), new V3(0, 1, 0), 0.042); addStump(this.headG, new V3(0, -0.17, 0), new V3(0, -1, 0), 0.04);
+    addStump(this.torso, new V3(0, 0.3, 0), new V3(0, 1, 0), 0.046, 'neck'); addStump(this.headG, new V3(0, -0.17, 0), new V3(0, -1, 0), 0.042, 'neck');
     const st = new THREE.Object3D(); st.position.set(0, 0.31, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) });
     const sh = new THREE.Object3D(); sh.position.set(0, -0.18, 0); this.headG.add(sh); this.anchors.push({ m: sh, n: new V3(0, -1, 0) });
     this.bleedR += 60; this.twitch = Math.max(this.twitch, 2.5); this.asleep = false;
@@ -295,7 +300,7 @@ class Ragdoll {
     }
     // lying still: go to sleep until something hits the body again
     this.still = mv < 0.0016 && this.life > 0.8 ? (this.still || 0) + 1 : 0;
-    if (this.still > 50) { this.asleep = true; for (let i = 0; i < p.length; i++) q[i].copy(p[i]); return; }
+    if (this.still > 50) { this.asleep = true; for (let i = 0; i < p.length; i++) q[i].copy(p[i]); if (this.runsTodo) { this.sync(); this.group.updateMatrixWorld(true); for (const [g, lp, n, R, k] of this.runsTodo) if (g.parent) liquidBlood(g, lp, n, R, 0, k); this.runsTodo = null; } return; }
     for (let it = 0; it < 10; it++) {
       const tone = this.tone0 * Math.exp(-this.life / this.toneT), im = this.im;
       for (const [a, b, rest, mode] of this.c) {
@@ -368,11 +373,27 @@ class Ragdoll {
     }
     this.asleep = false; this.still = 0; return true;
   }
+  // a bleeding body shoved or dragged along the floor leaves a smear behind it
+  dragTrail() {
+    const t = this.p[1]; if (t.y > 0.35 || !(this.bledV > 1 || this.bleedR > 2)) { this.dragFrom = null; return; }
+    if (!this.dragFrom) { this.dragFrom = t.clone(); return; }
+    const d = Math.hypot(t.x - this.dragFrom.x, t.z - this.dragFrom.z); if (d < 0.3) return;
+    const fy = floorAt(t.x, t.y, t.z), mk = new THREE.Mesh(splatGeo, bmat('smear'));
+    mk.rotation.set(-Math.PI / 2, 0, Math.atan2(t.x - this.dragFrom.x, t.z - this.dragFrom.z) + Math.PI);
+    mk.position.set((t.x + this.dragFrom.x) / 2, fy + 0.0035, (t.z + this.dragFrom.z) / 2); mk.scale.set(0.22, Math.min(1.2, d * 1.1), 1);
+    mk.receiveShadow = true; scene.add(mk); decals.push(mk); trimDecals(); this.dragFrom.copy(t);
+  }
   // blood that keeps coming after death: under each wound and stump, slowing over about half a minute, into pools
   bleed(dt) {
     const own = this.owner, alive = own && own.dummy && !own.dummy.dead && own.dummy.rag === this;
     if (alive || this.bleedR < 0.3 || !this.anchors.length || this.bledV > 2600) return;
     const r = this.bleedR; this.bleedR *= Math.exp(-dt / 45); this.bledV += r * dt;
+    // the wounds keep spreading on the body for as long as it bleeds: a cut artery for a minute, a graze hardly at all
+    this.wt = (this.wt || 0) + dt; this.wst = this.wst || 0;
+    if (this.wst < 3 && this.wt > [4, 11, 24][this.wst] && r > 4) {
+      for (const a of this.anchors.slice(-4)) if (a.m.parent && a.m.parent !== this.torso || a.m.parent && a.n.y < 0.9) liquidBlood(a.m.parent, a.m.position, a.n, clamp(0.02 + r * 0.0012 * (1 + this.wst), 0.02, 0.08), 3, 0, 0.004);
+      this.wst++;
+    }
     const per = r * dt / this.anchors.length, w = new V3(), n = new V3();
     for (const a of this.anchors) {
       if (!a.m.parent) continue; a.m.getWorldPosition(w); n.copy(a.n).transformDirection(a.m.parent.matrixWorld);
@@ -385,6 +406,7 @@ class Ragdoll {
     this.life += dt;
     const acting = this.act(dt);
     this.bleed(dt);
+    this.dragTrail();
     // the body settles and then lies still (a new hit wakes it), so a first-person view from its head does not drift
     if ((this.life < 9 || acting) && !this.asleep) {
       this.acc += dt; let n = 0;

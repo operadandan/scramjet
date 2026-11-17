@@ -97,7 +97,7 @@ function skinUpdate() {
   for (let k = 0; k < 12; k++) {
     const at = sk.at[HUMAN_SEGS[k]];
     // a bone that isn't there (or a limb that was shot off) pulls on nothing: the skin and clothes by the cut stay put
-    if (!at || !at[0].parent && at[0] !== P || at[0].userData.gone) { sk.U.segOK.value[k] = 0; continue; }
+    if (!at || !at[0].parent && at[0] !== P || at[0].userData.gone || (sk.cut && sk.cut[k])) { sk.U.segOK.value[k] = 0; continue; }
     sk.U.segOK.value[k] = 1;
     sk.U.segM.value[k].multiplyMatrices(_skI, at[0].matrixWorld).multiply(_skT.makeTranslation(0, at[1], 0));
   }
@@ -282,8 +282,9 @@ function bodyPatches(sh, mesh) {
   const a = mesh.geometry.attributes; skinShader(sh, mesh._skin.U);
   if (a.bz && mesh._skin.U.chAny && mesh._skin.U.chAny.value) chunkShader(sh, mesh._skin.U, !a.fab);   // only bodies with blocks gone pay for it
   if (a.ck) clothMoveShader(sh); if (a.fab) clothShader(sh); if (mesh.userData.tint !== undefined && a.tm) tintShader(sh, mesh);
+  if (a.bz && mesh._skin.U.soakN && (mesh._skin.U.soakN.value || mesh._skin.U.pepN.value || mesh._skin.U.burn.value.w > 0)) soakShader(sh, mesh._skin.U, !!a.fab);   // only bodies with blood on them pay for it
 }
-const bodyKey = mesh => { const a = mesh.geometry.attributes; return (mesh._skin ? 'sk' : '') + (mesh._skin && a.bz && mesh._skin.U.chAny && mesh._skin.U.chAny.value ? 'z' : '') + (mesh._skin && a.ck ? 'm' : '') + (mesh._skin && a.fab ? 'c' : '') + (mesh._skin && a.tm && mesh.userData.tint !== undefined ? 't' : ''); };
+const bodyKey = mesh => { const a = mesh.geometry.attributes; return (mesh._skin ? 'sk' : '') + (mesh._skin && a.bz && mesh._skin.U.chAny && mesh._skin.U.chAny.value ? 'z' : '') + (mesh._skin && a.bz && mesh._skin.U.soakN && (mesh._skin.U.soakN.value || mesh._skin.U.pepN.value || mesh._skin.U.burn.value.w > 0) ? 's' : '') + (mesh._skin && a.ck ? 'm' : '') + (mesh._skin && a.fab ? 'c' : '') + (mesh._skin && a.tm && mesh.userData.tint !== undefined ? 't' : ''); };
 function attachSkin(root, at) {
   let sim = null; root.userData.chunkAt = at;
   root.traverse(o => {

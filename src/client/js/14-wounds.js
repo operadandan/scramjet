@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------- holes in walls: decals with a clear middle
 const PIERCE_TEX = {
-  concrete: decalCanvas2((g, s, c) => { irregular(g, c, c, s * 0.46, 22, 0.35, 'rgba(120,116,108,0.55)'); irregular(g, c, c, s * 0.34, 18, 0.4, 'rgba(80,77,71,0.9)'); irregular(g, c, c, s * 0.22, 14, 0.3, 'rgba(40,38,35,1)'); for (let i = 0; i < 26; i++) { const a = Math.random() * 6.28, d = rnd(0.24, 0.47) * s; g.fillStyle = 'rgba(' + (60 + Math.random() * 60 | 0) + ',' + (58 + Math.random() * 55 | 0) + ',52,0.8)'; g.fillRect(c + Math.cos(a) * d, c + Math.sin(a) * d, rnd(2, 6), rnd(2, 6)); } }),
+  concrete: decalCanvas2((g, s, c) => { irregular(g, c, c, s * 0.46, 22, 0.35, 'rgba(120,116,108,0.55)'); irregular(g, c, c, s * 0.34, 18, 0.4, 'rgba(80,77,71,0.9)'); irregular(g, c, c, s * 0.22, 14, 0.3, 'rgba(70,67,62,1)'); for (let i = 0; i < 26; i++) { const a = Math.random() * 6.28, d = (0.2 + 0.27 * Math.sqrt(Math.random())) * s; g.fillStyle = 'rgba(' + (150 + Math.random() * 50 | 0) + ',' + (146 + Math.random() * 50 | 0) + ',140,0.8)'; g.fillRect(c + Math.cos(a) * d, c + Math.sin(a) * d, rnd(2, 6), rnd(2, 6)); } }),
   wood: decalCanvas2((g, s, c) => { for (let i = 0; i < 14; i++) { const a = Math.random() * 6.28, L = rnd(0.3, 0.48) * s; g.strokeStyle = 'rgba(' + (190 + Math.random() * 40 | 0) + ',' + (150 + Math.random() * 30 | 0) + ',100,0.95)'; g.lineWidth = rnd(2, 5); g.beginPath(); g.moveTo(c + Math.cos(a) * s * 0.18, c + Math.sin(a) * s * 0.18); g.lineTo(c + Math.cos(a) * L, c + Math.sin(a) * L); g.stroke(); } irregular(g, c, c, s * 0.25, 14, 0.3, 'rgba(70,45,22,1)'); }),
   metal: decalCanvas2((g, s, c) => { irregular(g, c, c, s * 0.42, 18, 0.1, 'rgba(60,60,62,0.6)'); g.strokeStyle = 'rgba(210,210,215,1)'; g.lineWidth = s * 0.06; g.beginPath(); g.arc(c, c, s * 0.27, 0, 7); g.stroke(); }),
   dirt: decalCanvas2((g, s, c) => { irregular(g, c, c, s * 0.42, 16, 0.4, 'rgba(50,40,28,0.8)'); })
@@ -17,42 +17,52 @@ function buildVfgHand(W, under, elbow) {
   vg.visible = false; return vg;
 }
 function trimDecals() { while (decals.length > 220) { const d = decals.shift(); scene.remove(d); if (d.geometry !== splatGeo && d.geometry !== poolGeo) d.geometry.dispose(); const i = floorSplats.indexOf(d); if (i >= 0) floorSplats.splice(i, 1); } }
-function spawnDrop(p, v, r, g, drag, ml) { if (drops.length >= BLOOD_MAX) drops.shift(); drops.push({ p: p.clone(), v, r, life: 5, g: g === undefined ? 1 : g, drag: drag === undefined ? 0.6 : drag, ml }); }
+// drag goes as 1/size: a fine droplet stops within a metre, a big drop carries on
+function spawnDrop(p, v, r, g, drag, ml) { if (drops.length >= BLOOD_MAX) drops.shift(); drops.push({ p: p.clone(), v, r, life: 5, g: g === undefined ? 1 : g, drag: drag === undefined ? clamp(0.012 / r, 0.4, 8) : drag, ml }); }
+// spatter droplet radius: many fine ones, a few big (power law), 0.5 to 2.5 mm
+const spatR = () => clamp(0.0005 * Math.pow(1 - Math.random(), -1 / 1.4), 0.0005, 0.0025);
 // ---------------------------------------------------------------- drop splats
 // Every drop that lands leaves its own mark. 64 different splats are painted once into one atlas at load (each its own blob
 // outline, crown of satellite droplets, wet sheen, thickness and colour), and every mark picks one, turned, scaled,
 // stretched along the way it was flying and tinted a little differently: all of them in one instanced draw call.
+// Rows by how the drop landed (the row is picked from the impact angle and speed in dropSplat):
+//   0-1 round, smooth edge (slow, straight down)      2-3 round with a short crown of spines (faster, straight down)
+//   4-5 ellipse with one tail (+x, the way it flew)    6 streak (grazing)        7 large and smooth (big drops)
 const SPLAT_N = 2400, SPLAT_T = 8, SPLAT_ATLAS = (() => {
   const S = 2048, T = S / SPLAT_T, cv = document.createElement('canvas'); cv.width = cv.height = S; const g = cv.getContext('2d');
   for (let ti = 0; ti < SPLAT_T * SPLAT_T; ti++) {
-    const ox = (ti % SPLAT_T) * T, oy = Math.floor(ti / SPLAT_T) * T, c = T / 2, R = T * rnd(0.16, 0.24);
+    const row = Math.floor(ti / SPLAT_T), ox = (ti % SPLAT_T) * T, oy = row * T, c = T / 2;
     g.save(); g.beginPath(); g.rect(ox, oy, T, T); g.clip(); g.translate(ox, oy);
-    const dark = rnd(0.75, 1.15), col = (k, a) => 'rgba(' + Math.round(clamp(104 * k * dark, 0, 255)) + ',' + Math.round(clamp(6 * k, 0, 255)) + ',' + Math.round(clamp(12 * k, 0, 255)) + ',' + a + ')';
-    // the main blob: a wobbly outline (a few harmonics with their own phases)
-    const H = [rnd(0, 0.18), rnd(0, 0.12), rnd(0, 0.08), rnd(0, 0.05)], Ph = H.map(() => rnd(0, 6.28)), F = [2, 3, 5, 9].map(f => f + Math.floor(rnd(0, 2)));
-    const blob = (r, cx, cy) => { g.beginPath(); for (let i = 0; i <= 64; i++) { const a = i / 64 * 6.283; let k = 1; for (let h = 0; h < 4; h++) k += H[h] * Math.sin(F[h] * a + Ph[h]); const x = cx + Math.cos(a) * r * k, y = cy + Math.sin(a) * r * k; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); };
-    const tail = rnd(0, 1) < 0.55 ? rnd(0.4, 1.4) : 0, ta = rnd(-0.3, 0.3);
-    blob(R, c, c); g.fillStyle = col(1, 0.95); g.fill();
-    // thicker middle, thin drying rim
-    const gr = g.createRadialGradient(c, c, R * 0.1, c, c, R * 1.15); gr.addColorStop(0, col(0.7, 0.9)); gr.addColorStop(0.7, col(0.95, 0.0)); gr.addColorStop(0.92, col(1.25, 0.35)); gr.addColorStop(1, col(1.25, 0));
-    blob(R, c, c); g.fillStyle = gr; g.fill();
-    // fingers and a tail flung out the way it was going (+x in the tile)
-    const nf = Math.floor(rnd(2, 9));
-    for (let i = 0; i < nf; i++) { const a = (tail ? ta : 0) + rnd(-1, 1) * (tail ? 0.9 : 3.14), L = R * rnd(0.3, 1.0) * (tail ? 1.6 : 1), w = R * rnd(0.08, 0.22); g.beginPath(); g.moveTo(c + Math.cos(a + 1.57) * w, c + Math.sin(a + 1.57) * w); g.lineTo(c + Math.cos(a) * (R + L), c + Math.sin(a) * (R + L)); g.lineTo(c + Math.cos(a - 1.57) * w, c + Math.sin(a - 1.57) * w); g.fillStyle = col(1, 0.9); g.fill(); g.beginPath(); g.arc(c + Math.cos(a) * (R + L), c + Math.sin(a) * (R + L), w * rnd(0.5, 1.1), 0, 6.283); g.fill(); }
-    if (tail) { g.beginPath(); g.ellipse(c + R * tail * 0.9, c + R * ta, R * (0.5 + tail * 0.6), R * rnd(0.25, 0.45), ta, 0, 6.283); g.fillStyle = col(1, 0.9); g.fill(); }
-    // satellite droplets, more and further out on the side it was going
-    const ns = Math.floor(rnd(3, 26));
-    for (let i = 0; i < ns; i++) { const a = (tail && Math.random() < 0.7 ? ta + rnd(-0.6, 0.6) : rnd(0, 6.283)), d = R * rnd(1.15, tail ? 2.6 : 2.0), r = R * rnd(0.03, 0.14) * (1.6 - d / (R * 2.6)); g.beginPath(); g.ellipse(c + Math.cos(a) * d, c + Math.sin(a) * d, r * rnd(1, 1.8), r, a, 0, 6.283); g.fillStyle = col(rnd(0.9, 1.15), rnd(0.75, 0.95)); g.fill(); }
+    const dark = rnd(0.9, 1.06), col = (k, a) => 'rgba(' + Math.round(clamp(122 * k * dark, 58, 255)) + ',' + Math.round(clamp(14 * k, 9, 255)) + ',' + Math.round(clamp(12 * k, 7, 255)) + ',' + a + ')';
+    const H = [rnd(0, 0.08), rnd(0, 0.06), rnd(0, 0.04), rnd(0, 0.025)], Ph = H.map(() => rnd(0, 6.28)), F = [2, 3, 5, 9].map(f => f + Math.floor(rnd(0, 2)));
+    const blob = (r, cx, cy, sx, sy, amp) => { g.beginPath(); for (let i = 0; i <= 64; i++) { const a = i / 64 * 6.283; let k = 1; for (let h = 0; h < 4; h++) k += H[h] * (amp || 1) * Math.sin(F[h] * a + Ph[h]); const x = cx + Math.cos(a) * r * k * (sx || 1), y = cy + Math.sin(a) * r * k * (sy || 1); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); };
+    const body = (R, sx, sy, amp) => {
+      blob(R, c, c, sx, sy, amp); g.fillStyle = col(1, 0.95); g.fill();
+      const gr = g.createRadialGradient(c, c, R * 0.1, c, c, R * 1.15 * Math.max(sx || 1, sy || 1)); gr.addColorStop(0, col(0.85, 0.7)); gr.addColorStop(0.7, col(0.95, 0)); gr.addColorStop(0.92, col(1.15, 0.3)); gr.addColorStop(1, col(1.15, 0));
+      blob(R, c, c, sx, sy, amp); g.fillStyle = gr; g.fill();
+    };
+    const sat = (n, R, d0, d1, ang, spread) => { for (let i = 0; i < n; i++) { const a = ang === undefined ? rnd(0, 6.283) : ang + rnd(-spread, spread), d = R * rnd(d0, d1), r = R * rnd(0.03, 0.1); g.beginPath(); g.ellipse(c + Math.cos(a) * d, c + Math.sin(a) * d, r * rnd(1, 1.6), r, a, 0, 6.283); g.fillStyle = col(rnd(0.95, 1.1), rnd(0.8, 0.95)); g.fill(); } };
+    if (row <= 1) { const R = T * rnd(0.17, 0.22); body(R, 1, 1, 0.8); sat(Math.floor(rnd(0, 3)), R, 1.2, 1.6); }
+    else if (row <= 3) { const R = T * rnd(0.15, 0.2); body(R, 1, 1, 1);
+      const n = Math.floor(rnd(10, 22)); for (let i = 0; i < n; i++) { const a = i / n * 6.283 + rnd(-0.15, 0.15), L = R * rnd(0.15, 0.45), w = R * rnd(0.05, 0.12); g.beginPath(); g.moveTo(c + Math.cos(a + 1.57) * w, c + Math.sin(a + 1.57) * w); g.lineTo(c + Math.cos(a) * (R + L), c + Math.sin(a) * (R + L)); g.lineTo(c + Math.cos(a - 1.57) * w, c + Math.sin(a - 1.57) * w); g.fillStyle = col(1, 0.9); g.fill(); g.beginPath(); g.arc(c + Math.cos(a) * (R + L), c + Math.sin(a) * (R + L), w * rnd(0.6, 1.1), 0, 6.283); g.fill(); }
+      sat(Math.floor(rnd(4, 12)), R, 1.6, 2.2); }
+    else if (row <= 5) { const R = T * rnd(0.13, 0.17), e = rnd(1.3, 1.8); body(R, e, 1, 0.6);
+      // one tail out of the front (+x), thinning to a bead, a few drops thrown on ahead of it
+      const L = R * rnd(1.2, 2.2); g.beginPath(); g.moveTo(c + R * e * 0.6, c - R * 0.45); g.quadraticCurveTo(c + R * e + L * 0.5, c - R * 0.12, c + R * e + L, c); g.quadraticCurveTo(c + R * e + L * 0.5, c + R * 0.12, c + R * e * 0.6, c + R * 0.45); g.closePath(); g.fillStyle = col(1, 0.92); g.fill();
+      g.beginPath(); g.arc(c + R * e + L, c, R * rnd(0.12, 0.2), 0, 6.283); g.fill();
+      sat(Math.floor(rnd(1, 5)), R, e + 1.6, e + 2.6, 0, 0.25); }
+    else if (row === 6) { const R = T * rnd(0.06, 0.08); body(R, rnd(3.5, 5), 1, 0.4); sat(Math.floor(rnd(2, 6)), R, 4.5, 6.5, 0, 0.12); }
+    else { const R = T * rnd(0.24, 0.3); body(R, rnd(0.9, 1.15), 1, 1.4); sat(Math.floor(rnd(0, 4)), R, 1.1, 1.4); }
     // a glint of wet on top
-    g.beginPath(); g.ellipse(c - R * rnd(0.1, 0.35), c - R * rnd(0.1, 0.35), R * rnd(0.12, 0.3), R * rnd(0.06, 0.15), rnd(0, 3), 0, 6.283); g.fillStyle = 'rgba(190,60,60,' + rnd(0.08, 0.2) + ')'; g.fill();
+    g.beginPath(); g.ellipse(c - T * 0.04, c - T * 0.04, T * rnd(0.02, 0.05), T * rnd(0.01, 0.025), rnd(0, 3), 0, 6.283); g.fillStyle = 'rgba(190,70,64,' + rnd(0.08, 0.18) + ')'; g.fill();
     g.restore();
   }
-  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return t;
 })();
 const splatIM = (() => {
-  const m = new THREE.MeshStandardMaterial({ map: SPLAT_ATLAS, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, roughness: 0.22, metalness: 0.05, envMapIntensity: 0.6 });
+  const m = new THREE.MeshStandardMaterial({ map: SPLAT_ATLAS, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, roughness: 0.4, metalness: 0, envMapIntensity: 0.15 });
   const geo = new THREE.PlaneGeometry(1, 1), tile = new THREE.InstancedBufferAttribute(new Float32Array(SPLAT_N * 2), 2); geo.setAttribute('tile', tile);
-  m.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 tile;').replace('#include <uv_vertex>', '#include <uv_vertex>\nvMapUv = vMapUv * ' + (1 / SPLAT_T).toFixed(4) + ' + tile;'); };
+  m.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 tile;').replace('#include <uv_vertex>', '#include <uv_vertex>\nvMapUv = clamp(vMapUv, 0.012, 0.988) * ' + (1 / SPLAT_T).toFixed(4) + ' + tile;'); };
   m.customProgramCacheKey = () => 'splatAtlas';
   const im = new THREE.InstancedMesh(geo, m, SPLAT_N); im.count = 0; im.frustumCulled = false; im.receiveShadow = true; im.userData.keep = true; im.userData.next = 0;
   im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(SPLAT_N * 3), 3);
@@ -68,11 +78,16 @@ function dropSplat(p, n, r, v) {
   let ang = rnd(0, 6.283);
   if (sp > 0.3) { const lx = vt.clone().applyQuaternion(_sQ2.copy(_sQ).invert()); ang = Math.atan2(lx.y, lx.x); }
   _sQ.multiply(_sQ2.setFromAxisAngle(_Z, ang));
-  const base = r * rnd(9, 14) * (0.8 + Math.min(1.2, vn * 0.12)), str = 1 + Math.min(2.2, sp * 0.22);
+  // the shape follows how it landed: straight down is round (a crown when fast), at a slant an ellipse with a tail as long
+  // as 1/sin(angle), grazing a streak; big drops land smooth
+  const vs = v.length(), ia = Math.asin(Math.min(1, vn / Math.max(vs, 1e-4)));
+  const row = r > 0.003 ? 7 : ia < 0.35 ? 6 : ia < 1.22 ? 4 + (Math.random() * 2 | 0) : vs > 2 ? 2 + (Math.random() * 2 | 0) : (Math.random() * 2 | 0);
+  const str = ia < 1.22 && sp > 0.3 ? Math.min(4, 1 / Math.max(0.25, Math.sin(ia))) : 1;
+  const base = r * rnd(3.4, 4.4) * (1 + Math.min(1.2, vn * 0.12)) * (row === 6 ? 2 : 1);
   _sS.set(base * str, base, 1);
   im.setMatrixAt(i, _sM.compose(_sP.copy(p).addScaledVector(_sN, 0.0015 + Math.random() * 0.002), _sQ, _sS));
-  const ti = Math.floor(Math.random() * SPLAT_T * SPLAT_T); im.geometry.attributes.tile.setXY(i, (ti % SPLAT_T) / SPLAT_T, 1 - (Math.floor(ti / SPLAT_T) + 1) / SPLAT_T);
-  const k = rnd(0.82, 1.12); im.setColorAt(i, _sC.setRGB(k, k * rnd(0.85, 1.1), k * rnd(0.85, 1.1)));
+  const ti = row * SPLAT_T + (Math.random() * SPLAT_T | 0); im.geometry.attributes.tile.setXY(i, (ti % SPLAT_T) / SPLAT_T, 1 - (Math.floor(ti / SPLAT_T) + 1) / SPLAT_T);
+  const k = rnd(0.92, 1.08); im.setColorAt(i, _sC.setRGB(k, k * rnd(0.95, 1.05), k * rnd(0.95, 1.05)));
   im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true; im.geometry.attributes.tile.needsUpdate = true;
 }
 const _sUp = new V3(0, 1, 0);
@@ -80,29 +95,46 @@ const _sUp = new V3(0, 1, 0);
 const pools = [], seeds = [];
 const dropMl = r => 0.5 * Math.pow(r / 0.01, 3);
 function floorAt(x, y, z) { let f = 0; for (const c of colliders) if (x > c.min.x && x < c.max.x && z > c.min.z && z < c.max.z && c.max.y <= y + 0.05 && c.max.y > f) f = c.max.y; return f; }
+// A pool is a few overlapping lobes. Blood landing near a lobe makes that lobe deeper and wider; blood landing past the
+// edge (more than 0.6 of its radius out) starts a new lobe there, so a pool fed from two wounds grows a tongue toward each
+// instead of sliding about. Fresh blood is a dark glossy red; over two minutes it darkens toward brown and goes dull.
+const POOL_LOBES = 6;
+let poolLobeN = 0;
 function feedPool(x, y, z, ml) {
-  let best = null, bd = 1e9;
-  for (const p of pools) { if (Math.abs(p.y - y) > 0.03) continue; const d = Math.hypot(p.x - x, p.z - z); if (d < p.r * 0.9 + 0.07 && d < bd) { bd = d; best = p; } }
-  if (best) { best.vol = Math.min(4000, best.vol + ml); const k = Math.min(0.5, ml / best.vol); best.x += (x - best.x) * k * 0.4; best.z += (z - best.z) * k * 0.4; return; }
+  let best = null, bl = null, bd = 1e9;
+  for (const p of pools) { if (Math.abs(p.y - y) > 0.03) continue; for (const l of p.lobes) { const d = Math.hypot(l.x - x, l.z - z); if (d < l.r * 0.9 + 0.07 && d < bd) { bd = d; best = p; bl = l; } } }
+  if (best) {
+    if (bd > Math.max(bl.r * 0.6, 0.06) && best.lobes.length < POOL_LOBES && ml > 1.5) { addLobe(best, x, z, ml); return; }
+    bl.vol = Math.min(2500, bl.vol + ml); return;
+  }
   let sd = null; for (const q of seeds) if (Math.abs(q.y - y) < 0.03 && Math.hypot(q.x - x, q.z - z) < 0.1) { sd = q; break; }
   if (!sd) { sd = { x, y, z, vol: 0 }; seeds.push(sd); if (seeds.length > 300) seeds.shift(); }
   sd.vol += ml; sd.x += (x - sd.x) * 0.2; sd.z += (z - sd.z) * 0.2;
   if (sd.vol >= 6) { seeds.splice(seeds.indexOf(sd), 1); makePool(sd.x, sd.y, sd.z, sd.vol); }
 }
-function makePool(x, y, z, vol) {
-  const m = new THREE.Mesh(splatGeo, pick(POOL_MAT)); m.rotation.set(-Math.PI / 2, 0, rnd(0, 6.28)); m.userData.aspect = rnd(0.7, 1.3); m.position.set(x, y + 0.002 + pools.length % 7 * 0.0002, z); m.scale.setScalar(0.001); m.receiveShadow = true; scene.add(m);
-  pools.push({ m, x, y, z, vol, r: 0.02, e: rnd(0.8, 1.25) });
-  if (pools.length > 60) { const o = pools.shift(); scene.remove(o.m); }
+function addLobe(p, x, z, vol) {
+  const mt = pick(POOL_MAT).clone(); mt.userData.base = mt.color.clone();
+  const m = new THREE.Mesh(splatGeo, mt); m.rotation.set(-Math.PI / 2, 0, rnd(0, 6.28)); m.position.set(x, p.y + 0.002 + poolLobeN++ % 7 * 0.0002, z); m.scale.setScalar(0.001); m.receiveShadow = true; scene.add(m);
+  p.lobes.push({ m, x, z, vol, r: 0.02, e: rnd(0.8, 1.25), born: performance.now() / 1000 });
 }
+function makePool(x, y, z, vol) {
+  const p = { y, lobes: [] }; pools.push(p); addLobe(p, x, z, vol);
+  while (pools.reduce((n, q) => n + q.lobes.length, 0) > 120) { const o = pools.shift(); for (const l of o.lobes) { scene.remove(l.m); l.m.material.dispose(); } }
+}
+const _old = new THREE.Color(0.42, 0.46, 0.44);
 function updatePools(dt) {
-  for (const p of pools) {
+  const now = performance.now() / 1000;
+  for (const p of pools) for (const l of p.lobes) {
     // ~2.5 mm deep on a flat floor: 1 ml covers 4 cm^2. Spreads quickly at first, then slows as it thins out
-    const R = Math.sqrt(p.vol * 0.0004 / Math.PI);
-    if (p.r < R) p.r = Math.min(R, p.r + Math.max(0.015, (R - p.r) * 2) * dt);
-    const w = 2 * p.r / 0.72; p.m.scale.set(w * p.e, w / p.e, 1); p.m.position.x = p.x; p.m.position.z = p.z;
+    const R = Math.sqrt(l.vol * 0.0004 / Math.PI);
+    if (l.r < R) l.r = Math.min(R, l.r + Math.max(0.006, (R - l.r) * 0.8) * dt);
+    const w = 2 * l.r / 0.72; l.m.scale.set(w * l.e, w / l.e, 1);
+    // drying
+    const age = clamp((now - l.born) / 120, 0, 1), mt = l.m.material;
+    if (mt.userData.base && age > 0) { mt.color.copy(mt.userData.base).lerp(_old, age); mt.roughness = 0.08 + 0.42 * age; mt.envMapIntensity = 0.35 * (1 - 0.7 * age); }
   }
 }
-function clearPools() { for (const p of pools) scene.remove(p.m); pools.length = 0; seeds.length = 0; }
+function clearPools() { for (const p of pools) for (const l of p.lobes) { scene.remove(l.m); l.m.material.dispose(); } pools.length = 0; seeds.length = 0; }
 // a burst of droplets thrown along dir (exit spray, arterial spurt), plus a fine mist
 function bloodBurst(point, dir, speed, n, spread, size) {
   for (let i = 0; i < n; i++) {
@@ -154,12 +186,15 @@ function goreBurst(p, dir, skin) {
 // entry: a puff of back-spatter mist. exit (strong): a cone of mist and heavy droplets thrown forward, painting what is behind
 function bloodFx(point, dir, strong, amt) {
   amt = amt === undefined ? 1 : amt;
-  mist(point.clone().addScaledVector(dir, -0.02), dir.clone().multiplyScalar(-rnd(0.4, 0.9)), 0.22, 0.35, 0x8a0a0e, 0.55);
-  for (let i = 0; i < Math.round(3 * amt); i++) spawnDrop(point, dir.clone().multiplyScalar(-rnd(0.6, 1.6)).add(new V3(rnd(-0.4, 0.4), rnd(-0.1, 0.5), rnd(-0.4, 0.4))), rnd(0.003, 0.006));
+  // back-spatter out of the entry: a little mist and a few fine droplets in a small cone back toward the shooter
+  mist(point.clone().addScaledVector(dir, -0.02), dir.clone().multiplyScalar(-rnd(0.4, 0.9)), 0.2, 0.3, 0x7a0f0c, 0.45);
+  for (let i = 0; i < Math.round(4 * amt); i++) spawnDrop(point, coneDir(dir.clone().negate(), 0.7).multiplyScalar(rnd(1, 3)), spatR());
   if (!strong) return;
-  for (let i = 0; i < 4; i++) mist(point.clone().addScaledVector(dir, 0.05 + i * 0.07), dir.clone().multiplyScalar(rnd(1.5, 4)).add(new V3(rnd(-0.4, 0.4), rnd(-0.2, 0.3), rnd(-0.4, 0.4))), 0.35 + i * 0.12, 0.7, 0x6a0408, 0.5 - i * 0.07);
-  for (let i = 0; i < 16; i++) spawnDrop(point, dir.clone().multiplyScalar(rnd(3, 7.5)).add(new V3(rnd(-1, 1), rnd(-0.5, 0.8), rnd(-1, 1)).multiplyScalar(0.9)), rnd(0.004, 0.011), 1, 0.3);
-  blowSpatter(point, dir, rnd(0.6, 0.95));
+  // forward spatter out of the exit: a 25-degree cone carrying most of it, fine drops and a few big ones
+  for (let i = 0; i < 3; i++) mist(point.clone().addScaledVector(dir, 0.05 + i * 0.07), dir.clone().multiplyScalar(rnd(1.5, 3.5)), 0.3 + i * 0.1, 0.6, 0x6a0c0a, 0.45 - i * 0.08);
+  const n = Math.round(22 * amt);
+  for (let i = 0; i < n; i++) spawnDrop(point, coneDir(dir, 0.44).multiplyScalar(rnd(4, 10)), spatR());
+  blowSpatter(point, dir, rnd(0.5, 0.75) * Math.min(1.4, amt));
 }
 function floorSplat(x, y, z, size) { feedPool(x, y, z, size * 6); }
 function floorSplatOld(x, y, z, size) {
@@ -196,6 +231,7 @@ function wallSplat(p, n, size, vdir, bottom) {
 }
 const _dm = new THREE.Object3D();
 function updateBlood(dt) {
+  updateSoaks(dt);
   for (let i = drops.length - 1; i >= 0; i--) {
     const d = drops[i]; d.life -= dt; d.v.y -= 9.8 * d.g * dt; d.v.multiplyScalar(1 - d.drag * dt);
     const px = d.p.x, py = d.p.y, pz = d.p.z; d.p.addScaledVector(d.v, dt);
@@ -290,9 +326,10 @@ function solidTube(group, skin, slot, p, d, len, r0, r1, t0, t1, stop) {
     // forward from well before the start: first skin crossing; backward from well past the end: last crossing
     let ta = t0, tb = t1, hitEnd = false;
     _stR.set(wa.clone().addScaledVector(wl, -0.5 * L), wl); _stR.far = L * 2;
-    const h0 = _stR.intersectObjects(skin, false)[0]; if (h0) ta = Math.max(t0, h0.distance / L - 0.5); else { A.push(pa); B.push(pb); ends.push([t0, t0, false]); continue; }   // misses the body: no wall
+    const croot = chunkRootOf(group), notGone = x => !(croot && chunkGoneAt(croot, x.point));
+    const h0 = _stR.intersectObjects(skin, false).find(notGone); if (h0) ta = Math.max(t0, h0.distance / L - 0.5); else { A.push(pa); B.push(pb); ends.push([t0, t0, false]); continue; }   // misses the body: no wall
     _stR.set(wb.clone().addScaledVector(wl, 0.5 * L), wl.clone().negate()); _stR.far = L * 2;
-    const h1 = _stR.intersectObjects(skin, false)[0]; if (h1) { const te = 1.5 - h1.distance / L; if (te < tb) { tb = te; hitEnd = true; } }
+    const h1 = _stR.intersectObjects(skin, false).find(notGone); if (h1) { const te = 1.5 - h1.distance / L; if (te < tb) { tb = te; hitEnd = true; } }
     if (tb < ta) tb = ta;
     A.push(pa); B.push(pb); ends.push([ta, tb, hitEnd]);
   }
@@ -315,7 +352,7 @@ TUBE_FLESH.onBeforeCompile = sh => {
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vTubePos;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvTubePos = position;');
   sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vTubePos;\n' + FLESH_CUT)
     .replace('#include <color_fragment>', '#include <color_fragment>\n{ float dk = clamp(dot(diffuseColor.rgb, vec3(0.6, 0.3, 0.1)) / 0.45, 0.25, 1.0); diffuseColor.rgb = fleshCut(vTubePos) * dk * 0.6; }')
-    .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * 0.1;');
+    .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * 0.03;');
 };
 TUBE_FLESH.customProgramCacheKey = () => 'tubeflesh';
 // what solid flesh looks like cut through: dark red muscle in bundles of fibres, pale fascia (the sheaths round each muscle),
@@ -367,7 +404,7 @@ function holeify(mesh, max, inner) {
       // the inside never reads as an empty shell: it is lit as if it faced you, a little self-lit, so the far side of a body
       // seen through a hole looks like the cut face of solid meat rather than a dark cavity
       .replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\nif (!gl_FrontFacing) normal = normalize(vViewPosition);')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\nif (!gl_FrontFacing) totalEmissiveRadiance += diffuseColor.rgb * 0.15;');
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\nif (!gl_FrontFacing) totalEmissiveRadiance += diffuseColor.rgb * 0.03;');
   };
   m.customProgramCacheKey = () => 'holes' + max + bodyKey(mesh);
 }
@@ -424,17 +461,29 @@ function holeInGroup(group, p, d, len, r0, r1, sk) {
 const CAL = { 0: [0.0056, 0.013], 1: [0.006, 0.009], 2: [0.018, 0.045], 3: [0.0056, 0.012], 4: [0.006, 0.009], 5: [0.0048, 0.008] };
 // severed end: a torn, uneven face of meat (not a clean cut), ragged skin and fat at the rim, strings of torn tissue hanging off,
 // and the broken bone standing a little proud with a splintered end and marrow. Points along -y, radius r
-const stumpGeo = r => GC('stump' + r, () => {
+const stumpGeo = (r, kind) => GC('stump' + r + (kind || ''), () => {
   let sd = Math.round(r * 1e4) * 7 + 3; const R = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
   const g = new THREE.Group(), M = c => mat(c, 0.5);
   const put = (geo, c, x, y, z, s, rx, rz) => { const m = new THREE.Mesh(geo, M(c)); m.position.set(x, y, z); if (s) m.scale.set(s[0], s[1], s[2]); if (rx) m.rotation.x = rx; if (rz) m.rotation.z = rz; g.add(m); return m; };
   const rough = (geo, k) => { const P = geo.attributes.position, v = new V3(); for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i); const f = 1 + (R() - 0.5) * k; P.setXYZ(i, v.x * f, v.y * (1 + (R() - 0.5) * k * 1.6), v.z * f); } geo.computeVertexNormals(); return geo; };
   // the torn face: a low uneven dome of muscle, with a few lumps standing out of it
-  put(rough(new THREE.SphereGeometry(r * 0.97, 14, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), 0.28), 0x5c0a0c, 0, -r * 0.05, 0, [1, 0.32, 1]);
+  const neck = kind === 'neck', dh = neck ? 0.5 : 0.32;
+  put(rough(new THREE.SphereGeometry(r * 0.97, 14, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), 0.28), 0x5c0a0c, 0, -r * 0.05, 0, [1, dh, 1]);
   for (let i = 0; i < 9; i++) { const a = R() * 6.28, d = r * (0.25 + R() * 0.6); put(rough(new THREE.SphereGeometry(r * (0.16 + R() * 0.16), 7, 5), 0.4), [0x6e0d10, 0x4e0709, 0x7d1416][i % 3], Math.cos(a) * d, -r * (0.2 + R() * 0.12), Math.sin(a) * d, [1, 0.45 + R() * 0.4, 1]); }
   // fat and torn skin round the edge: a yellowish band and ragged flaps curling out and down
-  put(rough(new THREE.TorusGeometry(r * 0.93, r * 0.07, 4, 18), 0.25), 0xb8925a, 0, -r * 0.08, 0, null, Math.PI / 2);
+  put(rough(new THREE.TorusGeometry(r * 0.93, r * 0.05, 4, 18), 0.25), 0x8a6a3c, 0, -r * 0.08 - 0.005, 0, null, Math.PI / 2);
+  if (neck) {
+    // what makes it read as a neck: the windpipe at the front (a pale ring round a dark hole), the spine at the back (bone
+    // round dark marrow) and the two carotid openings either side
+    const fy = -r * dh * 0.92;
+    put(new THREE.TorusGeometry(r * 0.2, r * 0.06, 5, 12), 0xb0a088, 0, fy, -r * 0.45, null, Math.PI / 2);
+    put(new THREE.CircleGeometry(r * 0.17, 10), 0x1e0606, 0, fy - 0.001, -r * 0.45, null, Math.PI / 2);
+    put(new THREE.CylinderGeometry(r * 0.27, r * 0.27, r * 0.08, 10), 0xc8bca0, 0, fy + r * 0.02, r * 0.42);
+    put(new THREE.CircleGeometry(r * 0.12, 8), 0x5a1410, 0, fy - r * 0.025, r * 0.42, null, Math.PI / 2);
+    for (const sx of [-1, 1]) put(new THREE.CircleGeometry(r * 0.08, 8), 0x2e0505, sx * r * 0.48, fy - 0.001, -r * 0.15, null, Math.PI / 2);
+  }
   for (let i = 0; i < 11; i++) { const a = i / 11 * 6.28 + R() * 0.4, L = r * (0.15 + R() * 0.35); const m = put(new THREE.ConeGeometry(r * (0.08 + R() * 0.07), L, 4), [0x6a2a20, 0x7a3426, 0x5a1c16][i % 3], Math.cos(a) * r * 0.98, -r * 0.05 - L * 0.35, Math.sin(a) * r * 0.98); m.rotation.set(Math.PI + (R() - 0.5) * 0.6, 0, 0); m.rotation.y = -a; m.rotateZ(0.5 + R() * 0.5); }
+  if (neck) { const geo = bakeColored(g), C = geo.attributes.color; for (let i = 0; i < C.count; i++) { const k = 0.85 + R() * 0.25; C.setXYZ(i, C.getX(i) * k, C.getY(i) * k, C.getZ(i) * k); } return geo; }
   // the bone: short, off centre, with a splintered end (a cylinder whose top ring is chopped unevenly) and the marrow
   const bg = new THREE.CylinderGeometry(r * 0.28, r * 0.31, r * 0.6, 9, 1), P = bg.attributes.position;
   for (let i = 0; i < P.count; i++) if (P.getY(i) < 0) P.setY(i, P.getY(i) - R() * r * 0.32);
@@ -450,8 +499,8 @@ const stumpGeo = r => GC('stump' + r, () => {
   for (let i = 0; i < C.count; i++) { const k = 0.82 + R() * 0.3; C.setXYZ(i, C.getX(i) * k, C.getY(i) * k, C.getZ(i) * k); }
   return geo;
 });
-function addStump(parent, pos, dir, r) {
-  const m = new THREE.Mesh(stumpGeo(r), vcMat); m.position.copy(pos); m.quaternion.setFromUnitVectors(_a.set(0, -1, 0), dir.clone().normalize()); m.userData.keep = true; m.castShadow = true; parent.add(m); return m;
+function addStump(parent, pos, dir, r, kind) {
+  const m = new THREE.Mesh(stumpGeo(r, kind), vcMat); m.position.copy(pos); m.quaternion.setFromUnitVectors(_a.set(0, -1, 0), dir.clone().normalize()); m.userData.keep = true; m.castShadow = true; parent.add(m); return m;
 }
 // wounds: an entry mark, a ragged exit, a stain that soaks outward, and for rifle rounds a real hole through the body
 // ---------------------------------------------------------------- liquid blood on the body
@@ -471,7 +520,7 @@ function inHole(mesh, wp, pad, ex) {
 const LIQ_GEO = new THREE.SphereGeometry(1, 10, 6);
 // all the drops of one patch are one instanced mesh (one draw call), each drop its own shade of wet, dark red
 const LIQ_MAT = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.32, metalness: 0, envMapIntensity: 0.25, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-const LIQ_COL = [0x6a060b, 0x58040a, 0x480308, 0x7a0a0e].map(c => new THREE.Color(c));
+const LIQ_COL = [0x7a0f0c, 0x6a0c0a, 0x5a0a08, 0x8a1410].map(c => new THREE.Color(c));
 const _lray = new THREE.Raycaster(), _lqL = new THREE.Quaternion(), _lqG = new THREE.Quaternion();
 const _lqM = new THREE.Matrix4();
 function liquidBlood(group, p, n, R, count, runs, hr) {
@@ -486,6 +535,7 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
   // the triangles near the wound, gathered once in world space: every drop is then a ray test against a few dozen of them
   // instead of a full raycast through the whole body mesh (dozens of those per wound was the hitch when shooting bodies)
   const tris = [], tm = [], rr2 = Math.pow(R * 2.6 + 0.12, 2), _ta = new V3(), _tb = new V3(), _tc = new V3();
+  const croot = chunkRootOf(group);
   for (const m of targets) {
     const P = m.geometry.attributes.position, I = m.geometry.index, mw = m.matrixWorld, nT = I ? I.count / 3 : P.count / 3;
     const ctr = _ta.copy(wp).applyMatrix4(_lqM.copy(mw).invert()); if (m.geometry.boundingSphere === null) m.geometry.computeBoundingSphere();
@@ -494,10 +544,11 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
       const i0 = I ? I.getX(t * 3) : t * 3, i1 = I ? I.getX(t * 3 + 1) : t * 3 + 1, i2 = I ? I.getX(t * 3 + 2) : t * 3 + 2;
       _ta.fromBufferAttribute(P, i0).applyMatrix4(mw); if (_ta.distanceToSquared(wp) > rr2) { _tb.fromBufferAttribute(P, i1).applyMatrix4(mw); if (_tb.distanceToSquared(wp) > rr2) continue; }
       const a = _ta.clone(), b = new V3().fromBufferAttribute(P, i1).applyMatrix4(mw), c = new V3().fromBufferAttribute(P, i2).applyMatrix4(mw);
+      if (croot && chunkGoneAt(croot, _tc.copy(a).add(b).add(c).multiplyScalar(1 / 3))) continue;   // that skin has been blown away
       tris.push(a, b, c); tm.push(m);
     }
   }
-  const _hp2 = new V3(), _tn = new V3(), _e1 = new V3(), _e2 = new V3(); let b_mesh = null; const L = [];
+  const _hp2 = new V3(), _tn = new V3(), _e1 = new V3(), _e2 = new V3(); let b_mesh = null, lastN = null; const L = [];
   const drop = (o, r, stretch, along) => {
     _lray.ray.set(o.clone().addScaledVector(wn, 0.12), wn.clone().negate());
     let best = 0.26, hp = null, hn = null, hm = null;
@@ -507,7 +558,7 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
     }
     // a drop is a disc of radius r (or longer, stretched): none of it may lie over the opening, or it hides the wound
     if (!hp || inHole(hm, hp, 1.15, r * Math.max(1, stretch) * 1.05)) return null; if (hn.dot(wn) < 0) hn.negate();
-    b_mesh = hm;
+    b_mesh = hm; lastN = hn.clone();
     const h = { point: hp };
     _lqL.setFromUnitVectors(_Y, hn); if (along) { const a = along.clone().addScaledVector(hn, -along.dot(hn)).normalize(), x0 = new V3(0, 0, 1).applyQuaternion(_lqL); _lqL.premultiply(new THREE.Quaternion().setFromUnitVectors(x0, a)); } else _lqL.multiply(new THREE.Quaternion().setFromAxisAngle(_Y, Math.random() * 6.28));
     L.push({ q: gq.clone().multiply(_lqL), p: out.worldToLocal(h.point.clone().addScaledVector(hn, r * 0.08)), s: new V3(r, r * rnd(0.045, 0.075), r * stretch), on: b_mesh, r: r * Math.max(1, stretch) });
@@ -522,10 +573,23 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
     d = Math.max(d, hr * 1.15 + r * st * 1.1);   // a ring round the hole: even the drop's edge stays off the opening
     drop(wp.clone().addScaledVector(t1, Math.cos(a) * d).addScaledVector(t2, Math.sin(a) * d), r, st);
   }
-  // runs: blood heading downhill across the surface from the wound
-  const down = new V3(0, -1, 0).addScaledVector(wn, wn.y); if (runs && down.length() > 0.25) {
-    down.normalize();
-    for (let j = 0; j < runs; j++) { const side = t1.clone().multiplyScalar(rnd(-0.6, 0.6) * R); const w0 = rnd(0.0035, 0.006) * k, nS = 6 + Math.floor(Math.random() * 4); let o = wp.clone().add(side).addScaledVector(down, hr * 1.15 + w0 * 3.2), got = 0; for (let s = 0; s < nS; s++) { o = o.addScaledVector(down, w0 * rnd(1.6, 2.2)); if (drop(o, w0 * (1 - s / nS * 0.6), rnd(2.4, 3), down)) got++; else if (got || s > 2) break; } }
+  // runs: blood walking downhill across the surface from the wound, for the way the body lies right now. Each step finds the
+  // skin under it, turns world-down into that surface's own slope, wanders a little, and thins out until it runs dry
+  if (runs) {
+    const _rt = new V3();
+    for (let j = 0; j < runs; j++) {
+      let w0 = rnd(0.004, 0.0065) * k, a0 = Math.random() * 6.28, o = wp.clone().addScaledVector(t1, Math.cos(a0) * (hr * 1.2 + w0 * 2)).addScaledVector(t2, Math.sin(a0) * (hr * 1.2 + w0 * 2));
+      let hn = wn.clone(), got = 0;
+      for (let s = 0; s < 22 && w0 > 0.0015; s++) {
+        _rt.set(0, -1, 0).addScaledVector(hn, hn.y); if (_rt.lengthSq() < 0.04) break; _rt.normalize();
+        // wander up to 25 degrees either way round the surface normal
+        _rt.applyAxisAngle(hn, rnd(-0.44, 0.44));
+        o.addScaledVector(_rt, w0 * rnd(1.4, 1.9));
+        const hit = drop(o, w0, rnd(1.8, 2.4), _rt); if (!hit) { if (got || s > 2) break; continue; }
+        got++; o.copy(hit); if (lastN) hn.copy(lastN);
+        w0 *= 0.92;
+      }
+    }
   }
   if (!L.length) { out.removeFromParent(); return null; }
   const im = new THREE.InstancedMesh(LIQ_GEO, LIQ_MAT, L.length), M4 = new THREE.Matrix4();
@@ -534,7 +598,7 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
   return out;
 }
 // kept under the old name: the torn ring round a blast wound is now a wide patch of liquid blood
-function tearMesh(group, p, n, size, hr) { return liquidBlood(group, p, n, clamp(size * 0.32, 0.04, 0.13) + (hr || 0), 26, 4, hr); }
+function tearMesh(group, p, n, size, hr, runs) { return liquidBlood(group, p, n, clamp(size * 0.32, 0.04, 0.13) + (hr || 0), 26, runs === undefined ? 2 : runs, hr); }
 // ---------------------------------------------------------------- spatter thrown out of a body
 // For every gun: whatever flies out of an exit (or out of a head) paints the wall behind if there is one within reach,
 // otherwise it comes down on the floor ahead, as a droplet field stretched along the line it flew with a little puddle in it.
@@ -542,19 +606,23 @@ function blowSpatter(point, dir, size, goreK) {
   if (wallSpatter(point, dir, size, goreK)) return;
   const fy = floorAt(point.x, point.y, point.z), hgt = Math.max(0.03, point.y - fy);
   const dh = new V3(dir.x, 0, dir.z); let hl = dh.length(); if (hl < 0.15) { dh.set(rnd(-1, 1), 0, rnd(-1, 1)); hl = 0.3; } dh.normalize();
-  const v = rnd(3, 6), vy = dir.y * v + 0.6, vh = Math.max(0.6, hl * v), t = (vy + Math.sqrt(vy * vy + 2 * 9.8 * hgt)) / 9.8, land = clamp(vh * t * 0.75, 0.4, 4);
+  // gunshot spatter lands within a metre and a half; a head burst or a blast carries to about three
+  const v = rnd(3, 6), vy = dir.y * v + 0.6, vh = Math.max(0.6, hl * v), t = (vy + Math.sqrt(vy * vy + 2 * 9.8 * hgt)) / 9.8, land = clamp(vh * t * 0.5, 0.3, goreK ? 3 : 1.5);
   const n = _Y, m = new THREE.Mesh(splatGeo, bmat(goreK ? 'gore' : 'spray')); m.quaternion.setFromUnitVectors(_Z, n);
   const vl = dh.clone().applyQuaternion(m.quaternion.clone().invert()); m.rotateZ(-Math.atan2(vl.x, vl.y));
-  const sz = size * (1 + land * 0.35);
+  const sz = size * 0.6 * (1 + land * 0.35);
   m.position.set(point.x, fy + 0.004 + Math.random() * 0.002, point.z).addScaledVector(dh, land * 0.55 + sz * 0.3); m.scale.set(sz * 0.75, sz * 1.25, 1);
   m.receiveShadow = true; scene.add(m); decals.push(m); trimDecals();
-  for (let i = 0; i < 3; i++) { const q = new V3(point.x, fy, point.z).addScaledVector(dh, land * rnd(0.6, 1.3)).add(new V3(rnd(-0.12, 0.12), 0, rnd(-0.12, 0.12))); feedPool(q.x, fy, q.z, size * rnd(2, 5)); }
+  // (spatter never makes a pool: pools come only from blood that runs out of a body)
 }
 function addWound(hum, frame, group, p, n, kind, size) {
   const mk = () => { const m = new THREE.Object3D(); m.position.copy(p).addScaledVector(n, 0.004); m.userData.keep = true; group.add(m); return m; };
   const hr = kind === 'blast' ? size / 7.5 : kind === 'rimX' ? size / 6.5 : size / 5.2;
   const m = mk(), st = soakMesh(group, p, n, kind === 'blast' ? 0.09 : 0.045, hr), tr = kind === 'blast' ? tearMesh(group, p, n, size, hr) : liquidBlood(group, p, n, clamp(size * 0.9, 0.012, 0.03), 5, 1, hr);
-  const rg = !hum && group.parent && group.parent.userData.ragObj; if (rg) { rg.anchors.push({ m, n: n.clone() }); rg.soaks = rg.soaks || []; rg.soaks.push([st, clamp(size * 4, 0.12, 0.3)]); }
+  const rg = !hum && group.parent && group.parent.userData.ragObj; if (rg) rg.anchors.push({ m, n: n.clone() });
+  // the clothes round it soak through over the next half minute: an exit or a blast wound much further than an entry
+  const sroot = hum ? hum.root : rg ? rg.group : chunkRootOf(group);
+  if (frame && sroot) addSoak(sroot, frame, group, p, kind === 'blast' ? 0.16 : kind === 'rimX' ? 0.11 : 0.075);
   if (!hum || !frame) return;
   hum.wounds = hum.wounds || [];
   hum.wounds.push({ frame, p: p.clone(), n: n.clone(), kind, m, st, size, grow: clamp(size * 4, 0.12, kind === 'blast' ? 0.45 : 0.3), tear: tr ? size : 0, tr });
@@ -615,7 +683,7 @@ function exitThrough(targets, point, dir, maxLen) {
   return ex ? { point: ex.point, len: maxLen - ex.distance, object: ex.object, face: ex.face } : null;
 }
 // the visible damage a round does to one body segment: hole cut as deep as it got, wound marks at each end
-function bodyWound(hit, dir, w, pen, ex, hum) {
+function bodyWound(hit, dir, w, pen, ex, hum, frag) {
   const g = hit.object.parent, frame = hit.object.userData.frame, armor = hit.object.userData.armor;
   const cal = CAL[w] || CAL[0], qi = g.getWorldQuaternion(new THREE.Quaternion()).invert();
   const pL = g.worldToLocal(hit.point.clone()), dL = dir.clone().applyQuaternion(qi).normalize(), nL = dL.clone().negate();
@@ -627,7 +695,8 @@ function bodyWound(hit, dir, w, pen, ex, hum) {
   const pellet = !!WEAPONS[w].pellets;
   if (!pellet) holeInGroup(g, start, dL, L, cal[0], r1, sk);
   if (hum && frame && !pellet) { hum.holes = hum.holes || []; hum.holes.push({ frame, p: start, d: dL.clone(), len: L, r0: cal[0], r1, sk }); if (hum.holes.length > 30) hum.holes.shift(); }
-  if (!armor) addWound(hum, frame, g, pL, nL, 'rim', cal[0] * (pellet ? 3.5 : 5.2));
+  if (!armor && frag) { const r = hum ? hum.root : chunkRootOf(g); if (frame && r) addPepper(r, frame, g, pL); }   // a grenade fragment: a dark dot, not a wound mesh
+  else if (!armor) addWound(hum, frame, g, pL, nL, 'rim', cal[0] * (pellet ? 3.5 : 5.2));
   if (!through || pellet) return;
   const g2 = ex.object.parent, p2 = g2.worldToLocal(ex.point.clone()), d2 = dir.clone().applyQuaternion(g2.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
   if (g2 !== g) { holeInGroup(g2, p2.clone().addScaledVector(d2, -0.08), d2, 0.12, r1 * 0.8, r1, [0.0, 0.11]); const f2 = ex.object.userData.frame; if (hum && f2) { hum.holes.push({ frame: f2, p: p2.clone().addScaledVector(d2, -0.08), d: d2, len: 0.12, r0: r1 * 0.8, r1, sk: [0.0, 0.11] }); if (hum.holes.length > 30) hum.holes.shift(); } }
@@ -689,4 +758,22 @@ function worldPen(b, hit, dir, nIn) {
 function pierceMark(mesh, point, normal, surf, r, exit) {
   const base = PIERCE_MAT[surf] || PIERCE_MAT.concrete, size = r * (exit ? 4 : 5) / 0.7;
   placeDecal(mesh, point, normal, Math.max(0.02, size), base);
+}
+
+// ---------------------------------------------------------------- bloody footprints
+// Walking through a fresh pool wets the boots: the next eight steps leave prints, left and right, fainter each time
+const BOOT_MAT = [];
+{ const t = canvasTex((g, s) => { g.clearRect(0, 0, s, s); const c = s / 2; g.fillStyle = 'rgba(110,14,12,0.95)';
+    g.beginPath(); g.ellipse(c, s * 0.34, s * 0.17, s * 0.24, 0, 0, 7); g.fill(); g.beginPath(); g.ellipse(c, s * 0.76, s * 0.13, s * 0.14, 0, 0, 7); g.fill();
+    g.globalCompositeOperation = 'destination-out'; for (let y = 0.16; y < 0.9; y += 0.07) { if (y > 0.55 && y < 0.64) continue; g.fillRect(s * 0.25, s * y, s * 0.5, s * 0.022); } g.globalCompositeOperation = 'source-over'; }, 128, false);
+  for (let i = 0; i < 8; i++) { const m = new THREE.MeshStandardMaterial({ map: t, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, roughness: 0.4, metalness: 0, opacity: 0.85 - i * 0.09 }); BOOT_MAT.push(m); } }
+function footStep() {
+  if (!P.alive || !P.onGround) return;
+  const now = performance.now() / 1000;
+  for (const p of pools) for (const l of p.lobes) if (now - l.born < 150 && Math.hypot(l.x - P.pos.x, l.z - P.pos.z) < l.r * 0.85) P.bootBlood = 8;
+  if (!(P.bootBlood > 0)) return;
+  P.foot = P.foot ? 0 : 1; const side = P.foot ? 1 : -1, ry = P.yaw;
+  const x = P.pos.x + Math.cos(ry) * 0.1 * side, z = P.pos.z - Math.sin(ry) * 0.1 * side, fy = floorAt(x, P.pos.y + 0.1, z);
+  const m = new THREE.Mesh(splatGeo, BOOT_MAT[8 - P.bootBlood]); m.rotation.set(-Math.PI / 2, 0, ry); m.position.set(x, fy + 0.003, z); m.scale.set(0.13, 0.3, 1);
+  m.receiveShadow = true; scene.add(m); decals.push(m); trimDecals(); P.bootBlood--;
 }

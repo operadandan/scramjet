@@ -2,7 +2,10 @@
 // Skull plates (scalp outside, bone inside), brain, raw muscle with fat, bone shards, loops of gut, pieces of lung and liver.
 // They fly, tumble and bleed as they go, and where one lands it leaves a smear and a little pool. Each kind has several shapes.
 const GORE_MAX = 170, gore = [];
-const goreWet = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.26, metalness: 0.05 });
+const goreWet = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0, envMapIntensity: 0.3 });
+// a little light wraps round to the shadow side (tissue lets light through), so meat does not go black where it faces away
+goreWet.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.indirectDiffuse += diffuseColor.rgb * 0.12;'); };
+goreWet.customProgramCacheKey = () => 'goreWrap';
 const goreDry = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0 });
 const boneIn = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, side: THREE.BackSide });
 // a rough blob: an icosphere pushed in and out, the same amount at shared corners so it stays closed
@@ -14,7 +17,9 @@ function lumpy(det, amp, sx, sy, sz) {
     const j = J[k] || (J[k] = 1 + amp * (Math.sin(x * f + ph[0]) * Math.sin(y * f + ph[1]) * Math.sin(z * f + ph[2]) * 1.6 + rnd(-0.5, 0.5)));
     p.setXYZ(i, x * j * sx, y * j * sy, z * j * sz);
   }
-  g.computeVertexNormals(); return g;
+  // the icosphere comes unindexed (every face its own corners): weld it so the normals are smooth and the piece reads as
+  // soft wet tissue, not a cut gem
+  g.deleteAttribute('normal'); g.deleteAttribute('uv'); const m = mergeVertices(g); m.computeVertexNormals(); return m;
 }
 function paint(g, fn) {
   const p = g.attributes.position, c = new Float32Array(p.count * 3);
@@ -23,29 +28,38 @@ function paint(g, fn) {
 }
 const nz = (x, y, z, f, s) => Math.sin(x * f + s) * Math.sin(y * f * 1.3 + s * 2) * Math.sin(z * f * 0.8 + s * 3);
 const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-const C_MEAT = [0.5, 0.05, 0.06], C_RAW = [0.68, 0.14, 0.13], C_FAT = [0.86, 0.74, 0.55], C_CLOT = [0.22, 0.01, 0.02], C_BONE = [0.9, 0.85, 0.74], C_BRAIN = [0.8, 0.64, 0.64], C_SULC = [0.5, 0.3, 0.32];
+// colours as they look on screen (sRGB hex), converted to the renderer's linear space
+const C_ = h => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
+const C_MEAT = C_(0x6e1512), C_RAW = C_(0x8c2a22), C_FAT = C_(0xa88a52), C_CLOT = C_(0x2a0606), C_BONE = C_(0xcfc2a4), C_BRAIN = C_(0x9c7470), C_SULC = C_(0x6a3e3e);
+const C_LUNG = [C_(0xa0504e), C_(0x7a3432)], C_LIVER = C_(0x4a1410), C_GUT = [C_(0xa86a5e), C_(0x7a3a30)], C_MARROW = C_(0x6a1a14), C_SKULLB = C_(0x7a1a16);
 const GORE_GEO = {
   // torn muscle: dark meat, rawer streaks, patches of yellow fat, clotted edges
   flesh: Array.from({ length: 6 }, () => { const s = rnd(0, 9); return paint(lumpy(1, 0.32, rnd(0.8, 1.3), rnd(0.6, 1), rnd(0.8, 1.2)), (x, y, z) => { const n = nz(x, y, z, 5, s); return n > 0.35 ? C_FAT : n < -0.3 ? C_CLOT : mixc(C_MEAT, C_RAW, 0.5 + 0.5 * Math.sin(y * 9 + s)); }); }),
   // brain: pinkish grey with the folds showing darker, streaked with blood
   brain: Array.from({ length: 4 }, () => { const s = rnd(0, 9); return paint(lumpy(2, 0.2, rnd(0.9, 1.2), rnd(0.7, 0.9), rnd(0.9, 1.1)), (x, y, z) => { const f = Math.abs(Math.sin(x * 11 + s) + Math.sin(z * 9 + y * 6 + s)); return nz(x, y, z, 4, s) > 0.45 ? C_MEAT : f < 0.35 ? C_SULC : C_BRAIN; }); }),
   // bone shard: a long splinter, ivory, red marrow at the broken end
-  bone: Array.from({ length: 4 }, () => { const g = new THREE.OctahedronGeometry(1, 0); g.scale(rnd(0.25, 0.4), 1, rnd(0.2, 0.35)); g.computeVertexNormals(); return paint(g, (x, y) => y < -0.7 ? [0.55, 0.12, 0.1] : C_BONE); }),
+  bone: Array.from({ length: 4 }, () => { const g = new THREE.OctahedronGeometry(1, 0); g.scale(rnd(0.25, 0.4), 1, rnd(0.2, 0.35)); g.computeVertexNormals(); return paint(g, (x, y) => y < -0.7 ? C_MARROW : C_BONE); }),
   // a loop of gut: pink-tan tube, glossy
-  gut: Array.from({ length: 3 }, () => { const g = new THREE.TorusGeometry(1, rnd(0.28, 0.38), 6, 12, rnd(1.6, 3.6)); return paint(g, (x, y, z) => nz(x, y, z, 6, 1) > 0.4 ? [0.55, 0.16, 0.14] : [0.8, 0.55, 0.5]); }),
+  gut: Array.from({ length: 3 }, () => { const g = new THREE.TorusGeometry(1, rnd(0.28, 0.38), 6, 12, rnd(1.6, 3.6)); return paint(g, (x, y, z) => nz(x, y, z, 6, 1) > 0.4 ? C_GUT[1] : C_GUT[0]); }),
   // liver (dark, smooth) and lung (pink, spongy) pieces
-  liver: Array.from({ length: 2 }, () => paint(lumpy(1, 0.18, 1.3, 0.6, 1), (x, y, z) => nz(x, y, z, 7, 2) > 0.5 ? C_CLOT : [0.36, 0.08, 0.06])),
-  lung: Array.from({ length: 2 }, () => paint(lumpy(1, 0.3, 1, 0.8, 1), (x, y, z) => nz(x, y, z, 9, 3) > 0.2 ? [0.62, 0.3, 0.32] : [0.82, 0.52, 0.54]))
+  liver: Array.from({ length: 2 }, () => paint(lumpy(1, 0.18, 1.3, 0.6, 1), (x, y, z) => nz(x, y, z, 7, 2) > 0.5 ? C_CLOT : C_LIVER)),
+  lung: Array.from({ length: 2 }, () => paint(lumpy(1, 0.3, 1, 0.8, 1), (x, y, z) => nz(x, y, z, 9, 3) > 0.2 ? C_LUNG[1] : C_LUNG[0]))
 };
 // a curved plate of skull: scalp on the outside, bone on the inside, a bloody rim
 function skullPiece(skin) {
   const ph = rnd(0.5, 1.1), th = rnd(0.45, 0.9), g = new THREE.SphereGeometry(1, 8, 6, rnd(0, 6), ph, rnd(0.2, 1.5), th);
   const sk = new THREE.Color(skin || 0xc19275);
-  const out = new THREE.Mesh(paint(g, () => Math.random() < 0.25 ? [0.45, 0.03, 0.04] : [sk.r, sk.g, sk.b]), goreDry);
-  const inn = new THREE.Mesh(paint(g.clone(), () => Math.random() < 0.35 ? [0.6, 0.1, 0.1] : C_BONE), boneIn); inn.scale.setScalar(0.94);
+  const out = new THREE.Mesh(paint(g, () => Math.random() < 0.25 ? C_SKULLB : [sk.r, sk.g, sk.b]), goreDry);
+  const inn = new THREE.Mesh(paint(g.clone(), () => Math.random() < 0.35 ? C_SKULLB : C_BONE), boneIn); inn.scale.setScalar(0.94);
   const grp = new THREE.Group(); grp.add(out, inn); out.castShadow = true; return grp;
 }
 // kinds: flesh, brain, bone, gut, liver, lung, skull. size is the rough radius in metres
+const _gcu = new V3(), _gcv = new V3();
+function coneDir(dir, half) {
+  const d = dir.clone().normalize(), u = _gcu.crossVectors(d, Math.abs(d.y) < 0.9 ? _Y : new V3(1, 0, 0)).normalize(), w = _gcv.crossVectors(d, u);
+  const ct = 1 - Math.random() * (1 - Math.cos(half)), st = Math.sqrt(1 - ct * ct), ph = Math.random() * 6.283;
+  return d.multiplyScalar(ct).addScaledVector(u, st * Math.cos(ph)).addScaledVector(w, st * Math.sin(ph));
+}
 function spawnGore(p, dir, kind, n, speed, spread, size, skin) {
   for (let i = 0; i < n; i++) {
     // sizes spread log-normally (lots of small crumbs, now and then a big piece), and no two the same shape
@@ -54,9 +68,11 @@ function spawnGore(p, dir, kind, n, speed, spread, size, skin) {
     else { m = new THREE.Mesh(pick(GORE_GEO[kind]), kind === 'bone' ? goreDry : goreWet); m.castShadow = s > 0.01; }
     m.scale.set(s * rnd(0.6, 1.4), s * rnd(0.55, 1.35), s * rnd(0.6, 1.4)); if (kind === 'bone') m.scale.y *= rnd(1.5, 2.6);
     m.position.copy(p).add(new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(0.02)); m.rotation.set(rnd(0, 6), rnd(0, 6), rnd(0, 6)); scene.add(m);
-    const v = dir.clone().multiplyScalar(speed * rnd(0.3, 1.1)).add(new V3(rnd(-1, 1), rnd(-0.3, 1.2), rnd(-1, 1)).multiplyScalar(spread * speed));
+    // thrown in a cone round dir (the half-angle grows with spread: about 25 degrees for an exit, 40 for a blast), cosine
+    // weighted toward the middle, with a little lift and nothing more
+    const v = coneDir(dir, clamp(spread * 0.75, 0.2, 0.9)).multiplyScalar(speed * rnd(0.55, 1.05)); v.y += 0.2 * speed * 0.3;
     // brain and gut stick and slump, bone and skull bounce a little
-    const bounce = kind === 'bone' || kind === 'skull' ? 0.3 : 0.08;
+    const bounce = kind === 'bone' || kind === 'skull' ? 0.25 : 0.04;
     gore.push({ m, v, w: new V3(rnd(-18, 18), rnd(-18, 18), rnd(-18, 18)), r: s * (kind === 'skull' ? 0.35 : 0.6), life: rnd(50, 80), rest: false, bounce, landed: false, bleed: kind === 'bone' ? 0.3 : 1, drip: 0, kind });
   }
   while (gore.length > GORE_MAX) { const g = gore.shift(); scene.remove(g.m); }
@@ -71,7 +87,8 @@ function updateGore(dt) {
     _gp.copy(g.m.position); g.m.position.addScaledVector(g.v, dt);
     g.m.rotation.x += g.w.x * dt; g.m.rotation.y += g.w.y * dt; g.m.rotation.z += g.w.z * dt;
     // bleeding in flight: a thin trail of drops for the first moments
-    if (!g.landed && g.bleed > 0) { g.drip += dt * 18 * g.bleed; while (g.drip > 1) { g.drip -= 1; spawnDrop(g.m.position, g.v.clone().multiplyScalar(0.4).add(new V3(rnd(-0.2, 0.2), rnd(-0.2, 0.1), rnd(-0.2, 0.2))), rnd(0.002, 0.005)); } g.bleed -= dt * 1.2; }
+    // (at an uneven rate and scattered sideways: a steady drip from a piece flying straight left a ladder of evenly spaced dots)
+    if (!g.landed && g.bleed > 0) { g.drip += dt * rnd(3, 8) * g.bleed; while (g.drip > 1) { g.drip -= rnd(0.6, 1.6); spawnDrop(g.m.position, g.v.clone().multiplyScalar(rnd(0.2, 0.6)).add(new V3(rnd(-0.5, 0.5), rnd(-0.3, 0.2), rnd(-0.5, 0.5))), spatR() * 1.3); } g.bleed -= dt * 1.5; }
     let floor = g.r;
     for (const c of colliders) {
       const q = g.m.position;
@@ -90,18 +107,28 @@ function updateGore(dt) {
         g.landed = true;
         // where it lands: a smear along the way it was moving, and the blood it carried
         const h = new V3(g.v.x, 0, g.v.z), sp = h.length();
-        if (g.kind !== 'bone') {
+        if (g.kind !== 'bone' && g.r > 0.012) {
           const mk = new THREE.Mesh(splatGeo, bmat(sp > 1.2 ? 'smear' : 'splat')); mk.rotation.set(-Math.PI / 2, 0, sp > 0.1 ? Math.atan2(h.x, h.z) + Math.PI : Math.random() * 6.28);
-          const L = Math.min(0.32, 0.05 + sp * 0.05) * (g.kind === 'skull' ? 0.7 : 1);
+          const L = clamp(g.r * 4 * (1 + Math.min(1, sp * 0.15)), 0.03, 0.12);
           mk.position.set(g.m.position.x - (sp > 0.1 ? h.x / sp * L * 0.3 : 0), floor - g.r + 0.003 + Math.random() * 0.002, g.m.position.z - (sp > 0.1 ? h.z / sp * L * 0.3 : 0)); mk.scale.set(L * 0.6, L, 1);
           mk.receiveShadow = true; scene.add(mk); decals.push(mk); trimDecals();
-          feedPool(g.m.position.x, floor - g.r, g.m.position.z, rnd(1, 4));
+          feedPool(g.m.position.x, floor - g.r, g.m.position.z, 0.2);
         }
       }
       if (g.v.y < -1.2) { g.v.y *= -g.bounce; g.v.x *= 0.45; g.v.z *= 0.45; g.w.multiplyScalar(0.4); }
       else { g.v.x *= Math.max(0, 1 - 9 * dt); g.v.z *= Math.max(0, 1 - 9 * dt); g.v.y = 0; g.w.multiplyScalar(Math.max(0, 1 - 9 * dt)); if (Math.hypot(g.v.x, g.v.z) < 0.05) g.rest = true; }
     }
   }
+}
+function brainSmears(p, fw, n) {
+  const fy = floorAt(p.x, p.y, p.z), h = new V3(fw.x, 0, fw.z); if (h.lengthSq() < 1e-4) h.set(rnd(-1, 1), 0, rnd(-1, 1)); h.normalize();
+  for (let i = 0; i < n; i++) {
+    const L = rnd(0.3, 1.6), q = new V3(p.x, fy, p.z).addScaledVector(h, L).add(new V3(rnd(-0.25, 0.25), 0, rnd(-0.25, 0.25)));
+    const mk = new THREE.Mesh(splatGeo, bmat('brain')); mk.rotation.set(-Math.PI / 2, 0, Math.atan2(h.x, h.z) + Math.PI + rnd(-0.4, 0.4));
+    const sz = rnd(0.04, 0.09); mk.position.set(q.x, fy + 0.0035 + Math.random() * 0.002, q.z); mk.scale.set(sz * 0.6, sz, 1);
+    mk.receiveShadow = true; scene.add(mk); decals.push(mk);
+  }
+  trimDecals();
 }
 function clearGore() { for (const g of gore) scene.remove(g.m); gore.length = 0; }
 // ---------------------------------------------------------------- what a blast throws out, by body part
@@ -112,7 +139,9 @@ function goreBlast(part, p, dir, k, skin) {
   const fw = dir.clone().add(new V3(0, 0.25, 0)).normalize(), bk = dir.clone().negate().add(new V3(0, 0.45, 0)).normalize();
   if (part === 'head') {
     spawnGore(p, fw, 'skull', Math.round(7 + 5 * k), rnd(2.2, 4), 0.5, 0.05, skin);
-    spawnGore(p, fw, 'brain', Math.round(7 + 6 * k), rnd(1.8, 3.6), 0.55, 0.026);
+    spawnGore(p, fw, 'brain', 3 + Math.round(2 * k * Math.random()), rnd(1.8, 3.2), 0.5, 0.024);
+    // most brain at a wound is paste, not lumps: grey-pink smears on the floor along the way it went
+    brainSmears(p, fw, 3 + Math.floor(Math.random() * 3));
     spawnGore(p, fw, 'flesh', Math.round(5 + 4 * k), rnd(1.6, 3.2), 0.55, 0.022);
     spawnGore(p, fw, 'bone', 4, rnd(2, 4), 0.55, 0.014);
     spawnGore(p, bk, 'flesh', 3, rnd(0.8, 1.6), 0.5, 0.016);
@@ -128,5 +157,5 @@ function goreBlast(part, p, dir, k, skin) {
   }
   // a wet cloud and a heavy spray of drops with it
   for (let i = 0; i < 4; i++) mist(p.clone().addScaledVector(dir, 0.04 + i * 0.07), dir.clone().multiplyScalar(rnd(1.5, 4)).add(new V3(rnd(-0.5, 0.5), rnd(-0.2, 0.5), rnd(-0.5, 0.5))), 0.4 + i * 0.12 * k, 0.7, 0x5a0307, 0.5 - i * 0.07);
-  for (let i = 0; i < Math.round(22 * k + 10); i++) spawnDrop(p, dir.clone().multiplyScalar(rnd(2.5, 7)).add(new V3(rnd(-1.4, 1.4), rnd(-0.5, 1.4), rnd(-1.4, 1.4))), rnd(0.004, 0.012), 1, 0.3, 1);
+  for (let i = 0; i < Math.round(22 * k + 10); i++) spawnDrop(p, coneDir(dir, 0.7).multiplyScalar(rnd(3, 8)), spatR() * 1.4, 1, undefined, 0.3);
 }

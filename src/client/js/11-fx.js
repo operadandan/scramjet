@@ -78,6 +78,17 @@ function bulletHole(hit, normal, w) {
   if (d) heats.push({ d, m: hm, base, t: 0, dur: surf === 'metal' ? 2.4 : 1.3, i0: hm.emissiveIntensity });
   impactFx(hit.point, normal, surf);
 }
+// a grenade fragment striking the ground or a wall: a small grey scuff and a puff of dust, no glowing hole
+// pulverised concrete is pale dust round a shallow mid-grey pit, the chips scattered (no ring)
+const FRAG_SCUFF = new THREE.MeshStandardMaterial({ map: decalCanvas((g, s) => {
+  const c = s / 2; irregular(g, c, c, s * 0.3, 16, 0.5, 'rgba(178,174,166,0.55)'); irregular(g, c, c, s * 0.12, 10, 0.4, 'rgba(112,108,102,0.9)');
+  for (let i = 0; i < 18; i++) { const a = Math.random() * 6.28, d = s * 0.42 * Math.sqrt(Math.random()); g.fillStyle = 'rgba(' + (165 + Math.random() * 40 | 0) + ',' + (160 + Math.random() * 40 | 0) + ',150,0.85)'; g.fillRect(c + Math.cos(a) * d, c + Math.sin(a) * d, rnd(1, 3), rnd(1, 3)); }
+}), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, roughness: 0.95 });
+function fragScuff(hit, normal) {
+  const surf = hit.object.userData.surf || 'concrete', base = surf === 'concrete' || surf === 'dirt' ? FRAG_SCUFF : DECAL_MAT[surf] || FRAG_SCUFF;
+  if (Math.random() < 0.5) placeDecal(hit.object, hit.point, normal, (DECAL_SIZE[surf] || 0.05) * rnd(0.35, 0.55), base);
+  if (Math.random() < 0.35) impactFx(hit.point, normal, surf);
+}
 const _hc1 = new THREE.Color(0xffc060), _hc2 = new THREE.Color(0xff2000), _hc3 = new THREE.Color(0x600000);
 function updateHeats(dt) {
   for (let i = heats.length - 1; i >= 0; i--) {

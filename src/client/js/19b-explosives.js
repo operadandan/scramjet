@@ -318,34 +318,44 @@ function blastFate(z, contact, kind) {
   return {};
 }
 function blastGore(c, dir, lvl, skin) {
-  if (lvl >= 3) { spawnGore(c, dir, 'flesh', 24, 9, 0.9, 0.05, skin); spawnGore(c, dir, 'bone', 10, 9, 0.9, 0.03, skin); spawnGore(c, dir, 'gut', 6, 6, 0.8, 0.035, skin); spawnGore(c, dir, 'lung', 3, 6, 0.7, 0.04, skin); spawnGore(c, dir, 'liver', 2, 5, 0.6, 0.04, skin); }
-  else if (lvl === 2) { spawnGore(c, dir, 'flesh', 10, 7, 0.8, 0.04, skin); spawnGore(c, dir, 'bone', 5, 7, 0.8, 0.025, skin); spawnGore(c, dir, 'gut', 1, 4, 0.6, 0.03, skin); }
-  else if (lvl === 1) { spawnGore(c, dir, 'flesh', 3, 5, 0.7, 0.03, skin); spawnGore(c, dir, 'bone', 1, 5, 0.7, 0.02, skin); }
+  if (lvl >= 3) { spawnGore(c, dir, 'flesh', 12, rnd(4, 7), 0.9, 0.045, skin); spawnGore(c, dir, 'bone', 5, rnd(4, 7), 0.9, 0.028, skin); spawnGore(c, dir, 'gut', 3, rnd(3, 5), 0.8, 0.035, skin); spawnGore(c, dir, 'lung', 2, rnd(3, 5), 0.7, 0.04, skin); spawnGore(c, dir, 'liver', 1, rnd(3, 5), 0.6, 0.04, skin); }
+  else if (lvl === 2) { spawnGore(c, dir, 'flesh', 6, rnd(3.5, 6), 0.8, 0.04, skin); spawnGore(c, dir, 'bone', 3, rnd(3.5, 6), 0.8, 0.025, skin); spawnGore(c, dir, 'gut', 1, 3.5, 0.6, 0.03, skin); }
+  else if (lvl === 1) { spawnGore(c, dir, 'flesh', 2, 4, 0.7, 0.03, skin); spawnGore(c, dir, 'bone', 1, 4, 0.7, 0.02, skin); }
 }
 function applyFate(an, F, kind) {
   if (F.gib) an.gibHead = true;
+  // a charge on the chest does not leave the head clean: half the time the neck is torn through, a quarter of the time the
+  // head goes; otherwise the face is burned and blackened (the burn is drawn from the blast's own burn sphere)
+  if (F.limbs >= 4 && !an.gibHead && !an.neckTear && !F.rolled) { F.rolled = 1; const r = Math.random(); if (r < 0.25) an.gibHead = true; else if (r < 0.75) an.neckTear = true; }
   if (F.limbs) blastLimbs(an, null, F.limbs);
   if (F.lung) { an.shock = (an.shock || 0) + 40 + F.lung * 2; an.pain = Math.min(1, (an.pain || 0) + 0.5); an.wounds.push({ region: 'chest', name: 'Blast injury (lungs)', rate: F.lung, treated: false }); an.version++; }
   if (F.kill) an.kill('blast');
 }
 // the blocks of trunk and head the blast reaches are blown out: anything inside about 0.4 m of a C4 block, 0.2 m of a grenade
 function blastChunks(root, p, cW, kind, an, dir, skin) {
-  // the side of the body facing the blast goes first: a block on the far side only goes if its near-side twin is close enough
-  // to be gone well inside the radius, so a body is blown open, not punched clean through, unless the charge was on it
+  // the side of the body facing the blast goes first: a cell with a neighbour between it and the charge only goes if it is
+  // well inside the radius, so a body is blown open, not punched clean through, unless the charge was on it. Even then the
+  // blast never takes a whole side off in one clean sheet: at contact a share of the cells survive, so the opening has depth
   const R = (kind === 'c4' ? 0.42 : 0.45) * cW, cs = chunkCenters(root), dist = new Map();
-  for (const c of cs) dist.set(c.k + c.i, c.p.distanceTo(p));
-  const twin = c => { const G = CHK[c.k], NN = G.nx * G.ny; return c.k + (c.i < NN ? c.i + NN : c.i - NN); };
-  const ch = destroyChunks(root, c => { const d = dist.get(c.k + c.i), dt = dist.get(twin(c)); const far = dt !== undefined && dt < d; return (far ? d + 0.12 : d) < R * rnd(0.85, 1.15); }, dir, skin);
+  let minD = 1e9; for (const c of cs) { const d = c.p.distanceTo(p); dist.set(c.k + c.i, d); minD = Math.min(minD, d); }
+  const contact = minD < 0.2;
+  const ch = destroyChunks(root, c => {
+    const d = dist.get(c.k + c.i), nr = c.k === 'H' ? 0.09 : 0.14;
+    const shielded = cs.some(o => o.k === c.k && o.i !== c.i && o.p.distanceTo(c.p) < nr && dist.get(o.k + o.i) < d - 0.05);
+    let ok = (shielded ? d + 0.1 : d) < R * rnd(0.85, 1.15);
+    if (ok && contact && Math.random() < 0.25) ok = false;
+    return ok;
+  }, dir, skin);
   if (an && ch.t + ch.h) {
     if (ch.h) an.wounds.push({ region: 'head', name: 'Head blown apart', rate: 150, treated: false, artery: 1 });
     if (ch.t) an.wounds.push({ region: 'chest', name: 'Torso blown open', rate: 150, treated: false, artery: 1 });
     an.version++; if (!an.dead) an.kill(ch.h ? 'brain' : 'blast');
-    if (chunkCount(root, 'H') >= 13) an.gibHead = true;
+    if (chunkCount(root, 'H') >= CH_GIB) an.gibHead = true;
   }
   return ch;
 }
 function blastBodies(p, kind, owner, isOwner, onBody) {
-  const E = EXPL[kind], cW = Math.cbrt(E.W), shot = { hits: new Map() };
+  const E = EXPL[kind], cW = Math.cbrt(E.W), shot = { hits: new Map(), frag: true };
   // fragments: the grenade's steel body; for C4, what the blast tears off whatever it sat on (concrete, wood, or bone when it was on a person)
   const nF = E.frags || (onBody ? 140 : 260), vs = E.frags ? 1.15 : onBody ? 0.4 : 0.5;
   // the local player, on every client: nobody else can know where you stand
@@ -381,13 +391,17 @@ function blastBodies(p, kind, owner, isOwner, onBody) {
     const c = (dm.rag ? dm.rag.p[1] : dm.hum.root.position.clone().setY(0.95)).clone(), d = Math.max(0.1, c.distanceTo(p)); if (d > 60) continue;
     const z = d / cW * (los(p, c) ? 1 : 1.7), an = dm.anat, dir = c.clone().sub(p).setY(0.3).normalize();
     const ms = dm.rag ? ragMeshes(dm.rag) : (dm.hum.root.updateMatrixWorld(true), dm.hum.hitMeshes.filter(m => m.visible));
-    fragsAt(p, ms, nF, 0, owner, (h, fd, v, L) => fragHit(h, fd, v, L, shot, p), vs);
-    const croot = dm.rag ? dm.rag.group : dm.hum.root, ch = blastChunks(croot, p, cW, kind, dm.dead ? null : an, dir, dm.hum.pal && dm.hum.pal.skin);
-    if (dm.dead && dm.rag && chunkCount(croot, 'H') >= 13 && dm.rag.headG.visible) dm.rag.gibHead(dir);
+    const nh = fragsAt(p, ms, nF, 0, owner, (h, fd, v, L) => fragHit(h, fd, v, L, shot, p), vs);
+    // one spray off the far side of the body for all the steel that went through it
+    if (nh) blowSpatter(c, dir, clamp(0.4 + nh * 0.03, 0.4, 1), false);
+    const croot = dm.rag ? dm.rag.group : dm.hum.root;
+    if (kind === 'c4' && d < 1.2) addBurn(croot, p, clamp(0.45 - d * 0.3, 0.12, 0.45));
+    const ch = blastChunks(croot, p, cW, kind, dm.dead ? null : an, dir, dm.hum.pal && dm.hum.pal.skin);
+    if (dm.dead && dm.rag && chunkCount(croot, 'H') >= CH_GIB && dm.rag.headG.visible) dm.rag.gibHead(dir);
     const F = blastFate(z, onBody && d < 0.6, kind);
     if (dm.dead) {
       // a body already down still comes apart in a close blast
-      if (F.limbs || F.gib) { const l0 = an.lostMask(); applyFate(an, Object.assign({}, F, { kill: 0, lung: 0 }), kind); if (an.lostMask() !== l0) dm.rag.applyLost(an.lostMask(), dir, an.cutArr()); if (an.gibHead && dm.rag.headG.visible) dm.rag.gibHead(dir); if (F.gore >= 2) blastGore(c, dir, F.gore - 1); }
+      if (F.limbs || F.gib) { const l0 = an.lostMask(); applyFate(an, Object.assign({}, F, { kill: 0, lung: 0 }), kind); if (an.lostMask() !== l0) dm.rag.applyLost(an.lostMask(), dir, an.cutArr()); if (an.gibHead && dm.rag.headG.visible) dm.rag.gibHead(dir); else if (an.neckTear && !dm.rag.neckTorn) dm.rag.tearNeck(dir); if (F.gore >= 2) blastGore(c, dir, F.gore - 1); }
       ragPush(dm.rag, p, clamp(12 / (z * z), 0, 18)); continue;
     }
     an.lastDir.copy(dir); an.lastW = 5; an.lastDist = d;
@@ -401,20 +415,19 @@ function blastBodies(p, kind, owner, isOwner, onBody) {
     if (dm.rag) ragPush(dm.rag, p, clamp(12 / (z * z), 0, 18));
   }
   // loose corpses (not a player's body still being simulated by its own client)
-  for (const r of ragdolls) if (!r.owner || (!r.owner.dummy && !r.owner.nd && !r.owner.remote && r !== P.rag)) { const z = r.p[1].distanceTo(p) / cW; if (z < 7) { if (z < 1.5) { blastChunks(r.group, p, cW, kind, null, r.p[1].clone().sub(p).normalize(), r.skin); if (chunkCount(r.group, 'H') >= 13 && r.headG.visible) r.gibHead(r.p[0].clone().sub(p).normalize()); } ragPush(r, p, clamp(12 / (z * z), 0, 18)); } }
+  for (const r of ragdolls) if (!r.owner || (!r.owner.dummy && !r.owner.nd && !r.owner.remote && r !== P.rag)) { const z = r.p[1].distanceTo(p) / cW; if (z < 7) { if (z < 1.5) { blastChunks(r.group, p, cW, kind, null, r.p[1].clone().sub(p).normalize(), r.skin); if (chunkCount(r.group, 'H') >= CH_GIB && r.headG.visible) r.gibHead(r.p[0].clone().sub(p).normalize()); } ragPush(r, p, clamp(12 / (z * z), 0, 18)); } }
 }
 // a fragment into an AI body or a body on the ground: the normal hit code, with the anatomy told it is steel from a grenade
 function fragGore(h, fd, v) {
   // every fragment that strikes tears a bit out: torn flesh and blood, now and then a splinter of bone
-  if (Math.random() < 0.75) spawnGore(h.point, fd, 'flesh', 1 + (v > 300 && Math.random() < 0.5 ? 1 : 0), 2 + v / 150, 0.6, 0.012 + v / 40000);
-  if (Math.random() < 0.18) spawnGore(h.point, fd, 'bone', 1, 3, 0.6, 0.008);
-  bloodFx(h.point, fd, Math.random() < 0.5, 0.6);
+  if (Math.random() < 0.3) spawnGore(h.point, fd, 'flesh', 1, 2 + v / 200, 0.5, 0.01 + v / 50000);
+  if (Math.random() < 0.06) spawnGore(h.point, fd, 'bone', 1, 3, 0.5, 0.007);
 }
 function fragHit(h, fd, v, L, shot, p) {
   fragGore(h, fd, v);
   const ud = h.object.userData, own = ud.rag ? ud.rag.owner || {} : {}, an = ud.hum && ud.hum.dummy ? ud.hum.dummy.anat : own.dummy ? own.dummy.anat : own.anat || null;
   if (an) an.frag = true;
-  try { onBulletHit({ vel: fd.clone().multiplyScalar(v), w: 5, local: true, shot, dist: L, pos: p.clone() }, h, fd, L); } finally { if (an) an.frag = false; }
+  try { onBulletHit({ vel: fd.clone().multiplyScalar(v), w: 5, local: true, shot, dist: L, pos: p.clone(), frag: true }, h, fd, L); } finally { if (an) an.frag = false; }
 }
 function ragMeshes(r) { const out = []; r.group.traverse(o => { if (o.isMesh && o.visible && o.userData.rag) out.push(o); }); return out; }
 // ---------------------------------------------------------------- the explosion
