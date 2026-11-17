@@ -6,7 +6,7 @@
 //   M67: 180 g of Composition B (RE 1.35) = 0.24 kg TNT inside a 2.5 mm steel body that breaks into a few thousand fragments.
 //   Fuze M213: the striker is held by the spoon; once the spoon flies the delay burns 4 to 5.5 s. Pulling the pin alone
 //   does nothing as long as the spoon is held. Lethal radius about 5 m, casualties out to about 15 m.
-const EXPL = { c4: { W: 0.76, frags: 0 }, frag: { W: 0.24, frags: 4000 } };
+const EXPL = { c4: { W: 0.76, frags: 0 }, frag: { W: 0.24, frags: 5500 } };
 const NADE_R = 0.032, C4_REACH = 1.7;
 const CHARGES = [], NADES = [], BOOM_FX = [];
 let explSeq = 1;
@@ -330,7 +330,12 @@ function applyFate(an, F, kind) {
 }
 // the blocks of trunk and head the blast reaches are blown out: anything inside about 0.4 m of a C4 block, 0.2 m of a grenade
 function blastChunks(root, p, cW, kind, an, dir, skin) {
-  const R = (kind === 'c4' ? 0.42 : 0.3) * cW, ch = destroyChunks(root, c => c.p.distanceTo(p) < R * rnd(0.8, 1.2), dir, skin);
+  // the side of the body facing the blast goes first: a block on the far side only goes if its near-side twin is close enough
+  // to be gone well inside the radius, so a body is blown open, not punched clean through, unless the charge was on it
+  const R = (kind === 'c4' ? 0.42 : 0.45) * cW, cs = chunkCenters(root), dist = new Map();
+  for (const c of cs) dist.set(c.k + c.i, c.p.distanceTo(p));
+  const twin = c => { const G = CHK[c.k], NN = G.nx * G.ny; return c.k + (c.i < NN ? c.i + NN : c.i - NN); };
+  const ch = destroyChunks(root, c => { const d = dist.get(c.k + c.i), dt = dist.get(twin(c)); const far = dt !== undefined && dt < d; return (far ? d + 0.12 : d) < R * rnd(0.85, 1.15); }, dir, skin);
   if (an && ch.t + ch.h) {
     if (ch.h) an.wounds.push({ region: 'head', name: 'Head blown apart', rate: 150, treated: false, artery: 1 });
     if (ch.t) an.wounds.push({ region: 'chest', name: 'Torso blown open', rate: 150, treated: false, artery: 1 });
@@ -342,7 +347,7 @@ function blastChunks(root, p, cW, kind, an, dir, skin) {
 function blastBodies(p, kind, owner, isOwner, onBody) {
   const E = EXPL[kind], cW = Math.cbrt(E.W), shot = { hits: new Map() };
   // fragments: the grenade's steel body; for C4, what the blast tears off whatever it sat on (concrete, wood, or bone when it was on a person)
-  const nF = E.frags || (onBody ? 140 : 260), vs = E.frags ? 1 : onBody ? 0.4 : 0.5;
+  const nF = E.frags || (onBody ? 140 : 260), vs = E.frags ? 1.15 : onBody ? 0.4 : 0.5;
   // the local player, on every client: nobody else can know where you stand
   if (P.alive) {
     const tgt = P.downed && P.rag ? null : localBody.hitMeshes.filter(m => m.visible);
@@ -355,7 +360,7 @@ function blastBodies(p, kind, owner, isOwner, onBody) {
       fragsAt(p, tgt, nF, 0, owner, (h, fd, v) => {
         if (an.dead) return;
         const info = hitToFrame(localBody, h.object, h.point, fd); an.lastDir.copy(fd);
-        an.frag = true; const r = an.hit(info.frame, info.e, info.d, v, 5, info.armor, info.pd); an.frag = false; if (!res || (r && r.blast)) res = r;
+        fragGore(h, fd, v); an.frag = true; const r = an.hit(info.frame, info.e, info.d, v, 5, info.armor, info.pd); an.frag = false; if (!res || (r && r.blast)) res = r;
       }, vs);
     }
     if (P.downed && P.rag) fragsAt(p, ragMeshes(P.rag), nF, 0, owner, (h, fd, v, L) => fragHit(h, fd, v, L, shot, p), vs);
@@ -399,7 +404,14 @@ function blastBodies(p, kind, owner, isOwner, onBody) {
   for (const r of ragdolls) if (!r.owner || (!r.owner.dummy && !r.owner.nd && !r.owner.remote && r !== P.rag)) { const z = r.p[1].distanceTo(p) / cW; if (z < 7) { if (z < 1.5) { blastChunks(r.group, p, cW, kind, null, r.p[1].clone().sub(p).normalize(), r.skin); if (chunkCount(r.group, 'H') >= 13 && r.headG.visible) r.gibHead(r.p[0].clone().sub(p).normalize()); } ragPush(r, p, clamp(12 / (z * z), 0, 18)); } }
 }
 // a fragment into an AI body or a body on the ground: the normal hit code, with the anatomy told it is steel from a grenade
+function fragGore(h, fd, v) {
+  // every fragment that strikes tears a bit out: torn flesh and blood, now and then a splinter of bone
+  if (Math.random() < 0.75) spawnGore(h.point, fd, 'flesh', 1 + (v > 300 && Math.random() < 0.5 ? 1 : 0), 2 + v / 150, 0.6, 0.012 + v / 40000);
+  if (Math.random() < 0.18) spawnGore(h.point, fd, 'bone', 1, 3, 0.6, 0.008);
+  bloodFx(h.point, fd, Math.random() < 0.5, 0.6);
+}
 function fragHit(h, fd, v, L, shot, p) {
+  fragGore(h, fd, v);
   const ud = h.object.userData, own = ud.rag ? ud.rag.owner || {} : {}, an = ud.hum && ud.hum.dummy ? ud.hum.dummy.anat : own.dummy ? own.dummy.anat : own.anat || null;
   if (an) an.frag = true;
   try { onBulletHit({ vel: fd.clone().multiplyScalar(v), w: 5, local: true, shot, dist: L, pos: p.clone() }, h, fd, L); } finally { if (an) an.frag = false; }
@@ -737,6 +749,7 @@ function updateExplosives(dt) {
 // ---------------------------------------------------------------- from the network
 function onExplosiveMsg(m) {
   const ok = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
+  if (m.a === 'chk') { chunkRx(m); return; }
   if (!ok(m.p)) return;
   const p = new V3().fromArray(m.p);
   if (m.a === 'c4p' && ok(m.n)) {
@@ -750,6 +763,7 @@ function onExplosiveMsg(m) {
   }
   else if (m.a === 'c4t' && ok(m.v)) throwC4(m.id, m.i, p, new V3().fromArray(m.v), ok(m.w) ? new V3().fromArray(m.w) : new V3(), false);
   else if (m.a === 'nade' && ok(m.v)) throwNade(m.id, m.i, p, new V3().fromArray(m.v), clamp(Number(m.f) || 4, 0, 6) + 0.5, false, ok(m.w) ? new V3().fromArray(m.w) : null, clamp(Number(m.c) || 0, -0.2, 0.2));
+  else if (m.a === 'chk') chunkRx(m);
   else if (m.a === 'boom') {
     const kind = m.k === 'c4' ? 'c4' : 'frag';
     for (const c of CHARGES.slice()) if (c.owner === m.id && c.id === m.i) { removeCharge(c); if (c.g.parent) c.g.parent.remove(c.g); }

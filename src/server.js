@@ -180,7 +180,7 @@ export class GameRoom extends DurableObject {
       }
       case "itake": { if (p.ready) this.broadcast({ t: "itake", iid: Number(m.iid) || 0 }, p); break; }
       // explosives: a C4 charge set, a grenade thrown, a charge or grenade going off (each client works out its own damage)
-      case "x": { if (p.ready && raw.length < 600 && ["c4p", "c4t", "nade", "boom"].includes(m.a)) this.broadcast({ t: "x", id: p.id, a: m.a, k: m.k === "c4" ? "c4" : "frag", i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0, w: m.w, c: Number(m.c) || 0, tg: Number.isFinite(m.tg) ? m.tg : undefined, tp: Number(m.tp) || 0, lp: m.lp, lq: m.lq, ob: m.ob ? 1 : 0 }, p); break; }
+      case "x": { if (p.ready && raw.length < 600 && ["c4p", "c4t", "nade", "boom", "chk"].includes(m.a)) this.broadcast({ t: "x", id: p.id, a: m.a, k: m.k === "c4" ? "c4" : "frag", i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0, w: m.w, c: Number(m.c) || 0, tg: Number.isFinite(m.tg) ? m.tg : undefined, tp: Number(m.tp) || 0, lp: m.lp, lq: m.lq, ob: m.ob ? 1 : 0, T: Array.isArray(m.T) ? m.T.slice(0, 36).map(Number) : undefined, H: Array.isArray(m.H) ? m.H.slice(0, 18).map(Number) : undefined }, p); break; }
       // a punch: forwarded to the one hit, whose client works out the bruise
       case "punch": { const tgt = this.players.get(m.id); if (p.ready && p.alive && tgt && tgt !== p && tgt.alive && Date.now() - (p.lastPunch || 0) > 220) { p.lastPunch = Date.now(); this.send(tgt, { t: "punched", by: p.id, f: String(m.f || "").slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)) }); } break; }
       case "hit": this.hit(p, m); break;

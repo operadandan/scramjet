@@ -280,10 +280,10 @@ function tintShader(sh, mesh) {
 function bodyPatches(sh, mesh) {
   if (!mesh._skin) return;
   const a = mesh.geometry.attributes; skinShader(sh, mesh._skin.U);
-  if (a.bz) chunkShader(sh, mesh._skin.U, !a.fab);
+  if (a.bz && mesh._skin.U.chAny && mesh._skin.U.chAny.value) chunkShader(sh, mesh._skin.U, !a.fab);   // only bodies with blocks gone pay for it
   if (a.ck) clothMoveShader(sh); if (a.fab) clothShader(sh); if (mesh.userData.tint !== undefined && a.tm) tintShader(sh, mesh);
 }
-const bodyKey = mesh => { const a = mesh.geometry.attributes; return (mesh._skin ? 'sk' : '') + (mesh._skin && a.bz ? 'z' : '') + (mesh._skin && a.ck ? 'm' : '') + (mesh._skin && a.fab ? 'c' : '') + (mesh._skin && a.tm && mesh.userData.tint !== undefined ? 't' : ''); };
+const bodyKey = mesh => { const a = mesh.geometry.attributes; return (mesh._skin ? 'sk' : '') + (mesh._skin && a.bz && mesh._skin.U.chAny && mesh._skin.U.chAny.value ? 'z' : '') + (mesh._skin && a.ck ? 'm' : '') + (mesh._skin && a.fab ? 'c' : '') + (mesh._skin && a.tm && mesh.userData.tint !== undefined ? 't' : ''); };
 function attachSkin(root, at) {
   let sim = null; root.userData.chunkAt = at;
   root.traverse(o => {

@@ -75,7 +75,7 @@ class HostRoom {
       }
       case 'idrop': { const s = JSON.stringify(m); if (p.ready && s.length < 600 && m.it && typeof m.it === 'object') this.broadcast({ t: 'idrop', it: m.it, p: m.p, v: m.v }, p); break; }
       case 'itake': if (p.ready) this.broadcast({ t: 'itake', iid: Number(m.iid) || 0 }, p); break;
-      case 'x': if (p.ready && JSON.stringify(m).length < 600 && ['c4p', 'c4t', 'nade', 'boom'].includes(m.a)) this.broadcast({ t: 'x', id: p.id, a: m.a, k: m.k, i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: m.f, w: m.w, c: m.c, tg: m.tg, tp: m.tp, lp: m.lp, lq: m.lq, ob: m.ob }, p); break;
+      case 'x': if (p.ready && JSON.stringify(m).length < 600 && ['c4p', 'c4t', 'nade', 'boom', 'chk'].includes(m.a)) this.broadcast({ t: 'x', id: p.id, a: m.a, k: m.k, i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: m.f, w: m.w, c: m.c, tg: m.tg, tp: m.tp, lp: m.lp, lq: m.lq, ob: m.ob, T: m.T, H: m.H }, p); break;
       case 'punch': { const tgt = this.players.get(m.id); if (p.ready && p.alive && tgt && tgt !== p && tgt.alive) this.send(tgt, { t: 'punched', by: p.id, f: String(m.f || '').slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)) }); break; }
       case 'hit': this.hit(p, m); break;
       case 'died': this.died(p, m); break;
@@ -211,7 +211,7 @@ function onNet(m) {
       else {
         const r = S.remotes.get(m.id);
         if (r && r.rag) { r.rag.keep = false; r.rag.owner = { anat: new Anatomy() }; r.rag = null; }
-        else if (r && r.alive && r.st) { r.hum.root.updateMatrixWorld(true); spawnRagdoll(r.hum, new V3(), dir, m.part, m.head, { bb: r.st.bb, ls: r.st.ls, lc: r.st.lc, gib: !!m.gib, tear: !!m.tear, bleed: clamp(Number(m.bl) || 20, 0, 160), twitch: clamp(Number(m.tw) || 0, 0, 5) }).owner = { anat: new Anatomy() }; }
+        else if (r && r.alive && r.st) { r.hum.root.updateMatrixWorld(true); (r.deadRag = spawnRagdoll(r.hum, new V3(), dir, m.part, m.head, { bb: r.st.bb, ls: r.st.ls, lc: r.st.lc, gib: !!m.gib, tear: !!m.tear, bleed: clamp(Number(m.bl) || 20, 0, 160), twitch: clamp(Number(m.tw) || 0, 0, 5) })).owner = { anat: new Anatomy() }; }
         if (r) r.alive = false;
       }
       scoreOf(m.id).d++; if (m.by && m.kc) scoreOf(m.by).k++;
@@ -228,7 +228,7 @@ function onNet(m) {
     }
     case 'spawn':
       if (m.id === S.myId) respawnLocal(spawns[m.sp % spawns.length]);
-      else { const r = S.remotes.get(m.id); if (r) { r.alive = true; r.snap = true; r.rag = null; r.st = null; r.react = null; clearWounds(r.hum); r.hum.setLost(0); setHelmet(r.hum, true); r.hum.fl = null; Object.assign(r.hum.anim, { hurt: 0, clutchT: 0, clutchW: 0, clutchF: null, braceP: null, braceW: 0, stag: 0, stagW: 0 }); } }
+      else { const r = S.remotes.get(m.id); if (r) { r.alive = true; r.snap = true; r.rag = null; r.deadRag = null; chunkReset(r.hum.root); r.st = null; r.react = null; clearWounds(r.hum); r.hum.setLost(0); setHelmet(r.hum, true); r.hum.fl = null; Object.assign(r.hum.anim, { hurt: 0, clutchT: 0, clutchW: 0, clutchF: null, braceP: null, braceW: 0, stag: 0, stagW: 0 }); } }
       break;
     case 'full': S.closeReason = 'Room is full (12 players max).'; break;
   }
