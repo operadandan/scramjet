@@ -54,6 +54,8 @@ if (vBZ.w > 0.5 && chAny > 0.5) {
       } else c = mix(c, vec3(0.3, 0.02, 0.03), (1.0 - smoothstep(0.004, 0.014, dE)) * 0.8);   // cloth: just soaked and frayed at the edge
       diffuseColor.rgb = c;
     }
+  } else if (${'SOLID'} && dE > 0.5) {
+    discard;   // inside of the skin away from any cut: hidden, as on an unopened body
   } else if (${'SOLID'}) {
     vec3 c = meat;
     if (head) {
@@ -118,7 +120,7 @@ function destroyChunks(root, pred, dir, skin) {
 function chunkOpen(root) {
   const st = root.userData.chunk; st.any.value = 1;
   if (!st.open) { st.open = true; root.traverse(o => { if (o.isMesh && o._skin && o.geometry.attributes.bz) { o.material.side = THREE.DoubleSide; o.material.needsUpdate = true; } }); }
-  chunkOrgans(root);
+  chunkPrepInside(root); chunkCaps(root); for (const c of root.userData.chunk.caps || []) c.visible = true;
 }
 // what is inside: organs, ribs and spine whose block is gone go with it; the rest are now in view through the hole. The skull
 // shell goes once a few head blocks are gone (the brain shows), the brain once most of the head is
@@ -131,7 +133,9 @@ function chunkPrepInside(root) {
   for (const [seg, kind, off] of [['hips', 1, 0], ['spine', 1, 0.07], ['head', 2, 0]]) {
     const A = at[seg]; if (!A) continue;
     for (const o of A[0].children) {
-      if (!o.isMesh || !(o.userData.organ || o.userData.inner) || o.userData.chunkIn) continue;
+      // everything else riding on the trunk or the head is cut by the blocks too: hair, eyes, brows, pouches; not armour
+      if (!o.isMesh || o.userData.chunkIn || o._skin || o.userData.keep || o.userData.tube || o.userData.armor || o.geometry.attributes.bz || o.isInstancedMesh) continue;
+      const wet = o.userData.organ || o.userData.inner;
       o.userData.chunkIn = true; o.updateMatrix();
       const g = o.geometry.clone(), P = g.attributes.position, n = P.count, a = new Float32Array(n * 4), v = new V3();
       for (let k = 0; k < n; k++) { v.fromBufferAttribute(P, k).applyMatrix4(o.matrix); a[k * 4] = v.x; a[k * 4 + 1] = v.y + off - A[1]; a[k * 4 + 2] = v.z; a[k * 4 + 3] = kind; }
@@ -139,9 +143,9 @@ function chunkPrepInside(root) {
       const orig = o.material, prev = orig.onBeforeCompile, pk = orig.customProgramCacheKey ? orig.customProgramCacheKey() : '', m = orig.clone();
       m.onBeforeCompile = (sh, r) => {
         if (prev) prev.call(orig, sh, r); chunkShader(sh, U, false);
-        sh.fragmentShader = sh.fragmentShader.replace('if (vBZ.w > 0.5 && chAny > 0.5) {', 'if (diffuseColor.r > 0.62 && diffuseColor.g > 0.52 && diffuseColor.b > 0.38) diffuseColor.rgb *= vec3(0.72, 0.5, 0.44);\nif (vBZ.w > 0.5 && chAny > 0.5) {');
+        if (wet) sh.fragmentShader = sh.fragmentShader.replace('if (vBZ.w > 0.5 && chAny > 0.5) {', 'if (diffuseColor.r > 0.62 && diffuseColor.g > 0.52 && diffuseColor.b > 0.38) diffuseColor.rgb *= vec3(0.72, 0.5, 0.44);\nif (vBZ.w > 0.5 && chAny > 0.5) {');
       };
-      m.userData = orig.userData; m.customProgramCacheKey = () => 'chin' + pk; o.material = m;
+      m.userData = orig.userData; m.customProgramCacheKey = () => (wet ? 'chin' : 'chon') + pk; o.material = m;
     }
   }
 }
@@ -151,7 +155,7 @@ function chunkOrgans(root) {
   const nH = chunkCount(root, 'H'), nT = chunkCount(root, 'T');
   for (const [seg, k] of [['hips', 'T'], ['spine', 'T'], ['head', 'H']]) {
     const A = at[seg]; if (!A || !(k === 'H' ? nH : nT)) continue;
-    for (const o of A[0].children) if (o.isMesh && (o.userData.organ || o.userData.inner)) o.visible = true;
+    for (const o of A[0].children) if (o.isMesh && (o.userData.organ || o.userData.inner)) { if (o.userData.chVis0 === undefined) o.userData.chVis0 = o.visible; o.visible = true; }
   }
 }
 function chunkCopy(from, to) {
@@ -161,6 +165,8 @@ function chunkCopy(from, to) {
 function chunkReset(root) {
   const st = root && root.userData.chunk; if (!st) return; const was = st.open;
   st.T.fill(0); st.H.fill(0); st.any.value = 0; st.open = false;
+  for (const c of st.caps || []) c.visible = false;
+  root.traverse(o => { if (o.isMesh && o.userData.chVis0 !== undefined) { o.visible = o.userData.chVis0; delete o.userData.chVis0; } });
   if (was) root.traverse(o => { if (o.isMesh && o._skin && o.geometry.attributes.bz) { o.material.side = o.geometry.attributes.fab ? THREE.DoubleSide : THREE.FrontSide; o.material.needsUpdate = true; } });
 }
 // distance from a point to a segment
@@ -203,5 +209,143 @@ function chunkRx(m) {
     for (const i of m.T || []) if (i >= 0 && i < 36 && !(st.T[i] > 0.5)) { st.T[i] = 1; n++; }
     for (const i of m.H || []) if (i >= 0 && i < 18 && !(st.H[i] > 0.5)) { st.H[i] = 1; n++; }
     if (n) { CHUNK_RX = true; try { chunkOpen(root); } finally { CHUNK_RX = false; } }
+  }
+}
+// ---------------------------------------------------------------- solid cut faces
+// Where a destroyed block meets one still there, the body is cut flat along the block face, and that face is drawn as a
+// solid cross-section (skin, fat, muscle and bone; on the head scalp, skull and brain), so a hole is a clean, filled cut and
+// not a view into an empty shell. The faces are quads on every boundary between two blocks; a quad only shows when exactly
+// one of its two blocks is gone, and only within the body's outline at that spot (a front/back depth map of the body, made
+// from its own mesh, so the face fits the body it is cut into).
+const CAP_HF = { 1: { X0: -0.25, X1: 0.25, NX: 26, Y0: -0.17, Y1: 0.62, NY: 40, Z0: -0.22, Z1: 0.22 }, 2: { X0: -0.115, X1: 0.115, NX: 16, Y0: -0.115, Y1: 0.19, NY: 22, Z0: -0.16, Z1: 0.16 } };
+function capDepthMap(root, w) {
+  const H = CAP_HF[w], n = H.NX * H.NY, lo = new Float32Array(n).fill(9), hi = new Float32Array(n).fill(-9);
+  const pts = [];
+  root.traverse(o => {
+    const a = o.isMesh && o._skin && o.geometry.attributes.bz; if (!a) return;
+    for (let i = 0; i < a.count; i++) if (Math.abs(a.getW(i) - w) < 0.5) pts.push(a.getX(i), a.getY(i), a.getZ(i));
+  });
+  let mid = 0; for (let i = 2; i < pts.length; i += 3) mid += pts[i]; mid /= Math.max(1, pts.length / 3);
+  // the front surface from the vertices in front of the middle, the back from those behind it
+  for (let i = 0; i < pts.length; i += 3) {
+    const x = pts[i], y = pts[i + 1], z = pts[i + 2];
+    const ix = Math.floor((x - H.X0) / (H.X1 - H.X0) * H.NX), iy = Math.floor((y - H.Y0) / (H.Y1 - H.Y0) * H.NY);
+    if (ix < 0 || iy < 0 || ix >= H.NX || iy >= H.NY) continue;
+    const k = iy * H.NX + ix; if (z < mid) lo[k] = Math.min(lo[k], z); else hi[k] = Math.max(hi[k], z);
+  }
+  // a texel no vertex fell in, with filled texels both sides of it (along the row, then the column), is filled in between
+  const fill = (A, none, count, len, at) => {
+    for (let r = 0; r < count; r++) {
+      let prev = -1;
+      for (let s = 0; s < len; s++) {
+        const k = at(r, s); if (A[k] === none) continue;
+        if (prev >= 0 && s - prev > 1) { const a = at(r, prev); for (let t = prev + 1; t < s; t++) { const m = at(r, t); if (A[m] === none) A[m] = A[a] + (A[k] - A[a]) * (t - prev) / (s - prev); } }
+        prev = s;
+      }
+    }
+  };
+  for (const [A, none] of [[lo, 9], [hi, -9]]) { fill(A, none, H.NY, H.NX, (r, s) => r * H.NX + s); fill(A, none, H.NX, H.NY, (r, s) => s * H.NX + r); }
+  const d = new Uint8Array(n * 4), q = v => Math.round(clamp((v - H.Z0) / (H.Z1 - H.Z0), 0, 1) * 255);
+  for (let k = 0; k < n; k++) {
+    const ok = lo[k] < 9 && hi[k] > -9 && hi[k] - lo[k] > 0.02;
+    d[k * 4] = ok ? q(lo[k] + 0.004) : 255; d[k * 4 + 1] = ok ? q(hi[k] - 0.004) : 0; d[k * 4 + 2] = ok ? 255 : 0; d[k * 4 + 3] = 255;
+  }
+  const t = new THREE.DataTexture(d, H.NX, H.NY, THREE.RGBAFormat); t.magFilter = t.minFilter = THREE.LinearFilter; t.needsUpdate = true;
+  return t;
+}
+const CAP_V = `
+uniform float chT[36]; uniform float chH[18]; uniform float cK;
+attribute vec2 cc; varying vec3 vQ; varying vec3 vN;
+#include <fog_pars_vertex>
+float cGone(float i) { if (i < -0.5) return 0.0; int j = int(i + 0.5); return cK < 1.5 ? chT[j] : chH[j]; }
+void main() {
+  vQ = position; vN = normalize(mat3(modelMatrix) * normal);
+  bool show = (cGone(cc.x) > 0.5) != (cGone(cc.y) > 0.5);
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = show ? projectionMatrix * mvPosition : vec4(2.0, 2.0, 2.0, 1.0);
+  #include <fog_vertex>
+}`;
+const CAP_FR = `
+uniform sampler2D hf; uniform vec4 hfR; uniform vec2 hfZ; uniform float cK; varying vec3 vQ; varying vec3 vN;
+#include <fog_pars_fragment>
+float cH(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+float cN(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(cH(i), cH(i + vec3(1,0,0)), f.x), mix(cH(i + vec3(0,1,0)), cH(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(cH(i + vec3(0,0,1)), cH(i + vec3(1,0,1)), f.x), mix(cH(i + vec3(0,1,1)), cH(i + vec3(1,1,1)), f.x), f.y), f.z); }
+void main() {
+  vec4 t = texture2D(hf, vec2((vQ.x - hfR.x) / (hfR.y - hfR.x), (vQ.y - hfR.z) / (hfR.w - hfR.z)));
+  if (t.b < 0.6) discard;
+  float zl = mix(hfZ.x, hfZ.y, t.r), zh = mix(hfZ.x, hfZ.y, t.g);
+  if (vQ.z < zl || vQ.z > zh) discard;
+  float d = min(min(vQ.z - zl, zh - vQ.z), (t.b - 0.6) * 0.09);
+  vec3 q = vQ;
+  vec3 muscle = mix(vec3(0.42, 0.04, 0.05), vec3(0.62, 0.12, 0.11), cN(q * 90.0)) * (0.85 + 0.3 * cN(q * vec3(300.0, 40.0, 300.0)));
+  vec3 c;
+  if (cK > 1.5) {
+    // scalp, skull, then brain: pinkish grey, folded, with blood through it
+    vec3 brain = mix(vec3(0.66, 0.46, 0.46), vec3(0.5, 0.3, 0.32), smoothstep(0.55, 0.9, abs(sin(q.x * 150.0 + cN(q * 28.0) * 7.0) * sin(q.y * 140.0 + q.z * 80.0))));
+    brain = mix(brain, vec3(0.35, 0.03, 0.04), smoothstep(0.45, 0.75, cN(q * 20.0)) * 0.7);
+    c = d < 0.004 ? vec3(0.38, 0.08, 0.07) : d < 0.012 ? mix(vec3(0.82, 0.72, 0.6), vec3(0.6, 0.38, 0.32), cN(q * 120.0) * 0.6) : brain;
+    if (q.y < -0.03 && d >= 0.012) c = muscle;   // the jaw and the floor of the mouth are muscle, not brain
+  } else {
+    c = d < 0.003 ? vec3(0.42, 0.1, 0.08) : d < 0.013 ? mix(vec3(0.86, 0.72, 0.42), vec3(0.75, 0.55, 0.3), cN(q * 140.0)) : muscle;
+    // ribs round the chest just under the muscle, the spine at the back, the gut low in front
+    if (q.y > 0.08 && q.y < 0.5 && d > 0.016 && d < 0.034 && fract(q.y / 0.036) < 0.4) c = vec3(0.8, 0.68, 0.56);
+    if (abs(q.x) < 0.024 && zh - q.z > 0.03 && zh - q.z < 0.075 && q.y > -0.05) c = mix(vec3(0.82, 0.72, 0.6), vec3(0.45, 0.1, 0.09), smoothstep(0.7, 0.9, fract(q.y / 0.032)));
+    else if (d > 0.04 && q.y < 0.15 && vQ.z - zl < 0.12) c = mix(vec3(0.7, 0.42, 0.4), vec3(0.45, 0.18, 0.18), cN(q * 45.0));
+    c = mix(c, vec3(0.3, 0.02, 0.03), smoothstep(0.6, 0.8, cN(q * 16.0)) * 0.55);
+  }
+  float l = 0.62 + 0.38 * abs(dot(normalize(vN), normalize(vec3(0.3, 1.0, 0.5))));
+  gl_FragColor = vec4(pow(c * l, vec3(2.2)), 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`;
+// the quads on every block boundary of one region, in the body frame, kept to the y range [ya, yb) (one skinned segment)
+function capGeo(k, ya, yb) {
+  const G = CHK[k], H = CAP_HF[k === 'T' ? 1 : 2], P = [], Nn = [], C = [], idx = [];
+  const cell = (ix, iy, iz) => iz * G.nx * G.ny + iy * G.nx + ix;
+  const zr = [[H.Z0, G.zs], [G.zs, H.Z1]];
+  const quad = (a, b, c2, d, n, A, B) => { const b0 = P.length / 3; for (const v of [a, b, c2, d]) { P.push(v[0], v[1], v[2]); Nn.push(n[0], n[1], n[2]); C.push(A, B); } idx.push(b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3); };
+  const cy = (y0, y1) => [Math.max(y0, ya), Math.min(y1, yb)];
+  for (let iy = 0; iy < G.ny; iy++) {
+    const [y0, y1] = cy(G.y0 + iy * G.dy - (iy === 0 ? 0.03 : 0), G.y0 + (iy + 1) * G.dy + (iy === G.ny - 1 ? 0.04 : 0)); if (y1 <= y0) continue;
+    for (let iz = 0; iz < 2; iz++) {
+      const [z0, z1] = zr[iz];
+      for (let ix = 1; ix < G.nx; ix++) { const x = G.x0 + ix * G.dx; quad([x, y0, z0], [x, y1, z0], [x, y1, z1], [x, y0, z1], [1, 0, 0], cell(ix - 1, iy, iz), cell(ix, iy, iz)); }
+    }
+    for (let ix = 0; ix < G.nx; ix++) {
+      const x0 = G.x0 + ix * G.dx - (ix === 0 ? 0.04 : 0), x1 = G.x0 + (ix + 1) * G.dx + (ix === G.nx - 1 ? 0.04 : 0);
+      quad([x0, y0, G.zs], [x1, y0, G.zs], [x1, y1, G.zs], [x0, y1, G.zs], [0, 0, 1], cell(ix, iy, 0), cell(ix, iy, 1));
+    }
+  }
+  for (let iy = 1; iy < G.ny; iy++) {
+    const y = G.y0 + iy * G.dy; if (y < ya || y >= yb) continue;
+    for (let iz = 0; iz < 2; iz++) { const [z0, z1] = zr[iz];
+      for (let ix = 0; ix < G.nx; ix++) {
+        const x0 = G.x0 + ix * G.dx - (ix === 0 ? 0.04 : 0), x1 = G.x0 + (ix + 1) * G.dx + (ix === G.nx - 1 ? 0.04 : 0);
+        quad([x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], [0, 1, 0], cell(ix, iy - 1, iz), cell(ix, iy, iz));
+      } }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(Nn, 3));
+  g.setAttribute('cc', new THREE.Float32BufferAttribute(C, 2)); g.setIndex(idx);
+  g.boundingSphere = new THREE.Sphere(new V3(0, (ya + yb) / 2, 0), 0.6);
+  return g;
+}
+const _capGeo = {};
+function chunkCaps(root) {
+  const at = root.userData.chunkAt, st = root.userData.chunk; if (!at || !st || st.caps) return; st.caps = [];
+  const U = chunkUniforms(root);
+  for (const [seg, k, ya, yb, off] of [['hips', 'T', -1, 0.07, 0], ['spine', 'T', 0.07, 1, -0.07], ['head', 'H', -1, 1, 0]]) {
+    const A = at[seg]; if (!A) continue;
+    const w = k === 'T' ? 1 : 2, H = CAP_HF[w];
+    const tex = st['hf' + w] || (st['hf' + w] = capDepthMap(root, w));
+    const m = new THREE.ShaderMaterial({ vertexShader: CAP_V, fragmentShader: CAP_FR, side: THREE.DoubleSide, fog: true,
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { hf: { value: null }, hfR: { value: new THREE.Vector4(H.X0, H.X1, H.Y0, H.Y1) }, hfZ: { value: new THREE.Vector2(H.Z0, H.Z1) }, cK: { value: w } }]) });
+    m.uniforms.hf.value = tex; m.uniforms.chT = U.chT; m.uniforms.chH = U.chH;
+    const key = k + ya, g = _capGeo[key] || (_capGeo[key] = capGeo(k, ya, yb));
+    const mesh = new THREE.Mesh(g, m); mesh.position.y = A[1] + off; mesh.frustumCulled = false; mesh.userData.chCap = true; mesh.userData.keep = true; mesh.castShadow = false;
+    A[0].add(mesh); st.caps.push(mesh);
   }
 }

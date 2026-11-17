@@ -275,7 +275,7 @@ function onBulletHit(b, hit, dir, dist) {
       if (ud.hum.flinch && ud.hum.root.visible) ud.hum.flinch(info.frame, info.d, clamp(Eh / 1700, 0.3, 2.2) * (b.shot ? 0.45 : 1));
       if (b.shot) blastVisual(b.shot, hit, dir, info, ud.hum, ud.hum);
       if (b.w === 2 && !b.shot && b.local) erode(ud.hum, hit.object.parent, info.frame, hit.object.parent.worldToLocal(hit.point.clone()), 0.045, info, dir);
-      if (b.w === 2 && !b.shot) chunkShot(ud.hum.root, hit.point, dir, info.frame, ud.hum.pal && ud.hum.pal.skin);
+      if (b.w === 2 && !b.shot) { const cr = chunkShot(ud.hum.root, hit.point, dir, info.frame, ud.hum.pal && ud.hum.pal.skin); if (cr && cr.h) ud.hum._skullOpen = true; }
     }
     if (!b.local) return cont;
     if (ud.hum.remote) net.send({ t: 'hit', id: ud.hum.remote.id, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
@@ -285,6 +285,8 @@ function onBulletHit(b, hit, dir, dist) {
       // pistol rounds never take the head off)
       if (info.frame === 'neck' && !stopped && canDismember(b.w)) { d0.neckHits = (d0.neckHits || 0) + (b.w === 2 ? 6 : b.shot ? 1.4 : 1); if (d0.neckHits >= 4) { d0.anat.neckTear = true; if (!d0.anat.dead) d0.anat.kill('spinal'); } }
       d0.shot(info, v, b.w, dir, dist);
+      // a piece of the skull gone is never survivable: no getting up from a knockout with half a head
+      if (ud.hum._skullOpen) { ud.hum._skullOpen = false; if (!d0.anat.dead) { d0.anat.kill('brain'); if (!d0.dead && d0.die) d0.die(); } }
       if (d0.anat.neckTear && d0.rag && !d0.rag.neckTorn && d0.rag.headG.visible) d0.rag.tearNeck(dir);
     }
     return cont;

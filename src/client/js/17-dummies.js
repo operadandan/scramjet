@@ -263,7 +263,7 @@ class Dummy {
     if (this.dead) {
       // the heart has stopped: wounds keep draining by gravity for a while, slowing down, and the pool under the body keeps spreading
       this.deadT = (this.deadT || 0) + dt;
-      this.respawnT -= dt; if (this.respawnT <= 0) { this.deadT = 0; this.neckHits = 0; this.dead = false; this.unarmed = false; this.credited = false; this.stag = undefined; this.react = undefined; this.reactDone = false; this.forceDown = false; this.anat = new Anatomy(); this.rag = null; chunkReset(this.hum.root); clearWounds(this.hum); Object.assign(this.hum.anim, { clutchT: 0, clutchW: 0, clutchF: null, woundF: null, woundP: null, hurt: 0 }); this.hum.lostKey = null; this.hum.setLost(0); for (const [o, v] of this.vis0) o.visible = v; this.hum.root.visible = true; setHelmet(this.hum, true); } return; }
+      this.respawnT -= dt; if (this.respawnT <= 0) { this.deadT = 0; this.neckHits = 0; this.hum.erosion = []; this.hum._skullOpen = false; this.dead = false; this.unarmed = false; this.credited = false; this.stag = undefined; this.react = undefined; this.reactDone = false; this.forceDown = false; this.anat = new Anatomy(); this.rag = null; chunkReset(this.hum.root); clearWounds(this.hum); Object.assign(this.hum.anim, { clutchT: 0, clutchW: 0, clutchF: null, woundF: null, woundP: null, hurt: 0 }); this.hum.lostKey = null; this.hum.setLost(0); for (const [o, v] of this.vis0) o.visible = v; this.hum.root.visible = true; setHelmet(this.hum, true); } return; }
     this.anat.update(dt);
     if (this.anat.dead) { this.die(); return; }
     // knocked out: drops where it stands, no stumble, and gets up when it comes round

@@ -81,7 +81,7 @@ function updatePlayer(dt) {
     if (canReact && P.react) {
       P.adsOn = false; P.reloading = false; P.inspecting = false; P.healing = false; mouse.left = false;
       reactRun(PB, dt);
-      if (P.react) { P.pos.copy(localBody.root.position); P.vel.set(0, 0, 0); P.speed = 0; localBody.root.visible = true; fpBody.root.visible = false; if (!S.tp) { localBody.head.visible = false; localBody.neck.visible = false; } return; }
+      if (P.react) { P.pos.copy(localBody.root.position); P.vel.set(0, 0, 0); P.speed = 0; localBody.root.visible = true; fpBody.root.visible = false; return; }
       if (!P.downed) enterDowned({ soft: true });
     } else { P.react = null; enterDowned(); }
   }
@@ -556,10 +556,11 @@ function testSelfHit() {
   onSelfHurt(res);
 }
 function respawnLocal(sp) {
-  P.forceDown = false; P.react = null; P.reactDone = false; P.stun = 0; P.deathM = null; chunkReset(localBody.root);
+  P.forceDown = false; P.react = null; P.reactDone = false; P.stun = 0; P.deathM = null; chunkReset(localBody.root); localBody.erosion = [];
   P.pos.copy(sp); P.vel.set(0, 0, 0); P.yaw = Math.atan2(sp.x, sp.z); P.pitch = 0;
   if (S.mode === 'test') P.yaw = 0;
-  if (P.rag) { P.rag.keep = false; P.rag.headG.visible = true; }
+  if (P.rag) { P.rag.keep = false; if (!P.rag.headGone) P.rag.headG.visible = true; }
+  localBody.head.visible = true; localBody.neck.visible = true;
   // a fresh body: no holes, wounds, blood, tubes or missing parts carried over from the last life, on either body you own
   clearWounds(localBody); clearWounds(fpBody); fpBody.setLost(0); setHelmet(localBody, true);
   { const a = localBody.anim; a.hurt = 0; a.clutchT = 0; a.clutchW = 0; a.clutchF = null; a.woundF = null; a.braceP = null; a.braceW = 0; a.stag = 0; a.stagW = 0; localBody.fl = null; }

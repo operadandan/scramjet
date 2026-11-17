@@ -333,7 +333,14 @@ function mergeChildren(group, matl, pick) {
     group.remove(m);
   }
   // skinned and plain parts merge together: plain parts get zero skin weight
-  if (geos.some(g => g.attributes.bz)) for (const g of geos) if (!g.attributes.bz) g.setAttribute('bz', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 4), 4));
+  // plain parts (hair, eyes, brows) sit in the same body frame as the skin of their segment, so blocks cut them too
+  const bzRef = geos.find(g => g.attributes.bz && g.attributes.bz.getW(0) > 0.5);
+  const bzOff = bzRef ? [bzRef.attributes.bz.getX(0) - bzRef.attributes.position.getX(0), bzRef.attributes.bz.getY(0) - bzRef.attributes.position.getY(0), bzRef.attributes.bz.getZ(0) - bzRef.attributes.position.getZ(0), bzRef.attributes.bz.getW(0)] : null;
+  if (geos.some(g => g.attributes.bz)) for (const g of geos) if (!g.attributes.bz) {
+    const P = g.attributes.position, a = new Float32Array(P.count * 4);
+    if (bzOff) for (let i = 0; i < P.count; i++) { a[i * 4] = P.getX(i) + bzOff[0]; a[i * 4 + 1] = P.getY(i) + bzOff[1]; a[i * 4 + 2] = P.getZ(i) + bzOff[2]; a[i * 4 + 3] = bzOff[3]; }
+    g.setAttribute('bz', new THREE.BufferAttribute(a, 4));
+  }
   if (geos.some(g => g.attributes.nw)) for (const g of geos) if (!g.attributes.nw) { const n = g.attributes.position.count; g.setAttribute('p2', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('p3', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('nb', new THREE.BufferAttribute(new Float32Array(n * 2), 2)); g.setAttribute('nw', new THREE.BufferAttribute(new Float32Array(n * 2), 2)); }
   if (geos.some(g => g.attributes.fab)) for (const g of geos) if (!g.attributes.fab) { const n = g.attributes.position.count; g.setAttribute('hc', new THREE.BufferAttribute(new Float32Array(n).fill(1), 1)); g.setAttribute('fab', new THREE.BufferAttribute(new Float32Array(n), 1)); for (const k of ['ck', 'cr', 'ca']) g.setAttribute(k, new THREE.BufferAttribute(new Float32Array(n), 1)); }
   const merged = new THREE.Mesh(mergeGeometries(geos), matl);
