@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { V3, clamp, rnd, scene } from './00-setup.js';
 import { colliders } from './01-world.js';
-import { CH_TIME } from './02b-chunks.js';
+import { chunkFlab } from './02b-chunks.js';
 import { _Y } from './04-ragdoll.js';
 import { decals, splatGeo } from './11-fx.js';
 import { bmat } from './12-blood.js';
@@ -149,7 +149,7 @@ function gDown(g) {
 const _gq = new THREE.Quaternion(), _ga = new V3(), _gu = new V3();
 const _gp = new V3();
 function updateGore(dt) {
-  if (typeof CH_TIME !== 'undefined') CH_TIME.value = performance.now() / 1000;   // (the clock the loose flesh round a crater wobbles by)
+  if (typeof chunkFlab === 'function') chunkFlab(dt);   // (the loose flesh round head craters swings every frame)
   for (let i = gore.length - 1; i >= 0; i--) {
     const g = gore[i]; g.life -= dt;
     if (g.life <= 0) { const k = Math.max(0, 1 - dt * 2); g.m.scale.multiplyScalar(k); g.m.position.y -= g.dn * (1 - k); g.dn *= k; if (g.life < -1.5) { dropGore(g); gore.splice(i, 1); } continue; }

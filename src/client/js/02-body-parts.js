@@ -578,5 +578,5 @@ class Body {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { Body, GC, HUM_DEFAULT, attachSkin, bodyKey, bodyPatches, mergeTree, plateGeo, sph, updateCloth, vcMat };
+export { Body, GC, HUM_DEFAULT, attachSkin, bodyKey, bodyPatches, mergeTree, plateGeo, skinShader, sph, updateCloth, vcMat };
 // ---- end module exports ----
