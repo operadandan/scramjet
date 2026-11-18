@@ -30,7 +30,8 @@ function ensureBZ(g, seg) {
   g.setAttribute('bz', new THREE.BufferAttribute(a, 4)); return g;
 }
 // the seed points: spread out evenly (best-candidate sampling) inside a box round the trunk and the head, from a fixed seed
-const CH_N = { T: 48, H: 24 }, CH_GIB = 13, HC_MAX = 8;   // HC_MAX: craters a head can carry   // CH_GIB: head cells gone before the whole head counts as destroyed
+const CH_N = { T: 48, H: 24 }, CH_GIB = 13, HC_MAX = 8;
+const CH_TIME = { value: 0 };   // seconds, for the loose flesh round a crater (set every frame)   // HC_MAX: craters a head can carry   // CH_GIB: head cells gone before the whole head counts as destroyed
 const CH_SEEDS = (() => {
   let sd = 917; const R = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
   const gen = (n, lo, hi, w) => { const P = [];
@@ -65,6 +66,21 @@ float chEdge(vec3 q, int i, float w) { int n = w < 1.5 ? ${CH_N.T} : ${CH_N.H}; 
   for (int j = 0; j < ${CH_N.T}; j++) { if (j >= n) break; if (j == i || chGone(j, w) < 0.5) continue;
     vec3 ab = chSeed(j, w) - si; float L = length(ab); float d = -dot(q - (si + chSeed(j, w)) * 0.5, ab / L); dE = min(dE, d); }
   return dE; }
+`;
+// The scalp, skin and hair left round a crater are no longer held by the skull under them: within a few centimetres of the
+// edge they sag with gravity and curl in toward the hole, most at the very edge, and wobble for a moment when the crater
+// is made. (Done after the skinning, in the mesh's own space; the cut itself still follows the body frame, so it moves with them.)
+const CHUNK_FLAB = `
+if (bz.w > 1.5 && bz.w < 2.5 && hcN > 0.5) {
+  float fw = 0.0;
+  for (int i = 0; i < ${HC_MAX}; i++) { if (float(i) >= hcN) break; float d = length(bz.xyz - hcV[i].xyz) - hcV[i].w; fw = max(fw, 1.0 - smoothstep(0.0, 0.035, d)); }
+  if (fw > 0.0) {
+    vec3 gL = normalize(transpose(mat3(modelMatrix)) * vec3(0.0, -1.0, 0.0));
+    float age = max(0.0, chTime - hcT0), jig = exp(-age * 2.2) * sin(age * 15.0 + dot(bz.xyz, vec3(40.0, 27.0, 33.0)));
+    float ff = fw * fw;
+    transformed += gL * ff * (0.009 + 0.004 * jig) - normalize(objectNormal) * ff * (0.005 + 0.003 * jig);
+  }
+}
 `;
 // How a cut is drawn on the skin. Torn skin, bruised and bloody for a centimetre or two round the hole; at the very edge, a thin
 // band of fat (scalp and skull on the head) smeared with blood, then muscle. Nothing glows. Seen through the hole, the inside of
@@ -113,15 +129,17 @@ if (vBZ.w > 0.5 && vBZ.w < 2.5 && chAny > 0.5) {
 function chunkShader(sh, U, solid) {
   if (!U.chT) Object.assign(U, { chT: { value: new Float32Array(CH_N.T) }, chH: { value: new Float32Array(CH_N.H) }, chAny: { value: 0 } });   // a cut-off piece: no cells
   if (!U.hc) Object.assign(U, { hc: { value: Array.from({ length: HC_MAX }, () => new THREE.Vector4()) }, hcN: { value: 0 } });
-  sh.uniforms.chT = U.chT; sh.uniforms.chH = U.chH; sh.uniforms.chAny = U.chAny; sh.uniforms.hc = U.hc; sh.uniforms.hcN = U.hcN;
-  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 bz;\nvarying vec4 vBZ;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvBZ = bz;');
+  if (!U.hcT0) U.hcT0 = { value: -99 };
+  sh.uniforms.chT = U.chT; sh.uniforms.chH = U.chH; sh.uniforms.chAny = U.chAny; sh.uniforms.hc = U.hc; sh.uniforms.hcN = U.hcN; sh.uniforms.hcT0 = U.hcT0; sh.uniforms.chTime = CH_TIME; sh.uniforms.hcV = U.hc;   // (hcV: clothes already have an attribute called hc)
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 bz;\nvarying vec4 vBZ;\nuniform vec4 hcV[' + HC_MAX + '];\nuniform float hcN;\nuniform float hcT0;\nuniform float chTime;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvBZ = bz;')
+    .replace('#include <project_vertex>', CHUNK_FLAB + '#include <project_vertex>');
   sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + CHUNK_F).replace('#include <emissivemap_fragment>',
     CHUNK_MAIN.split('SOLID').join(solid ? 'true' : 'false') + '#include <emissivemap_fragment>');
 }
 function chunkUniforms(root) {
   const c = root.userData.chunk || (root.userData.chunk = { T: new Float32Array(CH_N.T), H: new Float32Array(CH_N.H), any: { value: 0 } });
   if (!c.sk) c.sk = soakUniforms();
-  if (!c.hcU) { c.hcU = { hc: { value: Array.from({ length: HC_MAX }, () => new THREE.Vector4()) }, hcN: { value: 0 } }; c.HC = []; }
+  if (!c.hcU) { c.hcU = { hc: { value: Array.from({ length: HC_MAX }, () => new THREE.Vector4()) }, hcN: { value: 0 }, hcT0: { value: -99 } }; c.HC = []; }
   return Object.assign({ chT: { value: c.T }, chH: { value: c.H }, chAny: c.any }, c.sk, c.hcU);
 }
 // which cell a body-frame point is in
@@ -294,6 +312,7 @@ const chunkCount = (root, k) => { const st = root && root.userData.chunk; if (!s
 function craterSync(root) {
   const st = root.userData.chunk; if (!st || !st.hcU) return; const H = st.HC || [];
   H.forEach((h, i) => st.hcU.hc.value[i].set(h.c.x, h.c.y, h.c.z, h.r)); st.hcU.hcN.value = H.length;
+  if (!st.hcU.hcT0) st.hcU.hcT0 = { value: -99 }; if (H.length !== st.hcSeen) { st.hcSeen = H.length; st.hcU.hcT0.value = CH_TIME.value; }
   for (const m of st.craters || []) { const i = m.userData.ci, h = H[i]; m.visible = !!h; if (h) { m.position.copy(h.c); m.scale.setScalar(h.r); m.material.userData.cC.value.set(h.c.x, h.c.y, h.c.z, h.r); } }
 }
 const headGone = root => { const H = (root && root.userData.chunk && root.userData.chunk.HC) || []; let s = 0, m = 0; for (const h of H) { s += h.r; m = Math.max(m, h.r); } return s >= 0.16 || m >= 0.095; };
@@ -382,7 +401,7 @@ function woundBlood(root, pts, dir) {
     }
     // a wet gush out of the hole as it opens
     if (typeof spawnDrop === 'function') { const c = A[0].localToWorld(new V3(P.c.x, P.c.y + P.off + A[1], P.c.z));
-      for (let i = 0; i < 26; i++) spawnDrop(c, (dir || _Y).clone().multiplyScalar(rnd(0.3, 1.6)).add(new V3(rnd(-0.8, 0.8), rnd(-0.2, 1), rnd(-0.8, 0.8))), rnd(0.002, 0.0045)); }
+      for (let i = 0; i < 26; i++) spawnDrop(c, (dir || _Y).clone().setY(0).multiplyScalar(rnd(0.1, 0.5)).add(new V3(rnd(-0.3, 0.3), rnd(0.4, 1.3), rnd(-0.3, 0.3))), rnd(0.002, 0.0045)); }
   }
   if (rg && anch) { rg.bleedR += 25 * anch; rg.asleep = false; }
 }
@@ -678,5 +697,5 @@ function capMesh(root, seg, U) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { BZ_SEG, CH_GIB, chunkCenters, chunkCopy, chunkCount, chunkGoneAt, chunkIslands, chunkReset, chunkRootOf, chunkRx, chunkShader, chunkShot, chunkTubes, chunkUniforms, destroyChunks, ensureBZ, headCrater };
+export { BZ_SEG, CH_GIB, CH_TIME, chunkCenters, chunkCopy, chunkCount, chunkGoneAt, chunkIslands, chunkReset, chunkRootOf, chunkRx, chunkShader, chunkShot, chunkTubes, chunkUniforms, destroyChunks, ensureBZ, headCrater };
 // ---- end module exports ----
