@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { V3, clamp, rnd, scene } from './00-setup.js';
 import { colliders, mat } from './01-world.js';
 import { Body, HUM_DEFAULT, attachSkin, mergeTree, sph, vcMat } from './02-body-parts.js';
-import { chunkCopy } from './02b-chunks.js';
+import { chunkCopy, chunkIslands, headCrater } from './02b-chunks.js';
 import { WEAPONS } from './06-weapons.js';
 import { ATT_DEFAULT } from './09-attachments.js';
 import { noiseHit } from './10-audio.js';
@@ -128,7 +128,6 @@ class Ragdoll {
     }
     if (this.breakClip) for (const [g, y, below] of this.breakClip) clipGroup(g, y, below);
     this.group.traverse(o => { if (o.isMesh) o.userData.rag = this; });
-    if (masks.gib) this.headG.visible = false;
     if (masks.h && masks.h.length) this.group.userData.wounded = true;   // (its clothes stay put over the blood: see ClothSim)
     if (masks.h) for (const h of masks.h) { const [g, dy] = this.frameGroup(h.frame, h.p.y + h.d.y * h.len * 0.5); if (g) holeInGroup(g, h.p.clone().setY(h.p.y + dy), h.d, h.len, h.r0, h.r1, h.sk); }
     this.lostMask = lost; this.sync(); this.group.updateMatrixWorld(true);
@@ -137,7 +136,6 @@ class Ragdoll {
     // the wet patch round each wound now; the runs only once the body has come to rest, so they run the way it lies
     if (this.liq) { this.group.updateMatrixWorld(true); this.runsTodo = []; for (const [fr, lp, n, tear, fy] of this.liq) { const [g] = this.frameGroup(fr, fy); if (g) { if (tear) tearMesh(g, lp, n, tear, 0, 0); else liquidBlood(g, lp, n, 0.022, 5, 0); this.runsTodo.push([g, lp, n, tear ? clamp(tear * 0.32, 0.04, 0.13) : 0.022, tear ? 2 : 1]); } } this.liq = null; }
     if (masks.tear && !masks.gib) { this.sync(); this.group.updateMatrixWorld(true); this.tearNeck(dir || new V3(0, 0, 1)); }
-    if (masks.gib) { addStump(this.torso, new V3(0, 0.272, 0), new V3(0, 1, 0), 0.068, 'neck'); const st = new THREE.Object3D(); st.position.set(0, 0.29, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) }); this.bleedR += 70; }
     this.sync();
   }
   // which piece of the ragdoll stands for a skeleton frame, and the y offset from frame coordinates to that piece
@@ -154,17 +152,27 @@ class Ragdoll {
     if (si % 2 === 0) { const lp = this.torso.worldToLocal(this.p[RAG_LIMBS[si][0]].clone()), n = si < 4 ? new V3(Math.sign(lp.x), -0.4, 0).normalize() : new V3(0, -1, 0); addStump(this.torso, lp, n, r); const a = new THREE.Object3D(); a.position.copy(lp); this.torso.add(a); this.anchors.push({ m: a, n }); this.bleedR += 25; }
     else { let par = null; for (const l of this.limbs) if (l.seg === si - 1) par = l; if (par) { addStump(par.g, new V3(0, par.bot, 0), new V3(0, -1, 0), r); const a = new THREE.Object3D(); a.position.set(0, par.bot, 0); par.g.add(a); this.anchors.push({ m: a, n: new V3(0, -1, 0) }); this.bleedR += 15; } }
   }
-  gibHead(dir) {
-    const hp = this.headG.getWorldPosition(new V3()); this.headG.visible = false; this.headG.traverse(o => { o.visible = false; });
-    addStump(this.torso, new V3(0, 0.272, 0), new V3(0, 1, 0), 0.068, 'neck');
-    for (const a of this.anchors) if (a.m.parent === this.headG) this.anchors.splice(this.anchors.indexOf(a), 1);
-    const st = new THREE.Object3D(); st.position.set(0, 0.29, 0); this.torso.add(st); this.anchors.push({ m: st, n: new V3(0, 1, 0) });
+  // the head blown apart: the vault of the skull goes (out the far side where the load left, and over the top), the face and
+  // jaw stay on the neck, and what is left open is the solid crater wound. A helmet on it is thrown clear. quiet: the burst of
+  // gore was already thrown by whoever called (a body that died this way)
+  gibHead(dir, quiet) {
+    if (this.headBlown || this.headGone || !this.headG.visible) return;
+    this.headBlown = true; dir = (dir || new V3(0, 0, 1)).clone().normalize();
+    this.group.updateMatrixWorld(true);
+    const hg = this.headG, c = hg.localToWorld(new V3(0, 0, -0.02)), up = hg.localToWorld(new V3(0, 1, 0)).sub(hg.getWorldPosition(new V3())).normalize();
+    const side = dir.clone().addScaledVector(up, -dir.dot(up)); if (side.lengthSq() < 0.01) side.copy(dir); side.normalize();
+    throwHelmet(this.group, hg, dir);
+    this.group.userData.chunkHold = true;
+    headCrater(this.group, c.clone().addScaledVector(side, 0.06).addScaledVector(up, 0.035), 0.1, dir, this.skin, true);
+    headCrater(this.group, c.clone().addScaledVector(up, 0.085).addScaledVector(side, -0.015), 0.095, dir, this.skin, true);
+    this.group.userData.chunkHold = false; chunkIslands(this.group, dir);
+    const st = new THREE.Object3D(); st.position.set(0, 0.03, -0.02); hg.add(st); this.anchors.push({ m: st, n: up.clone().transformDirection(new THREE.Matrix4().copy(hg.matrixWorld).invert()) });
     this.bleedR += 70; this.twitch = Math.max(this.twitch, 3); this.asleep = false;
-    goreBurst(hp, dir.clone().normalize(), this.skin);
+    if (!quiet) goreBurst(c, dir, this.skin);
   }
   // ---------------------------------------------------------------- neck torn through: the head hangs on by strands of muscle and skin
   tearNeck(dir) {
-    if (this.neckTorn || this.headGone || !this.headG.visible) return;
+    if (this.neckTorn || this.headGone || this.headBlown || !this.headG.visible) return;
     this.neckTorn = true; this.neckTw = rnd(-0.6, 0.6);
     // the skin and clothes stop pulling across the tear: what is on the trunk (the collar) lets go of the neck and head, what
     // is on the head and neck lets go of the trunk, so nothing stretches out into a long cone after the swinging head
@@ -474,6 +482,8 @@ function spawnRagdoll(hum, vel, dir, part, head, masks) {
   const r = new Ragdoll(hum.capture(), hum.pal, vel || new V3(), part === 'arm' ? (Math.random() < 0.5 ? 4 : 7) : part === 'leg' ? (Math.random() < 0.5 ? 10 : 13) : PART_IDX[part] || 1, dir, masks.soft ? 0.25 : head ? 5.5 : 3, masks);
   { const BN = ['shL', 'elL', 'shR', 'elR', 'lgL', 'knL', 'lgR', 'knR']; for (const l of r.limbs) { const b = hum[BN[l.seg]]; if (b) l.q0 = b.getWorldQuaternion(new THREE.Quaternion()); } r.sync(); }
   chunkCopy(hum.root, r.group);
+  if (masks.gib) r.gibHead(dir, true);
+  chunkIslands(r.group, dir);
   ragdolls.push(r);
   while (ragdolls.length > 14) { const i = ragdolls.findIndex(x => !x.keep); if (i < 0) break; ragdolls.splice(i, 1)[0].dispose(); }
   // a dummy that goes down lets go of its weapon, which becomes an item on the ground
@@ -485,6 +495,14 @@ function spawnRagdoll(hum, vel, dir, part, head, masks) {
   return r;
 }
 function freeRag(r) { if (!r) return; const i = ragdolls.indexOf(r); if (i >= 0) ragdolls.splice(i, 1); r.dispose(); }
+// a ragdoll's helmet thrown clear of a head that came apart under it
+function throwHelmet(root, F, dir) {
+  const ms = []; root.traverse(o => { if (o.userData.armor === 'helmet' && o.visible) ms.push(o); }); if (!ms.length) return;
+  root.updateMatrixWorld(true); const g = new THREE.Group(); F.matrixWorld.decompose(g.position, g.quaternion, g.scale);
+  const inv = F.matrixWorld.clone().invert();
+  for (const m of ms) { const c = new THREE.Mesh(m.geometry, m.material); new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld).decompose(c.position, c.quaternion, c.scale); c.castShadow = true; g.add(c); m.visible = false; }
+  scene.add(g); addProp(g, dir.clone().multiplyScalar(rnd(2, 3.5)).add(new V3(rnd(-0.8, 0.8), rnd(1.8, 3), rnd(-0.8, 0.8))), new V3(rnd(-14, 14), rnd(-14, 14), rnd(-14, 14)), 0.11, 'helmet', 45);
+}
 // helmet comes off: hide it on the body and throw a copy as a prop
 function setHelmet(hum, on, dir) {
   if (!!hum.helmetOff === !on) return; hum.helmetOff = !on;
@@ -649,5 +667,5 @@ function detachSkin(g) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { RAG_MASS, _Y, _a, _b, _rt, freeRag, limbBodies, ragdolls, setHelmet, spawnRagdoll, syncLost, updateLimbs };
+export { RAG_LIMBS, RAG_MASS, _Y, _a, _b, _rt, freeRag, limbBodies, ragdolls, setHelmet, spawnRagdoll, syncLost, updateLimbs };
 // ---- end module exports ----

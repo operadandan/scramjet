@@ -1,9 +1,10 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
-import { V3, clamp, rnd } from './00-setup.js';
+import { V3, clamp, rnd, scene } from './00-setup.js';
 import { HUMAN_SEGS } from './02a-human-mesh.js';
-import { brainSmears, spawnGore } from './12b-gore.js';
-import { bloodFx } from './14-wounds.js';
+import { RAG_LIMBS } from './04-ragdoll.js';
+import { brainSmears, goreThrow, spawnGore } from './12b-gore.js';
+import { bloodFx, copySegment } from './14-wounds.js';
 import { soakClear, soakCopy, soakFrame, soakUniforms } from './14b-soak.js';
 import { P, S, localBody } from './17-dummies.js';
 import { net } from './19-network.js';
@@ -155,6 +156,7 @@ function destroyChunks(root, pred, dir, skin) {
     const m = new V3(); for (const p of res.pts) m.add(p); m.multiplyScalar(1 / res.pts.length);
     if (typeof bloodFx === 'function') bloodFx(m, dir, true, Math.min(3, 1 + res.pts.length * 0.25));
     chunkOpen(root); if (typeof chunkNet === 'function') chunkNet(root);
+    chunkIslands(root, dir);
   }
   return res;
 }
@@ -273,6 +275,7 @@ function headCrater(root, wp, r, dir, skin, quiet) {
     if (typeof brainSmears === 'function') brainSmears(wp, dir, 2 + Math.floor(k * 2));
   }
   craterSync(root); chunkOpen(root); if (typeof chunkNet === 'function') chunkNet(root);
+  chunkIslands(root, dir);
   return { t: 0, h: 1 };
 }
 const CRATER_GEO = new THREE.IcosahedronGeometry(1, 3);
@@ -313,6 +316,119 @@ if (vQ.z < zl - 0.004 || vQ.z > zh + 0.004) discard;`)
   craterSync(root);
 }
 
+// ---------------------------------------------------------------- loose pieces
+// Whatever the damage leaves with nothing joining it to the rest of the body comes away as its own piece with its own
+// physics: a trunk cell (or a group of them) cut off from the rest, a strip of scalp or an eye left between two head craters,
+// an arm, a leg or the head whose root on the trunk is gone. Done on ragdolls (a standing body that loses that much is dead,
+// and its ragdoll runs this when it is made). Every client works it out the same from the same sets.
+let CH_GRAPH = null;
+// which trunk cells touch inside the body: worked out once from a body's own shape (its trunk skin, and points part way in)
+function chunkGraph(root) {
+  if (CH_GRAPH) return CH_GRAPH;
+  const pts = []; let cz = 0;
+  root.traverse(o => { if (!o.isMesh || !o._skin) return; const b = o.geometry.attributes.bz; if (!b) return;
+    for (let i = 0; i < b.count; i += 2) if (Math.abs(b.getW(i) - 1) < 0.1) { pts.push(new V3(b.getX(i), b.getY(i), b.getZ(i))); cz += b.getZ(i); } });
+  if (pts.length < 50) return null; cz /= pts.length;
+  const nodes = []; for (const p of pts) for (const k of [1, 0.66, 0.33, 0]) nodes.push(new V3(p.x * k, p.y, cz + (p.z - cz) * k));
+  const cell = nodes.map(n => chunkCell('T', n)), adj = Array.from({ length: CH_N.T }, () => new Set()), has = new Array(CH_N.T).fill(false);
+  const h = 0.03, B = new Map(), key = (x, y, z) => x + ',' + y + ',' + z;
+  nodes.forEach((n, i) => { has[cell[i]] = true; const k = key(Math.floor(n.x / h), Math.floor(n.y / h), Math.floor(n.z / h)); (B.get(k) || B.set(k, []).get(k)).push(i); });
+  nodes.forEach((n, i) => { const X = Math.floor(n.x / h), Y = Math.floor(n.y / h), Z = Math.floor(n.z / h);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) for (const j of B.get(key(X + dx, Y + dy, Z + dz)) || [])
+      if (cell[j] !== cell[i] && n.distanceToSquared(nodes[j]) < h * h) { adj[cell[i]].add(cell[j]); adj[cell[j]].add(cell[i]); } });
+  return (CH_GRAPH = { adj, has });
+}
+// a world point in the trunk's body frame
+function trunkBZ(root, wp) {
+  const at = root.userData.chunkAt; let lp = null;
+  for (const [seg, off] of [['spine', 0.07], ['hips', 0]]) { const A = at && at[seg]; if (!A) continue; const l = A[0].worldToLocal(wp.clone()); l.y += off - A[1]; lp = l; if ((seg === 'spine') === (l.y > 0.07)) return l; }
+  return lp;
+}
+// the trunk cells a joint hangs on: the cell it is in and those within 4 cm of it
+const _ciO = [[0, 0, 0], [0.04, 0, 0], [-0.04, 0, 0], [0, 0.04, 0], [0, -0.04, 0], [0, 0, 0.04], [0, 0, -0.04]];
+function jointCells(root, wp) { const q = trunkBZ(root, wp); if (!q) return []; const S = new Set(); for (const o of _ciO) S.add(chunkCell('T', new V3(q.x + o[0], q.y + o[1], q.z + o[2]))); return [...S]; }
+function chunkIslands(root, dir) {
+  const st = root && root.userData.chunk, r = root && root.userData.ragObj; if (!st || !r || root.userData.chunkHold || !st.any.value) return;
+  root.updateMatrixWorld(true);
+  dir = dir ? dir.clone().normalize() : new V3(0, 1, 0); trunkIslands(root, st, r, dir); headIslands(root, st, r, dir);
+}
+function trunkIslands(root, st, r, dir) {
+  if (!st.T.some(v => v > 0.5)) return; const G = chunkGraph(root); if (!G) return;
+  const alive = i => G.has[i] && st.T[i] < 0.5, comp = new Array(CH_N.T).fill(-1), comps = [];
+  for (let i = 0; i < CH_N.T; i++) { if (!alive(i) || comp[i] >= 0) continue; const c = [i]; comp[i] = comps.length;
+    for (let k = 0; k < c.length; k++) for (const j of G.adj[c[k]]) if (alive(j) && comp[j] < 0) { comp[j] = comps.length; c.push(j); }
+    comps.push(c); }
+  // what hangs on the trunk: the legs (and with them the pelvis the ragdoll is built round) count most, then the arms and the neck
+  const J = [];
+  for (const [seg, bit, w] of [[4, 16, 3], [6, 64, 3], [0, 1, 1], [2, 4, 1]]) if (r.limbs.some(l => l.seg === seg && l.first)) J.push({ bit, w, cells: jointCells(root, r.p[RAG_LIMBS[seg][0]]) });
+  if (r.headG.visible && !r.headGone) J.push({ head: true, w: 1, cells: jointCells(root, r.torso.localToWorld(new V3(0, 0.29, 0))) });
+  let main = -1, best = -1;
+  comps.forEach((c, ci) => { let sc = c.length * 0.01; for (const j of J) if (j.cells.some(x => comp[x] === ci)) sc += j.w; if (sc > best) { best = sc; main = ci; } });
+  comps.forEach((c, ci) => { if (ci === main) return; trunkFragment(root, r, c, dir); for (const i of c) st.T[i] = 1; });
+  if (comps.length > 1) { chunkOpen(root); if (typeof chunkNet === 'function') chunkNet(root); }
+  // whatever no longer hangs on the part of the trunk that is left comes off
+  for (const j of J) { if (j.cells.some(x => comp[x] === main && main >= 0)) continue;
+    if (j.head) { if (typeof r.dropHead === 'function') r.dropHead(r.torso.localToWorld(new V3(0, 0.3, 0))); }
+    else if (!(r.lostMask & j.bit)) r.applyLost(r.lostMask | j.bit, dir); }
+}
+// the cells c of a ragdoll's trunk as a piece of their own: a copy of the trunk drawn with every other cell gone, so it shows
+// the same solid cut faces all round
+function trunkFragment(root, r, cells, dir) {
+  const at = root.userData.chunkAt, st = root.userData.chunk, piece = copySegment(r.torso);
+  const T = new Float32Array(CH_N.T).fill(1); for (const i of cells) T[i] = 0;
+  const U = { chT: { value: T }, chH: { value: new Float32Array(CH_N.H) }, chAny: { value: 1 }, hc: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) }, hcN: { value: 0 } };
+  for (const m of [...piece.children]) {
+    // only the skin and clothes are cut to the piece; anything else on the trunk (organs, armour, pouches) is left out of it
+    if (!m._skin || m.userData.armor) { piece.remove(m); continue; }
+    Object.assign(m._skin.U, U, st.sk); m.material.side = THREE.DoubleSide;
+  }
+  // and the solid cut faces all round it
+  for (const seg of ['hips', 'spine']) { const cm = capMesh(root, seg, U); if (cm) { cm.visible = true; piece.add(cm); } }
+  // centred on the middle of the cells it is made of, which are also what it rests on
+  const loc = cells.map(i => { const s = CH_SEEDS.T[i], spine = s.y > 0.07, A = at[spine ? 'spine' : 'hips']; return A[0].localToWorld(new V3(s.x, s.y + (spine ? -0.07 : 0) + A[1], s.z)); });
+  const c = new V3(); for (const p of loc) c.add(p); c.multiplyScalar(1 / loc.length);
+  const g = new THREE.Group(); g.position.copy(c); scene.add(g); scene.add(piece); piece.updateMatrixWorld(true); g.updateMatrixWorld(true); g.attach(piece);
+  const samp = []; for (const p of loc) { const q = p.clone().sub(c); samp.push(q.x, q.y, q.z); }
+  const v = r.p[1].clone().sub(r.q[1]).multiplyScalar(120).add(c.clone().sub(r.torso.getWorldPosition(new V3())).normalize().multiplyScalar(rnd(0.5, 1.2))).addScaledVector(dir, rnd(0.3, 1)); v.y += rnd(0.4, 1);
+  if (typeof goreThrow === 'function') goreThrow(g, v, new V3(rnd(-6, 6), rnd(-6, 6), rnd(-6, 6)), new Float32Array(samp), 0.045, 0.06);
+  if (typeof bloodFx === 'function') bloodFx(c, v.clone().normalize(), true, 0.6);
+}
+// the head: its surface and points part way in toward the middle, every one not inside a crater; what is not joined (within
+// a centimetre and a half) to the bottom of the head, where the neck holds it, is loose
+function headIslands(root, st, r, dir) {
+  const H = st.HC || []; if (!H.length || !r.headG.visible || r.headGone) return;
+  const at = root.userData.chunkAt, A = at && at.head; if (!A) return;
+  const pts = [];
+  A[0].traverse(o => { if (!o.isMesh || !o.visible) return; const b = o.geometry.attributes.bz; if (!b) return;
+    for (let i = 0; i < b.count; i += 3) if (Math.abs(b.getW(i) - 2) < 0.1) pts.push(new V3(b.getX(i), b.getY(i), b.getZ(i))); });
+  if (pts.length < 30) return;
+  const cc = new V3(0, 0.08, -0.03), nodes = []; for (const p of pts) for (const k of [1, 0.6, 0.25]) nodes.push(cc.clone().lerp(p, k));
+  const live = nodes.filter(n => H.every(h => n.distanceTo(h.c) > h.r + 0.004)); if (!live.length) return;
+  let lo = 1e9; for (const n of live) lo = Math.min(lo, n.y);
+  const hh = 0.015, B = new Map(), key = (x, y, z) => x + ',' + y + ',' + z;
+  live.forEach((n, i) => { const k = key(Math.floor(n.x / hh), Math.floor(n.y / hh), Math.floor(n.z / hh)); (B.get(k) || B.set(k, []).get(k)).push(i); });
+  const seen = new Array(live.length).fill(false), comps = [];
+  for (let s = 0; s < live.length; s++) { if (seen[s]) continue; const c = [s]; seen[s] = true;
+    for (let k = 0; k < c.length; k++) { const n = live[c[k]], X = Math.floor(n.x / hh), Y = Math.floor(n.y / hh), Z = Math.floor(n.z / hh);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) for (const j of B.get(key(X + dx, Y + dy, Z + dz)) || [])
+        if (!seen[j] && n.distanceToSquared(live[j]) < hh * hh) { seen[j] = true; c.push(j); } }
+    comps.push(c); }
+  if (comps.length < 2) return;
+  // the piece the neck holds: the one reaching lowest
+  let main = -1; comps.forEach((c, ci) => { if (c.some(i => live[i].y < lo + 0.02) && (main < 0 || c.length > comps[main].length)) main = ci; });
+  comps.forEach((c, ci) => {
+    if (ci === main) return;
+    const m = new V3(); for (const i of c) m.add(live[i]); m.multiplyScalar(1 / c.length); let rad = 0; for (const i of c) rad = Math.max(rad, live[i].distanceTo(m));
+    // it comes off the head (a crater over it, or the nearest crater grown over it), and is thrown as skull and scalp
+    if (H.length < 4) H.push({ c: m.clone(), r: Math.min(0.11, rad + 0.008) });
+    else { let b = H[0]; for (const h of H) if (h.c.distanceTo(m) - h.r < b.c.distanceTo(m) - b.r) b = h; b.r = Math.min(0.11, Math.max(b.r, b.c.distanceTo(m) + rad + 0.008)); }
+    if (c.length > 6 && typeof spawnGore === 'function') { const wp = A[0].localToWorld(new V3(m.x, m.y + A[1], m.z)), out = wp.clone().sub(A[0].localToWorld(new V3(cc.x, cc.y + A[1], cc.z))).normalize();
+      spawnGore(wp, out.addScaledVector(dir, 0.3), 'skull', clamp(Math.round(rad / 0.02), 1, 4), rnd(0.8, 1.6), 0.6, clamp(rad * 0.8, 0.012, 0.045), r.skin);
+      spawnGore(wp, out, 'flesh', 2, rnd(0.6, 1.2), 0.6, 0.012); }
+  });
+  craterSync(root); chunkOpen(root); if (typeof chunkNet === 'function') chunkNet(root);
+}
+
 
 // online: what is gone from a player's body is the same for everyone. Whoever works it out sends the body's whole set; the
 // rest take it (sets only ever grow, so the order messages arrive in does not matter)
@@ -336,7 +452,7 @@ function chunkRx(m) {
     const st = root && root.userData.chunk; if (!st) continue; let n = 0;
     for (const i of m.T || []) if (i >= 0 && i < CH_N.T && !(st.T[i] > 0.5)) { st.T[i] = 1; n++; }
     if (Array.isArray(m.C)) { chunkUniforms(root); const Hc = st.HC = st.HC || []; for (let k = 0; k + 3 < m.C.length && k < 16; k += 4) { const c = new V3(+m.C[k], +m.C[k + 1], +m.C[k + 2]), r = clamp(+m.C[k + 3] || 0, 0, 0.11); if (!(r > 0) || Hc.some(h => h.c.distanceTo(c) < 0.005 && Math.abs(h.r - r) < 0.003)) continue; if (Hc.length >= 4) Hc.shift(); Hc.push({ c, r }); n++; } if (n) craterSync(root); }
-    if (n) { CHUNK_RX = true; try { chunkOpen(root); } finally { CHUNK_RX = false; } }
+    if (n || Array.isArray(m.C)) { CHUNK_RX = true; try { if (n) chunkOpen(root); chunkIslands(root); } finally { CHUNK_RX = false; } }
   }
 }
 // ---------------------------------------------------------------- solid cut faces
@@ -463,8 +579,13 @@ const _capGeo = {};
 function chunkCaps(root) {
   const at = root.userData.chunkAt, st = root.userData.chunk; if (!at || !st || st.caps) return; st.caps = [];
   const U = chunkUniforms(root);
-  for (const [seg, k, ya, yb, off] of [['hips', 'T', -1, 0.07, 0], ['spine', 'T', 0.07, 1, -0.07]]) {
-    const A = at[seg]; if (!A) continue;
+  for (const seg of ['hips', 'spine']) { const mesh = capMesh(root, seg, U); if (mesh) { at[seg][0].add(mesh); st.caps.push(mesh); } }
+}
+// the cut faces of one trunk segment, drawn for the gone/not-gone pattern in U (a body's own, or a loose piece's)
+function capMesh(root, seg, U) {
+  const at = root.userData.chunkAt, st = root.userData.chunk;
+  { const [k, ya, yb, off] = seg === 'hips' ? ['T', -1, 0.07, 0] : ['T', 0.07, 1, -0.07];
+    const A = at[seg]; if (!A) return null;
     const w = k === 'T' ? 1 : 2, H = CAP_HF[w];
     const tex = st['hf' + w] || (st['hf' + w] = capDepthMap(root, w));
     const m = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0, side: THREE.DoubleSide });
@@ -482,10 +603,10 @@ function chunkCaps(root) {
     const g = _capGeo[k] || (_capGeo[k] = capGeo(k));
     const mesh = new THREE.Mesh(g, m); mesh.position.y = A[1] + off; mesh.frustumCulled = false; mesh.receiveShadow = true;
     mesh.userData.chCap = true; mesh.userData.keep = true; mesh.castShadow = false;
-    A[0].add(mesh); st.caps.push(mesh);
+    return mesh;
   }
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { BZ_SEG, CH_GIB, chunkCenters, chunkCopy, chunkCount, chunkGoneAt, chunkReset, chunkRootOf, chunkRx, chunkShader, chunkShot, chunkUniforms, destroyChunks, ensureBZ, headCrater };
+export { BZ_SEG, CH_GIB, chunkCenters, chunkCopy, chunkCount, chunkGoneAt, chunkIslands, chunkReset, chunkRootOf, chunkRx, chunkShader, chunkShot, chunkUniforms, destroyChunks, ensureBZ, headCrater };
 // ---- end module exports ----
