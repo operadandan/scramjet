@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { GFX, V3, clamp, lerp, rnd, scene } from './00-setup.js';
 import { canvasTex, colliders, mat, worldMeshes } from './01-world.js';
 import { GC, bodyKey, bodyPatches, vcMat } from './02-body-parts.js';
-import { chunkGoneAt, chunkRootOf } from './02b-chunks.js';
+import { chunkGoneAt, chunkRootOf, chunkTubes } from './02b-chunks.js';
 import { _Y, _a, _b, _rt } from './04-ragdoll.js';
 import { STRUCTS_BY_FRAME, pathDist } from './05-anatomy.js';
 import { WEAPONS, isPistol, isShotgun } from './06-weapons.js';
@@ -476,7 +476,9 @@ function holeInGroup(group, p, d, len, r0, r1, sk) {
     // between the cut edge and the meat to see into the hollow shell through
     if (skin.length) {
       const g = solidTube(group, skin, slot, p, d, len, r0, r1, sk[0] / len, sk[1] ? sk[1] / len : 0.97, !sk[1]);
-      if (g) { const t = new THREE.Mesh(g, TUBE_FLESH); t.userData.tube = true; t.userData.keep = true; group.add(t); }
+      if (g) { const t = new THREE.Mesh(g, TUBE_FLESH); t.userData.tube = true; t.userData.keep = true; group.add(t);
+        // a track made through a body already blown open: the part of it in what is gone goes at once
+        const cr = chunkRootOf(group); if (cr && cr.userData.chunk && cr.userData.chunk.any.value) chunkTubes(cr); }
     }
   }
 }

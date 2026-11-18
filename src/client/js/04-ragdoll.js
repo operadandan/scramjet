@@ -166,7 +166,7 @@ class Ragdoll {
     headCrater(this.group, c.clone().addScaledVector(side, 0.06).addScaledVector(up, 0.035), 0.1, dir, this.skin, true);
     headCrater(this.group, c.clone().addScaledVector(up, 0.085).addScaledVector(side, -0.015), 0.095, dir, this.skin, true);
     this.group.userData.chunkHold = false; chunkIslands(this.group, dir);
-    const st = new THREE.Object3D(); st.position.set(0, 0.03, -0.02); hg.add(st); this.anchors.push({ m: st, n: up.clone().transformDirection(new THREE.Matrix4().copy(hg.matrixWorld).invert()) });
+    const st = new THREE.Object3D(); st.position.set(0, -0.02, -0.02); st.userData.cavity = true; hg.add(st); this.anchors.push({ m: st, n: up.clone().transformDirection(new THREE.Matrix4().copy(hg.matrixWorld).invert()) });
     this.bleedR += 70; this.twitch = Math.max(this.twitch, 3); this.asleep = false;
     if (!quiet) goreBurst(c, dir, this.skin);
   }
