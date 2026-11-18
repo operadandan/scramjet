@@ -70,14 +70,15 @@ float chEdge(vec3 q, int i, float w) { int n = w < 1.5 ? ${CH_N.T} : ${CH_N.H}; 
   return dE; }
 `;
 // The scalp, skin and hair left round a crater are no longer held by the skull under them: within a few centimetres of the
-// edge they hang by hcF, a world-space offset worked out every frame by a spring (chunkFlab) from gravity and how the head is
-// moving. They sag whichever way is down, swing and lag when the head moves, and settle with a slight droop. (Done after
+// edge they hang by hcF[i], a world-space offset worked out every frame by that crater's own spring (chunkFlab) from gravity
+// and how the head is moving: each crater's flaps swing on their own, with their own stiffness, and where two edges meet
+// the flesh follows both. They sag whichever way is down, swing and lag when the head moves, and settle with a slight droop. (Done after
 // the skinning, in the mesh's own space; the cut itself still follows the body frame, so it moves with them.)
 const CHUNK_FLAB = `
 if (bz.w > 1.5 && bz.w < 2.5 && hcN > 0.5) {
-  float fw = 0.0;
-  for (int i = 0; i < ${HC_MAX}; i++) { if (float(i) >= hcN) break; float d = length(bz.xyz - hcV[i].xyz) - hcV[i].w; fw = max(fw, 1.0 - smoothstep(0.0, 0.035, d)); }
-  if (fw > 0.0) transformed += (transpose(mat3(modelMatrix)) * hcF) * (fw * fw);
+  vec3 fo = vec3(0.0); float fs = 0.0;
+  for (int i = 0; i < ${HC_MAX}; i++) { if (float(i) >= hcN) break; float d = length(bz.xyz - hcV[i].xyz) - hcV[i].w, w = 1.0 - smoothstep(0.0, 0.035, d); w *= w; fo += hcF[i] * w; fs += w; }
+  if (fs > 0.0) transformed += transpose(mat3(modelMatrix)) * (fo / max(1.0, fs));
 }
 `;
 // How a cut is drawn on the skin. Torn skin, bruised and bloody for a centimetre or two round the hole; at the very edge, a thin
@@ -127,9 +128,9 @@ if (vBZ.w > 0.5 && vBZ.w < 2.5 && chAny > 0.5) {
 function chunkShader(sh, U, solid) {
   if (!U.chT) Object.assign(U, { chT: { value: new Float32Array(CH_N.T) }, chH: { value: new Float32Array(CH_N.H) }, chAny: { value: 0 } });   // a cut-off piece: no cells
   if (!U.hc) Object.assign(U, { hc: { value: Array.from({ length: HC_MAX }, () => new THREE.Vector4()) }, hcN: { value: 0 } });
-  if (!U.hcF) U.hcF = { value: new V3() };
+  if (!U.hcF) U.hcF = { value: Array.from({ length: HC_MAX }, () => new V3()) };
   sh.uniforms.chT = U.chT; sh.uniforms.chH = U.chH; sh.uniforms.chAny = U.chAny; sh.uniforms.hc = U.hc; sh.uniforms.hcN = U.hcN; sh.uniforms.hcF = U.hcF; sh.uniforms.hcV = U.hc;   // (hcV: clothes already have an attribute called hc)
-  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 bz;\nvarying vec4 vBZ;\nuniform vec4 hcV[' + HC_MAX + '];\nuniform float hcN;\nuniform vec3 hcF;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvBZ = bz;')
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 bz;\nvarying vec4 vBZ;\nuniform vec4 hcV[' + HC_MAX + '];\nuniform float hcN;\nuniform vec3 hcF[' + HC_MAX + '];').replace('#include <begin_vertex>', '#include <begin_vertex>\nvBZ = bz;')
     .replace('#include <project_vertex>', CHUNK_FLAB + '#include <project_vertex>');
   sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + CHUNK_F).replace('#include <emissivemap_fragment>',
     CHUNK_MAIN.split('SOLID').join(solid ? 'true' : 'false') + '#include <emissivemap_fragment>');
@@ -137,7 +138,7 @@ function chunkShader(sh, U, solid) {
 function chunkUniforms(root) {
   const c = root.userData.chunk || (root.userData.chunk = { T: new Float32Array(CH_N.T), H: new Float32Array(CH_N.H), any: { value: 0 } });
   if (!c.sk) c.sk = soakUniforms();
-  if (!c.hcU) { c.hcU = { hc: { value: Array.from({ length: HC_MAX }, () => new THREE.Vector4()) }, hcN: { value: 0 }, hcF: { value: new V3() } }; c.HC = []; }
+  if (!c.hcU) { c.hcU = { hc: { value: Array.from({ length: HC_MAX }, () => new THREE.Vector4()) }, hcN: { value: 0 }, hcF: { value: Array.from({ length: HC_MAX }, () => new V3()) } }; c.HC = []; }
   return Object.assign({ chT: { value: c.T }, chH: { value: c.H }, chAny: c.any }, c.sk, c.hcU);
 }
 // which cell a body-frame point is in
@@ -310,9 +311,10 @@ const chunkCount = (root, k) => { const st = root && root.userData.chunk; if (!s
 function craterSync(root) {
   const st = root.userData.chunk; if (!st || !st.hcU) return; const H = st.HC || [];
   H.forEach((h, i) => st.hcU.hc.value[i].set(h.c.x, h.c.y, h.c.z, h.r)); st.hcU.hcN.value = H.length;
-  if (!st.hcU.hcF) st.hcU.hcF = { value: new V3() };
-  // a head with a hole in it has loose flesh to swing: a new crater gives it a jolt
-  if (H.length) { FLAB.add(root); if (H.length !== st.hcSeen) { st.hcSeen = H.length; if (st.flab) st.flab.ov.add(new V3(rnd(-0.4, 0.4), rnd(-0.4, 0.4), rnd(-0.4, 0.4))); } }
+  if (!st.hcU.hcF) st.hcU.hcF = { value: Array.from({ length: HC_MAX }, () => new V3()) };
+  // a head with a hole in it has loose flesh to swing: a crater that is new (or grew) jolts its own flaps
+  if (H.length) { FLAB.add(root); st.hcSeen = st.hcSeen || [];
+    H.forEach((h, i) => { const k = h.c.x.toFixed(3) + h.c.y.toFixed(3) + h.r.toFixed(3); if (st.hcSeen[i] !== k) { st.hcSeen[i] = k; const sp = st.flab && st.flab.s[i]; if (sp) sp.ov.add(new V3(rnd(-0.5, 0.5), rnd(-0.5, 0.5), rnd(-0.5, 0.5))); } }); }
   for (const m of st.craters || []) { const i = m.userData.ci, h = H[i]; m.visible = !!h; if (h) { m.position.copy(h.c); m.scale.setScalar(h.r); m.material.userData.cC.value.set(h.c.x, h.c.y, h.c.z, h.r); } }
 }
 const headGone = root => { const H = (root && root.userData.chunk && root.userData.chunk.HC) || []; let s = 0, m = 0; for (const h of H) { s += h.r; m = Math.max(m, h.r); } return s >= 0.16 || m >= 0.095; };
@@ -520,26 +522,31 @@ function headIslands(root, st, r, dir) {
 }
 
 
-// ---------------------------------------------------------------- the loose flesh round a crater: a damped spring per head
-// The flaps' offset o (world space) is pulled by gravity, held by a spring (they sag about 8 mm at rest) and thrown the other
-// way when the head accelerates, so they swing and lag behind its motion and settle slowly. Stepped every frame.
+// ---------------------------------------------------------------- the loose flesh round a crater: a damped spring per crater
+// Each crater's flaps have an offset o (world space), pulled by gravity, held by a spring (they sag about 8 mm at rest) and
+// thrown the other way when the head accelerates, so they swing and lag behind its motion and settle slowly. Every crater
+// has its own spring, a little stiffer or looser than the next, so flaps round different holes move apart. Stepped every frame.
 const FLAB = new Set(), _flp = new V3(), _flv = new V3(), _fla = new V3(), FL_K = 1225, FL_C = 14;
+const flSpring = i => { const q = 0.7 + 0.6 * ((Math.sin(i * 12.9898 + 4.1) * 43758.5453) % 1 + 1) % 1, k = FL_K * q; return { k, c: FL_C * Math.sqrt(q) * (0.8 + 0.1 * (i % 4)), o: new V3(0, -9.8 / k, 0), ov: new V3() }; };
 function chunkFlab(dt) {
   if (!(dt > 0)) return; dt = Math.min(dt, 0.05);
   for (const root of FLAB) {
-    const st = root.userData.chunk, at = root.userData.chunkAt;
-    if (!st || !(st.HC || []).length || !at || !at.head || !root.parent) { FLAB.delete(root); continue; }
+    const st = root.userData.chunk, at = root.userData.chunkAt, H = (st && st.HC) || [];
+    if (!st || !H.length || !at || !at.head || !root.parent) { FLAB.delete(root); continue; }
     const p = at.head[0].getWorldPosition(_flp);
-    const f = st.flab || (st.flab = { p: p.clone(), v: new V3(), o: new V3(0, -9.8 / FL_K, 0), ov: new V3() });
+    const f = st.flab || (st.flab = { p: p.clone(), v: new V3(), s: [] });
     _flv.copy(p).sub(f.p).divideScalar(dt); _fla.copy(_flv).sub(f.v).divideScalar(dt); if (_fla.length() > 150) _fla.setLength(150);
     f.p.copy(p); f.v.copy(_flv);
     const h = dt / 4;
-    for (let i = 0; i < 4; i++) {
-      f.ov.x += (-_fla.x - FL_K * f.o.x - FL_C * f.ov.x) * h; f.ov.y += (-9.8 - _fla.y - FL_K * f.o.y - FL_C * f.ov.y) * h; f.ov.z += (-_fla.z - FL_K * f.o.z - FL_C * f.ov.z) * h;
-      f.o.addScaledVector(f.ov, h);
+    for (let n = 0; n < H.length; n++) {
+      const sp = f.s[n] || (f.s[n] = flSpring(n));
+      for (let i = 0; i < 4; i++) {
+        sp.ov.x += (-_fla.x - sp.k * sp.o.x - sp.c * sp.ov.x) * h; sp.ov.y += (-9.8 - _fla.y - sp.k * sp.o.y - sp.c * sp.ov.y) * h; sp.ov.z += (-_fla.z - sp.k * sp.o.z - sp.c * sp.ov.z) * h;
+        sp.o.addScaledVector(sp.ov, h);
+      }
+      if (sp.o.length() > 0.022) { sp.o.setLength(0.022); sp.ov.multiplyScalar(0.5); }
+      st.hcU.hcF.value[n].copy(sp.o);
     }
-    if (f.o.length() > 0.022) { f.o.setLength(0.022); f.ov.multiplyScalar(0.5); }
-    st.hcU.hcF.value.copy(f.o);
   }
 }
 // The skull and the thickness of the scalp under the skin round a crater: a second layer of the head's own skin drawn 7 mm in
