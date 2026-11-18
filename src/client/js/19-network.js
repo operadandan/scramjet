@@ -9,6 +9,7 @@ import { MEDKIT_W, WEAPONS } from './06-weapons.js';
 import { VMW } from './08-hands.js';
 import { killNotice } from './12-blood.js';
 import { clearWounds } from './14-wounds.js';
+import { doorApplySnap, doorLeft, doorRx, doorSnap } from './15b-doors.js';
 import { P, Remote, S, localBody, reactPack } from './17-dummies.js';
 import { esc, feed, localDeath, onSelfHurt, remoteShot, respawnLocal } from './18-player.js';
 import { onExplosiveMsg } from './19b-explosives.js';
@@ -93,6 +94,8 @@ class HostRoom {
       }
       case 'idrop': { const s = JSON.stringify(m); if (p.ready && s.length < 600 && m.it && typeof m.it === 'object') this.broadcast({ t: 'idrop', it: m.it, p: m.p, v: m.v }, p); break; }
       case 'itake': if (p.ready) this.broadcast({ t: 'itake', iid: Number(m.iid) || 0 }, p); break;
+      case 'door': if (p.ready && Number.isInteger(m.i) && m.i >= 0 && m.i < 64 && JSON.stringify(m).length < 300) { m.id = p.id; this.broadcast(m, p); } break;
+      case 'dsnap': { const tg = this.players.get(m.to); if (p.ready && tg && tg !== p && Array.isArray(m.s) && JSON.stringify(m).length < 1900) this.send(tg, { t: 'dsnap', s: m.s }); break; }
       case 'x': if (p.ready && JSON.stringify(m).length < 600 && ['c4p', 'c4t', 'nade', 'boom', 'chk'].includes(m.a)) this.broadcast({ t: 'x', id: p.id, a: m.a, k: m.k, i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: m.f, w: m.w, c: m.c, tg: m.tg, tp: m.tp, lp: m.lp, lq: m.lq, ob: m.ob, T: m.T, C: m.C, H: m.H }, p); break;
       case 'punch': { const tgt = this.players.get(m.id); if (p.ready && p.alive && tgt && tgt !== p && tgt.alive) this.send(tgt, { t: 'punched', by: p.id, f: String(m.f || '').slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)) }); break; }
       case 'hit': this.hit(p, m); break;
@@ -207,8 +210,14 @@ function onNet(m) {
       S.myId = m.id; S.welcomed = true; S.names[m.id] = S.myName;
       for (const pl of m.players) { S.score[pl.id] = { k: pl.k || 0, d: pl.d || 0 }; if (pl.id !== m.id) { const r = addRemote(pl.id, pl.name); r.alive = pl.alive; if (pl.state) r.setState(pl.state); } }
       break;
-    case 'join': if (m.id !== S.myId) { addRemote(m.id, m.name); feed(esc(m.name) + ' joined'); } break;
-    case 'leave': { const r = S.remotes.get(m.id); if (r) { feed(esc(r.name) + ' left'); r.dispose(); S.remotes.delete(m.id); } break; }
+    case 'join': if (m.id !== S.myId) { addRemote(m.id, m.name); feed(esc(m.name) + ' joined');
+      // the doors as they are now go to the one joining, from whoever has been in the room longest (lowest id)
+      // (a moment later, so whatever was on its way to us about the doors has come; in pieces, to stay small)
+      if (S.welcomed && [...S.remotes.keys()].every(id => id === m.id || id > S.myId)) { const to = m.id; setTimeout(() => { if (!S.remotes.has(to)) return; const s = doorSnap(); for (let i = 0; i < s.length; i += 12) net.send({ t: 'dsnap', to, s: s.slice(i, i + 12) }); }, 300); } }
+      break;
+    case 'door': doorRx(m); break;
+    case 'dsnap': doorApplySnap(m.s); break;
+    case 'leave': { const r = S.remotes.get(m.id); if (r) { feed(esc(r.name) + ' left'); r.dispose(); S.remotes.delete(m.id); } doorLeft(m.id); break; }
     case 's': { const r = S.remotes.get(m.id); if (r) r.setState(m); break; }
     case 'shot': remoteShot(m); break;
     case 'idrop': if (m.it && WEAPONS[m.it.w === undefined ? 0 : m.it.w] && ['gun', 'mag', 'medkit', 'plate'].includes(m.it.kind) && Array.isArray(m.p) && Array.isArray(m.v)) spawnItem(m.it, new V3().fromArray(m.p), new V3().fromArray(m.v), true); break;

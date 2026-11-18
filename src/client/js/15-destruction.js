@@ -135,13 +135,16 @@ const WALL_NOISE = 'float wh(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.
   'float wn3(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(mix(wh(i), wh(i + vec3(1, 0, 0)), f.x), mix(wh(i + vec3(0, 1, 0)), wh(i + vec3(1, 1, 0)), f.x), f.y), mix(mix(wh(i + vec3(0, 0, 1)), wh(i + vec3(1, 0, 1)), f.x), mix(wh(i + vec3(0, 1, 1)), wh(i + vec3(1, 1, 1)), f.x), f.y), f.z); }\n' +
   'float wallV = 0.0; float wallIn = 0.0; vec3 wallP = vec3(0.0);\n';
 // noise taken on the face plane, so an opening's outline is the same at every depth through the wall
+// (the wall's own edges and ends sit exactly on the border of the mask: a hair of leeway lets them go with the cells
+// they belong to; and past the wall's ends is air, so looking into an end that is gone finds nothing there: before, it
+// was taken for solid wall and the ends and top stood on as a thin frame round a blown-out wall)
 const MASK_FN = 'vec2 wUV(vec3 q) { return vec2((dot(q, hS1) - hMP.x) / hMP.z, (dot(q, hS2) - hMP.y) / hMP.w); }\n' +
   'float wThr(vec3 q) { vec3 f = q - hTh.xyz * dot(q, hTh.xyz); return 0.5 + (wn3(f * 95.0) * 0.55 + wn3(f * 30.0) * 0.45 - 0.5) * 0.55; }\n' +
-  'bool wOpen(vec3 q) { vec2 m = wUV(q); if (m.x < 0.0 || m.x > 1.0 || m.y < 0.0 || m.y > 1.0) return false; return texture2D(hMask, m).r > wThr(q); }\n';
-const MASK_GLSL = p => '{ vec2 muv = wUV(' + p + '); if (muv.x >= 0.0 && muv.x <= 1.0 && muv.y >= 0.0 && muv.y <= 1.0) { wallV = texture2D(hMask, muv).r; if (wallV > wThr(' + p + ')) discard; } }\n';
+  'bool wOpen(vec3 q) { vec2 m = wUV(q); if (m.x < -0.004 || m.x > 1.004 || m.y < -0.004 || m.y > 1.004) return true; return texture2D(hMask, clamp(m, 0.0, 1.0)).r > wThr(q); }\n';
+const MASK_GLSL = p => '{ vec2 muv = wUV(' + p + '); if (muv.x >= -0.004 && muv.x <= 1.004 && muv.y >= -0.004 && muv.y <= 1.004) { wallV = texture2D(hMask, clamp(muv, 0.0, 1.0)).r; if (wallV > wThr(' + p + ')) discard; } }\n';
 // the visible wall: where the face is open, follow the view ray into the wall; if it meets material on the way through,
 // that is the side of the hole and gets drawn (raw material, darker the deeper), otherwise the ray comes out the far side
-const MASK_GLSL_IN = p => '{ vec2 muv = wUV(' + p + '); wallP = ' + p + '; if (muv.x >= 0.0 && muv.x <= 1.0 && muv.y >= 0.0 && muv.y <= 1.0) { wallV = texture2D(hMask, muv).r; if (wallV > wThr(' + p + ')) {\n' +
+const MASK_GLSL_IN = p => '{ vec2 muv = wUV(' + p + '); wallP = ' + p + '; if (muv.x >= -0.004 && muv.x <= 1.004 && muv.y >= -0.004 && muv.y <= 1.004) { wallV = texture2D(hMask, clamp(muv, 0.0, 1.0)).r; if (wallV > wThr(' + p + ')) {\n' +
   '  vec3 rd = normalize(' + p + ' - vCamL); float dn = abs(dot(rd, hTh.xyz)), tM = 2.0 * hTh.w / max(dn, 0.08); bool hit = false;\n' +
   '  for (int i = 1; i <= 12; i++) { float t = tM * float(i) / 12.0; vec3 q = ' + p + ' + rd * t; if (!wOpen(q)) {\n' +
   '    float t0 = tM * float(i - 1) / 12.0; for (int k = 0; k < 4; k++) { float tm = 0.5 * (t0 + t); if (wOpen(' + p + ' + rd * tm)) t0 = tm; else t = tm; }\n' +

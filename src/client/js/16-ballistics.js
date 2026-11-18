@@ -329,7 +329,7 @@ function onBulletHit(b, hit, dir, dist) {
     return cont;
   }
   // a plywood door's knob or a hinge: shot off, and it stops the round
-  if (ud.doorPart && doorPartHit(ud.doorPart, hit, dir) && b.w !== 2) return null;   // (a .50 carries on through)
+  if (ud.doorPart && doorPartHit(ud.doorPart, hit, dir, b.local) && b.w !== 2) return null;   // (a .50 carries on through)
   if (hit.face) {
     const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
     const open = holePass(hit.object, hit.point, n, dir, v); if (open) return open;

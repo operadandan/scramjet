@@ -1,7 +1,7 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { V3, renderer, scene } from './00-setup.js';
-import { DOOR_H, DOOR_W, addDoor, clearDoors, doors } from './15b-doors.js';
+import { DOOR_FW, DOOR_H, DOOR_W, addDoor, clearDoors } from './15b-doors.js';
 import { seg } from './19c-toolvm.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- textures / materials
@@ -84,22 +84,27 @@ function addGround(size, kind) {
   m.rotation.x = -Math.PI / 2; m.receiveShadow = true; m.userData.surf = SURF[kind];
   worldGroup.add(m); worldMeshes.push(m);
 }
-function building(cx, cz, doors) {
-  const s = 10, t = 0.4, h = 3.5, hs = s / 2, gap = 1.6, col = 0xb5ab9a, seg = (s - gap) / 2;
+// ds: which walls have a door in them ('n', 's', 'w', 'e'); each doorway gets a door in its frame (metal or plywood,
+// hung on the side given), all unlocked
+function building(cx, cz, ds, kinds) {
+  const s = 10, t = 0.4, h = 3.5, hs = s / 2, gap = DOOR_W + DOOR_FW * 2, hd = DOOR_H + 0.1, col = 0xb5ab9a, seg = (s - gap) / 2;
+  let nd = 0; const kindOf = () => (kinds || 'pm')[nd++ % (kinds || 'pm').length] === 'm' ? 'metal' : 'plywood';
   const wallX = (z, door) => {
     if (!door) return addBox(cx, 0, z, s + t, h, t, 'concrete', col);
     addBox(cx - gap / 2 - seg / 2, 0, z, seg, h, t, 'concrete', col);
     addBox(cx + gap / 2 + seg / 2, 0, z, seg, h, t, 'concrete', col);
-    addBox(cx, 2.3, z, gap, h - 2.3, t, 'concrete', col);
+    addBox(cx, hd, z, gap, h - hd, t, 'concrete', col);
+    addDoor(cx, z, 0, kindOf(), 1, 0);
   };
   const wallZ = (x, door) => {
     if (!door) return addBox(x, 0, cz, t, h, s, 'concrete', col);
     addBox(x, 0, cz - gap / 2 - seg / 2, t, h, seg, 'concrete', col);
     addBox(x, 0, cz + gap / 2 + seg / 2, t, h, seg, 'concrete', col);
-    addBox(x, 2.3, cz, t, h - 2.3, gap, 'concrete', col);
+    addBox(x, hd, cz, t, h - hd, gap, 'concrete', col);
+    addDoor(x, cz, Math.PI / 2, kindOf(), -1, 0);
   };
-  wallX(cz - hs, doors.includes('n')); wallX(cz + hs, doors.includes('s'));
-  wallZ(cx - hs, doors.includes('w')); wallZ(cx + hs, doors.includes('e'));
+  wallX(cz - hs, ds.includes('n')); wallX(cz + hs, ds.includes('s'));
+  wallZ(cx - hs, ds.includes('w')); wallZ(cx + hs, ds.includes('e'));
   addBox(cx, h, cz, s + t, 0.25, s + t, 'concrete', 0x8c8476);
   addBox(cx + 2.4, 0, cz + 2.4, 1.2, 1.2, 1.2, 'crate');
   addBox(cx - 2.6, 0, cz - 1.5, 0.5, 1.0, 3, 'concrete', 0x9a9285);
@@ -111,7 +116,7 @@ function buildArena() {
   const H = 4, half = 36, wc = 0x9a958c;
   addBox(0, 0, -half, 73, H, 1, 'concrete', wc); addBox(0, 0, half, 73, H, 1, 'concrete', wc);
   addBox(-half, 0, 0, 1, H, 71, 'concrete', wc); addBox(half, 0, 0, 1, H, 71, 'concrete', wc);
-  building(-16, -16, 'se'); building(16, 16, 'nw');
+  building(-16, -16, 'se', 'pm'); building(16, 16, 'nw', 'mp');
   addBox(-4, 0, -20, 6.1, 2.6, 2.44, 'metal', 0x2f5d7c);
   addBox(4, 0, 20, 6.1, 2.6, 2.44, 'metal', 0x8a3b2a);
   addBox(22, 0, -14, 2.44, 2.6, 6.1, 'metal', 0x56703a);
@@ -148,7 +153,7 @@ function buildTest() {
   // a wall with two doors in it, behind the spawn: a plywood door locked from the far side (shoot its knob off, or its
   // three hinges to drop it) and a metal door, unlocked
   { const z = 14, H = 2.6, T = 0.12, op = DOOR_W / 2 + 0.07, xs = [-2, 2];
-    let x0 = -5; for (const x of xs) { addBox((x0 + x - op) / 2, 0, z, x - op - x0, H, T, 'drywall', 0xe6e2da); addBox(x, DOOR_H + 0.07, z, op * 2, H - DOOR_H - 0.07, T, 'drywall', 0xe6e2da); x0 = x + op; }
+    let x0 = -5; for (const x of xs) { addBox((x0 + x - op) / 2, 0, z, x - op - x0, H, T, 'drywall', 0xe6e2da); addBox(x, DOOR_H + 0.1, z, op * 2, H - DOOR_H - 0.1, T, 'drywall', 0xe6e2da); x0 = x + op; }
     addBox((x0 + 5) / 2, 0, z, 5 - x0, H, T, 'drywall', 0xe6e2da);
     addDoor(-2, z, 0, 'plywood', 1, 1); addDoor(2, z, 0, 'metal', -1, 0); }
   spawns = [new V3(0, 0, 8)];

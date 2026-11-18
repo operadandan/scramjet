@@ -14,7 +14,7 @@ import { spawnGore } from './12b-gore.js';
 import { blowSpatter, floorAt, holeify } from './14-wounds.js';
 import { addBurn } from './14b-soak.js';
 import { DESTR, DESTR_OF, SLOTS, _sh, dust, gridOpenW, settleWall, spawnDebris, wallGrid, wallMask } from './15-destruction.js';
-import { doorBlast } from './15b-doors.js';
+import { doorAt, doorBlast } from './15b-doors.js';
 import { bullets, onBulletHit, spawnBullet } from './16-ballistics.js';
 import { P, S, dummies, localBody, mouse } from './17-dummies.js';
 import { PITCH_MIN, flashMsg, onSelfHurt, selectEmpty } from './18-player.js';
@@ -233,10 +233,11 @@ function worldHit(o, d, max) {
 }
 function los(a, b) { const d = b.clone().sub(a), L = d.length(); if (L < 1e-3) return true; d.multiplyScalar(1 / L); return !worldHit(a, d, L - 0.02); }
 // ---------------------------------------------------------------- walls: the blast punches out and cracks what it reaches
-function blastWalls(p, W, owner) {
+// only: a door the charge is on; then only that door's leaf and frame are hurt
+function blastWalls(p, W, owner, only) {
   const cW = Math.cbrt(W);
   for (const mesh of worldMeshes) {
-    const ud = mesh.userData, kind = DESTR_OF[ud.kind]; if (!kind || !ud.box) continue;
+    const ud = mesh.userData; if (only && ud.door !== only && ud.doorFrame !== only) continue; const kind = DESTR_OF[ud.kind]; if (!kind || !ud.box) continue;
     const G = wallGrid(mesh); if (!G) continue;
     const D = DESTR[kind], b = ud.box, near = new V3(clamp(p.x, b.min.x, b.max.x), clamp(p.y, b.min.y, b.max.y), clamp(p.z, b.min.z, b.max.z));
     const d = near.distanceTo(p); if (d > 3.2 * cW) continue;
@@ -464,8 +465,8 @@ function ragMeshes(r) { const out = []; r.group.traverse(o => { if (o.isMesh && 
 function explode(p, kind, owner, isOwner, n, onBody) {
   const E = EXPL[kind]; n = n || new V3(0, 1, 0);
   boomVisual(p, n, E.W, kind);
-  blastWalls(p, E.W, owner);
-  doorBlast(p, E.W);
+  blastWalls(p, E.W, owner, doorAt(p, E.W));
+  doorBlast(p, E.W, isOwner || S.mode !== 'online');
   // fragments flying everywhere: they chip and hole walls and crates (bodies are worked out above, hit by hit)
   if (E.frags) for (let i = 0; i < 110; i++) {
     const d = new V3(rnd(-1, 1), rnd(-0.6, 1), rnd(-1, 1)).normalize(); spawnBullet(p.clone().addScaledVector(d, 0.05), d, 5, false, false, owner, null);
