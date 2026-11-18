@@ -68,11 +68,13 @@ function wallGrid(mesh) {
   // what holds it up: the floor under it, and any other solid it touches at the sides or on top
   const b = ud.box, touch = (x, y, z) => b.min.y <= 0.02 && y < 0.01 ? true : colliders.some(c => c !== b && x > c.min.x - 0.01 && x < c.max.x + 0.01 && y > c.min.y - 0.01 && y < c.max.y + 0.01 && z > c.min.z - 0.01 && z < c.max.z + 0.01);
   const ctr = mesh.position, hs = (k, s) => ctr.getComponent(k) + s * (dims[k] / 2 + 0.02), side = s => [0.2, 0.5, 0.8].some(f => { const p = ctr.clone(); p.setComponent(a1, hs(a1, s)); p.y = b.min.y + dims[1] * f; return touch(p.x, p.y, p.z); });
-  G.hold = { bottom: b.min.y <= 0.02 || touch(ctr.x, b.min.y - 0.02, ctr.z), top: touch(ctr.x, b.max.y + 0.02, ctr.z), s0: side(-1), s1: side(1) };
+  G.hold = ud.door ? { bottom: false, top: false, s0: ud.door.hs < 0, s1: ud.door.hs > 0 }   // a door's leaf hangs on its hinge edge only
+    : { bottom: b.min.y <= 0.02 || touch(ctr.x, b.min.y - 0.02, ctr.z), top: touch(ctr.x, b.max.y + 0.02, ctr.z), s0: side(-1), s1: side(1) };
   return ud.grid = G;
 }
-// local wall coordinates of a world point (walls are never rotated)
-const gridIdx = (G, mesh, x, y, z) => { const l1 = (G.a1 === 0 ? x : z) - mesh.position.getComponent(G.a1), l2 = y - mesh.position.y, i = Math.floor((l1 - G.min1) / G.cs1), j = Math.floor((l2 - G.min2) / G.cs2); return i < 0 || j < 0 || i >= G.n1 || j >= G.n2 ? -1 : j * G.n1 + i; };
+// local wall coordinates of a world point (walls are never rotated; a door's leaf is, so it goes through its own frame)
+const _gil = new V3();
+const gridIdx = (G, mesh, x, y, z) => { let l1, l2; if (mesh.userData.door) { mesh.worldToLocal(_gil.set(x, y, z)); l1 = _gil.getComponent(G.a1); l2 = _gil.y; } else { l1 = (G.a1 === 0 ? x : z) - mesh.position.getComponent(G.a1); l2 = y - mesh.position.y; } const i = Math.floor((l1 - G.min1) / G.cs1), j = Math.floor((l2 - G.min2) / G.cs2); return i < 0 || j < 0 || i >= G.n1 || j >= G.n2 ? -1 : j * G.n1 + i; };
 function gridOpenW(mesh, p) { const G = mesh.userData.grid; if (!G || !G.any) return false; const k = gridIdx(G, mesh, p.x, p.y, p.z); return k >= 0 && G.cell[k] > 0; }
 // can something of this half-width and height stand where pos is and pass through the wall's openings
 function gridPass(c, pos, h, r) {
@@ -245,7 +247,7 @@ function placeDecalD(mesh, point, normal, size, material, depth) {
   decalHelper.position.copy(point); decalHelper.lookAt(_a.copy(point).add(normal)); decalHelper.rotateZ(Math.random() * Math.PI * 2);
   let geo; try { geo = new DecalGeometry(mesh, point, decalHelper.rotation, new V3(size, size, depth)); } catch (e) { return null; }
   if (!geo.attributes.position || !geo.attributes.position.count) { geo.dispose(); return null; }
-  const m = new THREE.Mesh(geo, material); m.receiveShadow = true; scene.add(m); decals.push(m); trimDecals(); return m;
+  const m = new THREE.Mesh(geo, material); m.receiveShadow = true; scene.add(m); decals.push(m); trimDecals(); if (mesh.userData.door) mesh.attach(m); return m;
 }
 const dropDecal = m => { if (!m) return; scene.remove(m); const i = decals.indexOf(m); if (i >= 0) decals.splice(i, 1); m.geometry.dispose(); };
 // chip craters (opaque) and the torn edge round an opened hole (clear in the middle so the hole shows)
@@ -390,11 +392,14 @@ function dust(p, n, col, size, op, life) {
   }
 }
 // an open hole that a round goes straight through without touching anything
+// a world direction in a wall's own frame (the same for every wall but a door's turning leaf)
+const _wnM = new THREE.Matrix4();
+function wallN(mesh, n) { return mesh.userData.door ? n.clone().transformDirection(_wnM.copy(mesh.matrixWorld).invert()) : n; }
 function holePass(mesh, point, n, dir, v) {
   const ud = mesh.userData; if (!ud.dmg || !ud.box) return null;
   const fresh = performance.now() - (ud.brokeT || 0) < 40;
   if (!fresh && gridOpenW(mesh, point.clone().addScaledVector(dir, 0.01))) { const bx = boxExit(ud.box, point, dir); return { point: point.clone().addScaledVector(dir, bx.t + 0.01), dir, v, free: true }; }
-  const ax = Math.abs(n.x) > 0.7 ? 0 : Math.abs(n.y) > 0.7 ? 1 : 2, pl = mesh.worldToLocal(point.clone());
+  const nl = wallN(mesh, n), ax = Math.abs(nl.x) > 0.7 ? 0 : Math.abs(nl.y) > 0.7 ? 1 : 2, pl = mesh.worldToLocal(point.clone());
   for (const c of ud.dmg) {
     if (c.r <= 0 || !c.through || c.ax !== ax || fresh) continue;
     if (Math.hypot(pl.getComponent((ax + 1) % 3) - c.u, pl.getComponent((ax + 2) % 3) - c.v) < c.r * 0.92) {
@@ -407,7 +412,7 @@ function holePass(mesh, point, n, dir, v) {
 function wallDamage(mesh, point, n, dir, E, w, side, through) {
   const D = DESTR[DESTR_OF[mesh.userData.kind]]; if (!D) return;
   const ud = mesh.userData, gp = mesh.geometry.parameters, dims = [gp.width, gp.height, gp.depth];
-  const ax = Math.abs(n.x) > 0.7 ? 0 : Math.abs(n.y) > 0.7 ? 1 : 2, sgn = Math.sign(n.getComponent(ax)) || 1, a1 = (ax + 1) % 3, a2 = (ax + 2) % 3;
+  const nl = wallN(mesh, n), ax = Math.abs(nl.x) > 0.7 ? 0 : Math.abs(nl.y) > 0.7 ? 1 : 2, sgn = Math.sign(nl.getComponent(ax)) || 1, a1 = (ax + 1) % 3, a2 = (ax + 2) % 3;
   const thick = dims[ax], pl = mesh.worldToLocal(point.clone()), u = pl.getComponent(a1), v = pl.getComponent(a2);
   const cal = (CAL[w] || CAL[0])[0], pistol = isPistol(w), rock = D.deb === 'rock';
   ud.dmg = ud.dmg || [];

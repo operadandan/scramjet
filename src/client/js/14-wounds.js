@@ -195,7 +195,7 @@ function wallSpatter(point, dir, size, goreK) {
   const k = size * (0.7 + h.distance * 0.35), slant = 1 / Math.max(0.35, Math.abs(n.dot(dir)));
   const t = dir.clone().addScaledVector(n, -dir.dot(n)); if (t.lengthSq() > 1e-4) { t.normalize(); const vl = t.applyQuaternion(m.quaternion.clone().invert()); m.rotation.set(m.rotation.x, m.rotation.y, 0); m.quaternion.setFromUnitVectors(_Z, n); m.rotateZ(-Math.atan2(vl.x, vl.y)); }
   m.scale.set(k, k * Math.min(2.2, slant), 1); m.position.copy(h.point).addScaledVector(n, 0.004 + Math.random() * 0.002);
-  m.receiveShadow = true; scene.add(m); decals.push(m); trimDecals();
+  m.receiveShadow = true; scene.add(m); decals.push(m); trimDecals(); if (h.object.userData.door) h.object.attach(m);
   return true;
 }
 // a head coming apart: skull pieces, brain, flesh, mist, and the spatter behind it
@@ -765,6 +765,10 @@ const PEN_MAT = { concrete: [68000, 0, 0x2f2c28], wood: [6000, 0.022, 0x3a2614],
 const KIND_PEN = { concrete: 'concrete', crate: 'wood', metal: 'metal', drywall: 'drywall', plywood: 'plywood' };
 // ray against an axis-aligned box from a point on its surface: distance to the far side, and which face it leaves through
 function boxExit(box, p, d) {
+  // a door's leaf turns: its way out is found in its own frame and turned back
+  const dm = box.mesh && box.mesh.userData.door ? box.mesh : null;
+  if (dm) { const g = dm.geometry; if (!g.boundingBox) g.computeBoundingBox(); const inv = _hm.copy(dm.matrixWorld).invert(), lp = p.clone().applyMatrix4(inv), ld = d.clone().transformDirection(inv);
+    const r = boxExit({ min: g.boundingBox.min, max: g.boundingBox.max }, lp, ld); r.n.transformDirection(dm.matrixWorld); return r; }
   let tMin = Infinity, ax = 0;
   for (let k = 0; k < 3; k++) {
     const dk = d.getComponent(k); if (Math.abs(dk) < 1e-6) continue;

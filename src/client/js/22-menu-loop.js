@@ -13,6 +13,7 @@ import { clearGore, updateGore } from './12b-gore.js';
 import { tpCamera, updateTPBody } from './13-third-person.js';
 import { clearPools, splatIM, updateBlood, updatePools } from './14-wounds.js';
 import { DEB_POOLS, debris, updateDebris, updateFx, warmShaders } from './15-destruction.js';
+import { updateDoors } from './15b-doors.js';
 import { bullets, props, removeBullet, updateBullets, updateProps } from './16-ballistics.js';
 import { P, S, dummies, localBody, spawnDummies } from './17-dummies.js';
 import { esc, respawnLocal, updatePlayer, updateWeapons } from './18-player.js';
@@ -248,7 +249,7 @@ function frame(now, hidden) {
   }
   updateBullets(wdt);
   for (const r of ragdolls) r.update(wdt);
-  updateFx(wdt); updateDebris(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateLimbs(wdt); updateHeats(wdt);
+  updateFx(wdt); updateDebris(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); updateLimbs(wdt); updateHeats(wdt);
   updateCamera(dt); if (S.mode && P.alive && !P.downed) tpCamera();
   if (S.mode) { updateViewmodel(dt); vmCamera.updateMatrixWorld(true); updateDevices(); } else updateDevices();
   updateTPBody(dt);

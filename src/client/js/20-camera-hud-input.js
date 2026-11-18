@@ -10,6 +10,7 @@ import { VMK, VMP } from './09-attachments.js';
 import { aMaster, actx, audio, blip, noiseHit, suppress } from './10-audio.js';
 import { smoke } from './12-blood.js';
 import { footStep } from './14-wounds.js';
+import { doorKeyDown, doorKeyUp } from './15b-doors.js';
 import { P, S, keys, localBody, mouse } from './17-dummies.js';
 import { PITCH_MIN, canRack, localDeath, pointBlocked, pumpCurve, rackK, rackNeeded, standHeight, startInspect, startReload, testDeath, testSelfHit, workAction } from './18-player.js';
 import { net } from './19-network.js';
@@ -283,7 +284,8 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyM') startInspect();
   if (e.code === 'AltLeft' && !e.repeat) { e.preventDefault(); S.tp = !S.tp; blip(500, 0.03, 0.03); }
   // F works the action when the gun needs it (or when there is nothing to pick up), otherwise picks things up
-  if (e.code === 'KeyF' && !e.repeat) { if (rackNeeded() || (!S.pick && canRack())) workAction(); else pickUp(); }
+  // F on a door works the door (a tap swings it, holding eases it open); otherwise the gun's action or picking up
+  if (e.code === 'KeyF' && !e.repeat) { if (rackNeeded()) workAction(); else if (S.pick) pickUp(); else if (S.mode && P.alive && !P.downed && doorKeyDown()) { } else if (canRack()) workAction(); else pickUp(); }
   if (e.code === 'KeyB') dropHeld();
   if (S.mode === 'test' && e.code === 'KeyN') suppress(0.8, 900);
   if (e.code === 'KeyT') { P.deviceOn = !P.deviceOn; noiseHit(3000, 0.02, 0.04); }
@@ -299,7 +301,7 @@ addEventListener('keydown', e => {
   if (S.mode === 'test' && e.code === 'KeyK') testDeath(true);
   if (S.mode === 'test' && e.code === 'KeyJ') testDeath(false);
 });
-addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Tab') $('score').style.display = 'none'; });
+addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Tab') $('score').style.display = 'none'; if (e.code === 'KeyF') doorKeyUp(); });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouse.left = false; });
 renderer.domElement.addEventListener('mousedown', e => {
   if (!S.mode) return;

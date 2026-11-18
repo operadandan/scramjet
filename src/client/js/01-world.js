@@ -1,6 +1,7 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { V3, renderer, scene } from './00-setup.js';
+import { DOOR_H, DOOR_W, addDoor, clearDoors, doors } from './15b-doors.js';
 import { seg } from './19c-toolvm.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- textures / materials
@@ -64,7 +65,7 @@ let spawns = [new V3()];
 function clearWorld() {
   worldGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material.map) o.material.map.dispose(); });
   scene.remove(worldGroup); worldGroup = new THREE.Group(); scene.add(worldGroup);
-  colliders.length = 0; worldMeshes.length = 0;
+  colliders.length = 0; worldMeshes.length = 0; if (typeof clearDoors === 'function') clearDoors();
 }
 function addBox(x, y, z, w, h, d, kind, color) {
   const t = TEX[kind === 'plywood' ? 'crate' : kind === 'drywall' ? 'concrete' : kind].clone(); t.needsUpdate = true; t.repeat.set(Math.max(w, d) / 2.5, Math.max(h, 0.5) / 2.5);
@@ -144,6 +145,12 @@ function buildTest() {
   addBox(-13, 0, 4, 2.44, 2.6, 2, 'metal', 0x2f5d7c);
   // penetration test walls in front of the dummies: plywood, a drywall partition, 30 cm of concrete
   addBox(-1.6, 0, -8, 2.4, 2.2, 0.018, 'plywood', 0xd2a874); addBox(1.6, 0, -8, 2.4, 2.2, 0.12, 'drywall', 0xe6e2da); addBox(4.8, 0, -8, 2.4, 2.2, 0.3, 'concrete', 0xa8a39a);
+  // a wall with two doors in it, behind the spawn: a plywood door locked from the far side (shoot its knob off, or its
+  // three hinges to drop it) and a metal door, unlocked
+  { const z = 14, H = 2.6, T = 0.12, op = DOOR_W / 2 + 0.07, xs = [-2, 2];
+    let x0 = -5; for (const x of xs) { addBox((x0 + x - op) / 2, 0, z, x - op - x0, H, T, 'drywall', 0xe6e2da); addBox(x, DOOR_H + 0.07, z, op * 2, H - DOOR_H - 0.07, T, 'drywall', 0xe6e2da); x0 = x + op; }
+    addBox((x0 + 5) / 2, 0, z, 5 - x0, H, T, 'drywall', 0xe6e2da);
+    addDoor(-2, z, 0, 'plywood', 1, 1); addDoor(2, z, 0, 'metal', -1, 0); }
   spawns = [new V3(0, 0, 8)];
 }
 
@@ -159,5 +166,5 @@ function tpCyl(M, rad, len, c, parent, x, y, z, seg, r, m) {
 function mark(parent, x, y, z) { const o = new THREE.Object3D(); o.position.set(x, y, z); parent.add(o); return o; }
 
 // ---- module exports: build.mjs strips this block ----
-export { GM, RANGE_DISTS, RANGE_X, buildArena, buildTest, canvasTex, colliders, fineNoise, makeTex, mark, mat, shadowMat, spawns, stipple, tpBox, worldMeshes };
+export { GM, RANGE_DISTS, RANGE_X, SURF, TEX, addBox, buildArena, buildTest, canvasTex, colliders, fineNoise, makeTex, mark, mat, shadowMat, spawns, stipple, tpBox, worldGroup, worldMeshes };
 // ---- end module exports ----

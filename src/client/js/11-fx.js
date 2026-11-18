@@ -73,7 +73,7 @@ function placeDecal(mesh, point, normal, size, material) {
   let geo;
   try { geo = new DecalGeometry(mesh, point, decalHelper.rotation, new V3(size, size, Math.max(0.03, size * 0.6))); } catch (e) { return null; }
   const m = new THREE.Mesh(geo, material); m.receiveShadow = true; scene.add(m); decals.push(m);
-  trimDecals();
+  trimDecals(); if (mesh.userData.door) mesh.attach(m);   // (marks on a door go with it as it swings)
   return m;
 }
 function bulletHole(hit, normal, w) {

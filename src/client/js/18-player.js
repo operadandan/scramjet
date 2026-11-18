@@ -620,5 +620,5 @@ function testDeath(head) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { PITCH_MIN, blocked, canRack, esc, feed, flashMsg, hurtFlash, localDeath, magEstimate, onSelfHurt, pointBlocked, pumpCurve, rackK, rackNeeded, ray, remoteShot, respawnLocal, selectEmpty, standHeight, startInspect, startReload, switchWeapon, testDeath, testSelfHit, updatePlayer, updateWeapons, workAction };
+export { PITCH_MIN, PR, blocked, canRack, esc, feed, flashMsg, hurtFlash, localDeath, magEstimate, onSelfHurt, pointBlocked, pumpCurve, rackK, rackNeeded, ray, remoteShot, respawnLocal, selectEmpty, standHeight, startInspect, startReload, switchWeapon, testDeath, testSelfHit, updatePlayer, updateWeapons, workAction };
 // ---- end module exports ----

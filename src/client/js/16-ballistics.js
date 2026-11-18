@@ -12,6 +12,7 @@ import { bulletHole, fragScuff, impactFx, puffTex, tracer } from './11-fx.js';
 import { goreBlast, spawnGore } from './12b-gore.js';
 import { addWound, bloodFx, blowSpatter, bodyPen, bodyWound, exitThrough, holeInGroup, wallSpatter, worldPen } from './14-wounds.js';
 import { DESTR_OF, holePass, markPlate, packHit, ragHitInfo } from './15-destruction.js';
+import { doorPartHit } from './15b-doors.js';
 import { P, S, dummies, localBody } from './17-dummies.js';
 import { pointBlocked } from './18-player.js';
 import { net } from './19-network.js';
@@ -327,6 +328,8 @@ function onBulletHit(b, hit, dir, dist) {
     }
     return cont;
   }
+  // a plywood door's knob or a hinge: shot off, and it stops the round
+  if (ud.doorPart && doorPartHit(ud.doorPart, hit, dir) && b.w !== 2) return null;   // (a .50 carries on through)
   if (hit.face) {
     const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
     const open = holePass(hit.object, hit.point, n, dir, v); if (open) return open;

@@ -14,6 +14,7 @@ import { spawnGore } from './12b-gore.js';
 import { blowSpatter, floorAt, holeify } from './14-wounds.js';
 import { addBurn } from './14b-soak.js';
 import { DESTR, DESTR_OF, SLOTS, _sh, dust, gridOpenW, settleWall, spawnDebris, wallGrid, wallMask } from './15-destruction.js';
+import { doorBlast } from './15b-doors.js';
 import { bullets, onBulletHit, spawnBullet } from './16-ballistics.js';
 import { P, S, dummies, localBody, mouse } from './17-dummies.js';
 import { PITCH_MIN, flashMsg, onSelfHurt, selectEmpty } from './18-player.js';
@@ -464,6 +465,7 @@ function explode(p, kind, owner, isOwner, n, onBody) {
   const E = EXPL[kind]; n = n || new V3(0, 1, 0);
   boomVisual(p, n, E.W, kind);
   blastWalls(p, E.W, owner);
+  doorBlast(p, E.W);
   // fragments flying everywhere: they chip and hole walls and crates (bodies are worked out above, hit by hit)
   if (E.frags) for (let i = 0; i < 110; i++) {
     const d = new V3(rnd(-1, 1), rnd(-0.6, 1), rnd(-1, 1)).normalize(); spawnBullet(p.clone().addScaledVector(d, 0.05), d, 5, false, false, owner, null);
@@ -821,5 +823,5 @@ function clearExplosives() {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { BOOM_FX, EXPL, boomVisual, c4Mine, clearExplosives, makeC4, makeFrag, makeRemote, onExplosiveMsg, r3, r4x, ragMeshes, updateC4, updateExplosives, updateFrag };
+export { BOOM_FX, CHARGES, EXPL, boomVisual, c4Mine, chargePos, clearExplosives, makeC4, makeFrag, makeRemote, onExplosiveMsg, r3, r4x, ragMeshes, updateC4, updateExplosives, updateFrag };
 // ---- end module exports ----
