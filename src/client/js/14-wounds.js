@@ -47,7 +47,7 @@ const spatR = () => clamp(0.0008 * Math.pow(1 - Math.random(), -1 / 1.4), 0.0008
 // outline, crown of satellite droplets, wet sheen, thickness and colour), and every mark picks one, turned, scaled,
 // stretched along the way it was flying and tinted a little differently: all of them in one instanced draw call.
 // Rows by how the drop landed (the row is picked from the impact angle and speed in dropSplat):
-//   0-1 round, smooth edge (slow, straight down)      2-3 round with a short crown of spines (faster, straight down)
+//   0-1 round, smooth edge (slow, straight down)      2-3 round with a short, scalloped crown (faster, straight down)
 //   4-5 ellipse with one tail (+x, the way it flew)    6 streak (grazing)        7 large and smooth (big drops)
 const SPLAT_N = 2400, SPLAT_T = 8, SPLAT_ATLAS = (() => {
   const S = 2048, T = S / SPLAT_T, cv = document.createElement('canvas'); cv.width = cv.height = S; const g = cv.getContext('2d');
@@ -65,7 +65,7 @@ const SPLAT_N = 2400, SPLAT_T = 8, SPLAT_ATLAS = (() => {
     const sat = (n, R, d0, d1, ang, spread) => { for (let i = 0; i < n; i++) { const a = ang === undefined ? rnd(0, 6.283) : ang + rnd(-spread, spread), d = R * rnd(d0, d1), r = R * rnd(0.03, 0.1); g.beginPath(); g.ellipse(c + Math.cos(a) * d, c + Math.sin(a) * d, r * rnd(1, 1.6), r, a, 0, 6.283); g.fillStyle = col(rnd(0.95, 1.1), rnd(0.8, 0.95)); g.fill(); } };
     if (row <= 1) { const R = T * rnd(0.17, 0.22); body(R, 1, 1, 0.8); sat(Math.floor(rnd(0, 3)), R, 1.2, 1.6); }
     else if (row <= 3) { const R = T * rnd(0.15, 0.2); body(R, 1, 1, 1);
-      const n = Math.floor(rnd(10, 22)); for (let i = 0; i < n; i++) { const a = i / n * 6.283 + rnd(-0.15, 0.15), L = R * rnd(0.15, 0.45), w = R * rnd(0.05, 0.12); g.beginPath(); g.moveTo(c + Math.cos(a + 1.57) * w, c + Math.sin(a + 1.57) * w); g.lineTo(c + Math.cos(a) * (R + L), c + Math.sin(a) * (R + L)); g.lineTo(c + Math.cos(a - 1.57) * w, c + Math.sin(a - 1.57) * w); g.fillStyle = col(1, 0.9); g.fill(); g.beginPath(); g.arc(c + Math.cos(a) * (R + L), c + Math.sin(a) * (R + L), w * rnd(0.6, 1.1), 0, 6.283); g.fill(); }
+      const n = Math.floor(rnd(14, 24)); for (let i = 0; i < n; i++) { const a = i / n * 6.283 + rnd(-0.15, 0.15), L = R * rnd(0.06, 0.18), w = R * rnd(0.06, 0.12); g.beginPath(); g.moveTo(c + Math.cos(a + 1.57) * w, c + Math.sin(a + 1.57) * w); g.lineTo(c + Math.cos(a) * (R + L), c + Math.sin(a) * (R + L)); g.lineTo(c + Math.cos(a - 1.57) * w, c + Math.sin(a - 1.57) * w); g.fillStyle = col(1, 0.9); g.fill(); g.beginPath(); g.arc(c + Math.cos(a) * (R + L), c + Math.sin(a) * (R + L), w * rnd(0.6, 1.1), 0, 6.283); g.fill(); }
       sat(Math.floor(rnd(4, 12)), R, 1.6, 2.2); }
     else if (row <= 5) { const R = T * rnd(0.13, 0.17), e = rnd(1.3, 1.8); body(R, e, 1, 0.6);
       // one tail out of the front (+x), thinning to a bead, a few drops thrown on ahead of it
@@ -119,7 +119,7 @@ function floorAt(x, y, z) { let f = 0; for (const c of colliders) if (x > c.min.
 // A pool is a few overlapping lobes. Blood landing near a lobe makes that lobe deeper and wider; blood landing past the
 // edge (more than 0.6 of its radius out) starts a new lobe there, so a pool fed from two wounds grows a tongue toward each
 // instead of sliding about. Fresh blood is a dark glossy red; over two minutes it darkens toward brown and goes dull.
-const POOL_LOBES = 6;
+const POOL_LOBES = 4;
 let poolLobeN = 0;
 function feedPool(x, y, z, ml) {
   let best = null, bl = null, bd = 1e9;
@@ -146,8 +146,8 @@ const _old = new THREE.Color(0.42, 0.46, 0.44);
 function updatePools(dt) {
   const now = performance.now() / 1000;
   for (const p of pools) for (const l of p.lobes) {
-    // ~2.5 mm deep on a flat floor: 1 ml covers 4 cm^2. Spreads quickly at first, then slows as it thins out
-    const R = Math.sqrt(l.vol * 0.0004 / Math.PI);
+    // ~4 mm deep on a flat floor (it holds together): 1 ml covers 2.6 cm^2, and no lobe gets wider than 60 cm. Spreads quickly at first, then slows as it thins out
+    const R = Math.min(0.3, Math.sqrt(l.vol * 0.00026 / Math.PI));
     if (l.r < R) l.r = Math.min(R, l.r + Math.max(0.015, (R - l.r) * 2) * dt);
     const w = 2 * l.r / 0.72; l.m.scale.set(w * l.e, w / l.e, 1);
     // drying

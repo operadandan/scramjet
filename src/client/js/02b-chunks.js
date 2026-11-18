@@ -77,7 +77,8 @@ if (vBZ.w > 0.5 && vBZ.w < 2.5 && chAny > 0.5) {
   if (head) {
     // the head: one or more blown-out craters (spheres), each a single clean, solid wound; the rim torn a little
     if (hcN < 0.5) { dE = 1.0; } else {
-      vec3 qh = q + (vec3(chN(q * 30.0), chN(q * 30.0 + 5.3), chN(q * 30.0 + 9.1)) - 0.5) * 0.014;
+      vec3 qh = q + (vec3(chN(q * 30.0), chN(q * 30.0 + 5.3), chN(q * 30.0 + 9.1)) - 0.5) * 0.014
+        + (vec3(chN(q * 85.0 + 2.1), chN(q * 85.0 + 6.7), chN(q * 85.0 + 12.9)) - 0.5) * 0.007;   // small torn flaps along the edge
       for (int i = 0; i < ${HC_MAX}; i++) { if (float(i) >= hcN) break; float d = length(qh - hc[i].xyz) - hc[i].w; if (d < 0.0) discard; dE = min(dE, d); }
     }
   } else {
@@ -312,13 +313,15 @@ function chunkCraters(root) {
   const A = at.head, H = CAP_HF[2], tex = st.hf2 || (st.hf2 = capDepthMap(root, 2)), U = chunkUniforms(root);
   const box = new THREE.Group(); box.position.y = A[1]; box.userData.keep = true; A[0].add(box);
   for (let i = 0; i < HC_MAX; i++) {
-    const m = new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0, side: THREE.BackSide });
+    const m = new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0, side: THREE.BackSide, flatShading: true });
     const CU = { hf: { value: tex }, hfR: { value: new THREE.Vector4(H.X0, H.X1, H.Y0, H.Y1) }, hfZ: { value: new THREE.Vector2(H.Z0, H.Z1) }, cC: { value: new THREE.Vector4() }, cI: { value: i } };
     m.userData.cC = CU.cC;
     m.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, CU); sh.uniforms.hc = U.hc; sh.uniforms.hcN = U.hcN; sh.uniforms.chT = U.chT; sh.uniforms.chH = U.chH; sh.uniforms.chAny = U.chAny;
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform vec4 cC;\nvarying vec3 vQ;\nvarying vec3 vWN;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvQ = position * cC.w + cC.xyz; vWN = normalize(mat3(modelMatrix) * -normal);');
+        .replace('#include <common>', '#include <common>\nuniform float cI;\nfloat cvH(vec3 p) { return fract(sin(dot(floor(p), vec3(12.9898, 78.233, 37.719))) * 43758.5453); }')
+        // the wall is not a smooth bowl: broken bone and torn tissue push it out unevenly, in flat-faced lumps
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed *= 1.0 + cvH(position * 5.0 + cI * 3.1) * 0.09 + cvH(position * 12.0 + 7.0) * 0.04;\nvQ = transformed * cC.w + cC.xyz; vWN = normalize(mat3(modelMatrix) * -normal);');
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + CHUNK_F + 'uniform sampler2D hf;\nuniform vec4 hfR;\nuniform vec2 hfZ;\nuniform vec4 cC;\nuniform float cI;\nvarying vec3 vQ;\nvarying vec3 vWN;\n')
         .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 for (int j = 0; j < ${HC_MAX}; j++) { if (float(j) >= hcN) break; if (abs(float(j) - cI) < 0.5) continue; if (length(vQ - hc[j].xyz) < hc[j].w) discard; }

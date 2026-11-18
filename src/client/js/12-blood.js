@@ -97,7 +97,7 @@ const BLOOD_TEX = {
   // exit: bigger, ragged and blown outward
   rimX: fieldTex(256, ({ blob, run, s, c }) => { for (let i = 0; i < 11; i++) { const a = i / 11 * 6.28 + rnd(-0.2, 0.2); run(c + Math.cos(a) * s * 0.18, c + Math.sin(a) * s * 0.18, c + Math.cos(a) * s * rnd(0.3, 0.42), c + Math.sin(a) * s * rnd(0.3, 0.42), s * 0.08, s * 0.03, 5); } }, { th: 0.3, c0: [160, 22, 18], c1: [80, 3, 4],
     post: (g, s) => { g.globalCompositeOperation = 'destination-out'; const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s * 0.15); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.7, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); g.globalCompositeOperation = 'source-over'; } }),
-  exit: fieldTex(256, ({ blob, run, s, c }) => { blob(c, c, s * 0.26); for (let i = 0; i < 9; i++) { const a = Math.random() * 6.28; run(c, c, c + Math.cos(a) * s * 0.36, c + Math.sin(a) * s * 0.36, s * 0.08, s * 0.025, 6); } }, { th: 0.3, c0: [150, 18, 16], c1: [60, 0, 2],
+  exit: fieldTex(256, ({ blob, run, s, c }) => { blob(c, c, s * 0.26); for (let i = 0; i < 9; i++) { const a = Math.random() * 6.28, d = rnd(0.2, 0.28); blob(c + Math.cos(a) * s * d, c + Math.sin(a) * s * d, s * rnd(0.06, 0.1)); } }, { th: 0.3, c0: [150, 18, 16], c1: [60, 0, 2],
     post: (g, s) => { const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s * 0.16); gr.addColorStop(0, 'rgba(40,4,4,1)'); gr.addColorStop(1, 'rgba(50,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); } })
 };
 // pools: twelve shapes in six styles, wet and glossy, thin bright edges and a dark thick middle. Each pool also gets its own
@@ -105,9 +105,9 @@ const BLOOD_TEX = {
 const POOL_STYLES = [
   // round, settled
   ({ blob, s, c }) => { for (let i = 0; i < 14; i++) { const a = Math.random() * 6.28, d = rnd(0, 0.16) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.13, 0.2)); } },
-  // lobed, spreading out in fingers along the ground
-  ({ blob, run, s, c }) => { for (let i = 0; i < 10; i++) { const a = Math.random() * 6.28, d = rnd(0, 0.12) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.12, 0.17)); }
-    const n = 4 + (Math.random() * 4 | 0); for (let i = 0; i < n; i++) { const a = Math.random() * 6.28, L = rnd(0.25, 0.42) * s; run(c + Math.cos(a) * s * 0.12, c + Math.sin(a) * s * 0.12, c + Math.cos(a) * L, c + Math.sin(a) * L, s * rnd(0.08, 0.12), s * rnd(0.03, 0.06), 9); } },
+  // lobed: a rounded pool with a soft, bulging edge
+  ({ blob, s, c }) => { for (let i = 0; i < 10; i++) { const a = Math.random() * 6.28, d = rnd(0, 0.12) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.12, 0.17)); }
+    const n = 5 + (Math.random() * 3 | 0); for (let i = 0; i < n; i++) { const a = i / n * 6.28 + rnd(-0.3, 0.3), d = rnd(0.17, 0.22) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.07, 0.1)); } },
   // a long flow running off one way (a slope, or the body was moving)
   ({ blob, run, s, c }) => { blob(c - s * 0.12, c, s * 0.17); blob(c - s * 0.05, c + s * 0.03, s * 0.14); run(c - s * 0.08, c, c + s * 0.38, c + rnd(-0.08, 0.08) * s, s * 0.12, s * 0.05, 14);
     for (let i = 0; i < 3; i++) run(c + s * rnd(0, 0.2), c, c + s * rnd(0.2, 0.42), c + rnd(-0.18, 0.18) * s, s * 0.06, s * 0.025, 7); },
@@ -140,15 +140,12 @@ function bloodKind(kind, n, size, gen, opt, off) { BV[kind] = []; for (let i = 0
 const bmat = k => BV[k][Math.floor(Math.random() * BV[k].length)];
 const GEN = {
   splat: ({ blob, run, s, c }) => {
-    const core = 4 + Math.floor(Math.random() * 6);
-    for (let i = 0; i < core; i++) { const a = Math.random() * 6.28, d = rnd(0, 0.09) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.1, 0.19)); }
-    const n = 5 + Math.floor(Math.random() * 10);
-    for (let i = 0; i < n; i++) {
-      const a = i / n * 6.28 + rnd(-0.4, 0.4), L = rnd(0.16, 0.34) * s, w = rnd(0.02, 0.05) * s;
-      run(c + Math.cos(a) * s * 0.12, c + Math.sin(a) * s * 0.12, c + Math.cos(a) * L, c + Math.sin(a) * L, w * 1.6, w * 0.7, 7);
-      if (Math.random() < 0.75) blob(c + Math.cos(a) * (L + w * 1.8), c + Math.sin(a) * (L + w * 1.8), w * rnd(0.8, 1.4));
-    }
-    for (let i = 0; i < 4 + Math.random() * 10; i++) { const a = Math.random() * 6.28, d = rnd(0.3, 0.46) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.008, 0.024)); }
+    // a rounded splat: a thick middle with a scalloped edge and a few drops thrown just past it (no long spikes)
+    const core = 6 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < core; i++) { const a = Math.random() * 6.28, d = rnd(0, 0.07) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.12, 0.18)); }
+    const n = 7 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < n; i++) { const a = i / n * 6.28 + rnd(-0.3, 0.3), d = rnd(0.12, 0.17) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.05, 0.08)); }
+    for (let i = 0; i < 3 + Math.random() * 6; i++) { const a = Math.random() * 6.28, d = rnd(0.25, 0.34) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.008, 0.02)); }
   },
   cast: ({ blob, run, s, c }) => {
     const L = rnd(0.25, 0.5);
@@ -168,7 +165,7 @@ const GEN = {
   },
   spatter: ({ blob, run, s, c }) => {
     for (let i = 0; i < 6 + Math.random() * 6; i++) { const a = Math.random() * 6.28, d = rnd(0, 0.09) * s; blob(c + Math.cos(a) * d, c + Math.sin(a) * d, s * rnd(0.06, 0.12)); }
-    for (let i = 0; i < 24 + Math.random() * 20; i++) { const a = Math.random() * 6.28, L = s * rnd(0.14, 0.45), w = s * rnd(0.01, 0.028); run(c + Math.cos(a) * s * 0.06, c + Math.sin(a) * s * 0.06, c + Math.cos(a) * L, c + Math.sin(a) * L, w * 1.4, w * 0.4, 10); blob(c + Math.cos(a) * (L + w * 1.5), c + Math.sin(a) * (L + w * 1.5), w * rnd(0.9, 1.5)); }
+    for (let i = 0; i < 10 + Math.random() * 8; i++) { const a = Math.random() * 6.28, L = s * rnd(0.12, 0.28), w = s * rnd(0.012, 0.03); run(c + Math.cos(a) * s * 0.06, c + Math.sin(a) * s * 0.06, c + Math.cos(a) * L, c + Math.sin(a) * L, w * 1.4, w * 0.4, 10); blob(c + Math.cos(a) * (L + w * 1.5), c + Math.sin(a) * (L + w * 1.5), w * rnd(0.9, 1.5)); }
     for (let i = 0; i < 40; i++) { const a = Math.random() * 6.28, L = s * rnd(0.15, 0.48); blob(c + Math.cos(a) * L, c + Math.sin(a) * L, s * rnd(0.004, 0.012)); }
   },
   drip: ({ blob, run, s, c }) => { const x1 = c + rnd(-0.05, 0.05) * s; run(c, 0, x1, s * 0.8, s * rnd(0.05, 0.08), s * rnd(0.08, 0.11), 16); blob(x1, s * 0.85, s * rnd(0.11, 0.15)); },

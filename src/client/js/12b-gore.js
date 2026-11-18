@@ -179,7 +179,7 @@ function updateGore(dt) {
         const h = new V3(g.v.x, 0, g.v.z), sp = h.length();
         if (g.kind !== 'bone' && g.r > 0.006) {
           const mk = new THREE.Mesh(splatGeo, bmat(sp > 1.2 ? 'smear' : 'splat')); mk.rotation.set(-Math.PI / 2, 0, sp > 0.1 ? Math.atan2(h.x, h.z) + Math.PI : Math.random() * 6.28);
-          const L = clamp(g.r * 6 * (1 + Math.min(1, sp * 0.2)), 0.05, 0.22);
+          const L = clamp(g.r * 4.5 * (1 + Math.min(1, sp * 0.2)), 0.04, 0.14);
           mk.position.set(g.m.position.x - (sp > 0.1 ? h.x / sp * L * 0.3 : 0), floor - g.dn + 0.003 + Math.random() * 0.002, g.m.position.z - (sp > 0.1 ? h.z / sp * L * 0.3 : 0)); mk.scale.set(L * 0.6, L, 1);
           mk.receiveShadow = true; scene.add(mk); decals.push(mk); trimDecals();
           feedPool(g.m.position.x, floor - g.dn, g.m.position.z, 1.2);
