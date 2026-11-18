@@ -1,3 +1,11 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { V3, rnd } from './00-setup.js';
+import { HUMAN_SEGS } from './02a-human-mesh.js';
+import { BZ_SEG, chunkUniforms } from './02b-chunks.js';
+import { seg } from './19c-toolvm.js';
+import { frame } from './22-menu-loop.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- blood soaking into clothes and skin, and fragment pepper
 // Every body vertex knows where it sits in its own segment's frame (attribute bz: trunk and head in the body frame, w 1/2;
 // arms, legs and neck in their own frame, w = 10 + segment). A wound puts a soak sphere there; it grows over the next half
@@ -127,3 +135,7 @@ function addBurn(root, p, radius) {
   const B = root.userData.chunk.sk.burn.value; B.set(f[1].x, f[1].y, f[1].z, Math.max(B.w, radius));
   SOAK_ROOTS.add(root); soakSync(root);
 }
+
+// ---- module exports: build.mjs strips this block ----
+export { addBurn, addPepper, addSoak, soakClear, soakCopy, soakFrame, soakShader, soakUniforms, updateSoaks };
+// ---- end module exports ----

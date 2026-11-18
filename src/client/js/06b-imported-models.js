@@ -1,3 +1,7 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { renderer } from './00-setup.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- models made in Roblox Studio
 // Studio's Export Selection gives an OBJ, an MTL and texture maps. assets/models/<name>/conv.py turns them into public/models/<name>/:
 // one binary holding every named part already in the game's frame (metres, barrel toward -Z, ejection port on +X) and colour,
@@ -31,3 +35,7 @@ await Promise.all([
   Promise.all([loadModelBin('/models/g17/g17.bin'), ...['frame', 'slide', 'mag', 'barrel'].map(t => loadTexSet('/models/g17/' + t))])
     .then(([parts, ...mats]) => { IMPORTED.g17 = { parts, mats }; }).catch(e => console.warn('imported G17 not loaded, using the built-in model', e))
 ]);
+
+// ---- module exports: build.mjs strips this block ----
+export { IMPORTED };
+// ---- end module exports ----

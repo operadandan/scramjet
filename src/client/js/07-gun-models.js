@@ -1,3 +1,15 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { V3 } from './00-setup.js';
+import { GM, fineNoise, stipple } from './01-world.js';
+import { rubber } from './06-weapons.js';
+import { IMPORTED } from './06b-imported-models.js';
+import { dust } from './15-destruction.js';
+import { P, S } from './17-dummies.js';
+import { seg } from './19c-toolvm.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- gun modelling kit (profile extrusions shared by viewmodels, third-person guns and ground items)
 const steelGray = new THREE.MeshStandardMaterial({ color: 0x2c2e31, roughness: 0.45, metalness: 0.85, bumpMap: fineNoise, bumpScale: 0.3 });
 const plum = new THREE.MeshStandardMaterial({ color: 0x4f2e2a, roughness: 0.62, metalness: 0.05, bumpMap: stipple, bumpScale: 0.3 });
@@ -390,3 +402,7 @@ function gunM870(K) {
   return { g, mag, chg: null, slide: null, bolt: pump, boltMode: 'slide', travel: 0.088, boltIn, muzzle: [0, 0, -0.568], port: [0.018, 0.0, -0.05], brass: [0, '12g'] };
 }
 const GUN_MODEL = { m4: gunM4, g17: gunG17, m107: gunM107, ak74: gunAK, m9: gunM9, m870: gunM870 };
+
+// ---- module exports: build.mjs strips this block ----
+export { GUN_MODEL, KMAT, _Yc, bakeColored, bakeTextured, brassMatVM, compact, copperMat, lensMat, makeKit, polyShape };
+// ---- end module exports ----

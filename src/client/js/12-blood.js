@@ -1,3 +1,13 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { $, V3, clamp, lerp, rnd, scene, smooth } from './00-setup.js';
+import { canvasTex } from './01-world.js';
+import { _Y } from './04-ragdoll.js';
+import { isPistol, isShotgun } from './06-weapons.js';
+import { blip } from './10-audio.js';
+import { fx, puffTex } from './11-fx.js';
+import { esc } from './18-player.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- blood: ballistic droplets, splats that run down walls, pooling on floors, wounds on bodies
 const BLOOD_MAX = 900, drops = [], drips = [], floorSplats = [];
 const dropIM = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshStandardMaterial({ color: 0x7a0f0c, roughness: 0.1, metalness: 0, envMapIntensity: 0.6 }), BLOOD_MAX);
@@ -216,3 +226,7 @@ function killNotice(name) {
   requestAnimationFrame(() => requestAnimationFrame(() => { k.style.transition = 'transform .18s, opacity .5s 1.8s'; k.style.transform = 'translateX(-50%) scale(1)'; k.style.opacity = '0'; }));
   blip(880, 0.08, 0.05, 'sine'); setTimeout(() => blip(660, 0.12, 0.04, 'sine'), 70);
 }
+
+// ---- module exports: build.mjs strips this block ----
+export { BLOOD_MAT, BLOOD_MAX, POOL_MAT, bmat, drips, dropIM, drops, floorSplats, killNotice, mistTex, muzzleSmoke, smoke };
+// ---- end module exports ----

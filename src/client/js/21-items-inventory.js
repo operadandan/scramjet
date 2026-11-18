@@ -1,3 +1,20 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { $, V3, camera, clamp, renderer, rnd, scene } from './00-setup.js';
+import { mat } from './01-world.js';
+import { GC, plateGeo, vcMat } from './02-body-parts.js';
+import { _a, _b } from './04-ragdoll.js';
+import { WEAPONS, isPistol, isShotgun } from './06-weapons.js';
+import { bakeColored } from './07-gun-models.js';
+import { TP_KIT, gunItemMesh } from './08-hands.js';
+import { ATT, ATTS, ATT_DEFAULT, ATT_SLOTS, ATT_SLOT_NAME, applyAttachments, attOf, buildMedPouch, installPlate, saveAtt } from './09-attachments.js';
+import { blip, noiseHit } from './10-audio.js';
+import { props } from './16-ballistics.js';
+import { P, S } from './17-dummies.js';
+import { flashMsg, magEstimate, selectEmpty, switchWeapon } from './18-player.js';
+import { net } from './19-network.js';
+import { c4Mine, r3 } from './19b-explosives.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- ground items, pickup (F), backpack
 const items = new Map(); let itemSeq = 1;
 const PACK_COLS = 6, PACK_ROWS = 5;
@@ -424,3 +441,6 @@ const ATT_DESC = {
   side: { none: 'Nothing mounted', laser: 'Visible laser (T toggles)', light: 'Weapon light (T toggles)' }
 };
 
+// ---- module exports: build.mjs strips this block ----
+export { clearItems, closeInv, curSlot, drag, dragRotate, dropHeld, dropWeapon, hlMesh, openAttMenu, openInv, pickUp, pressSlot, removeItem, spawnItem, toolSlotIndex, updateInv, updatePickup, updateToolbar };
+// ---- end module exports ----

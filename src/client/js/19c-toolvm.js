@@ -1,3 +1,20 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { $, V3, camera, clamp, damp, lerp, rnd, sunDir, vmCamera, vmSun } from './00-setup.js';
+import { worldMeshes } from './01-world.js';
+import { ragdolls } from './04-ragdoll.js';
+import { hitToFrame } from './05-anatomy.js';
+import { vm } from './06-weapons.js';
+import { ARM_DATA, ArmRig, GraspCloud, fingerTo, graspSolve, lerpCurls, thumbTo, v3a } from './06c-arm-rig.js';
+import { VMW, pressHand, settleHand, solveElbow } from './08-hands.js';
+import { noiseHit } from './10-audio.js';
+import { gridOpenW } from './15-destruction.js';
+import { P, S, dummies, mouse } from './17-dummies.js';
+import { PITCH_MIN, flashMsg, hurtFlash } from './18-player.js';
+import { net } from './19-network.js';
+import { c4Mine, makeC4, makeFrag, makeRemote, r4x, ragMeshes } from './19b-explosives.js';
+import { pressSlot, toolSlotIndex } from './21-items-inventory.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- tool viewmodels: grenade, C4 + remote, fists
 // The same rigged arms, the same skin and sleeves, the same way of placing a hand as the guns: each hand's grip on what it
 // holds is solved once at load (the palm settled onto the object, every finger curled until it touches, the thumb aimed),
@@ -233,3 +250,7 @@ function keepSlot() {
     if (P.emptySel >= 2 && !empty(P.emptySel) && !P.fist?.hit && (!P.fist || P.fist.ph === 'guard')) pressSlot(P.emptySel);
   }
 }
+
+// ---- module exports: build.mjs strips this block ----
+export { TV, keepSlot, onPunched, seg, updateFists, vmTools };
+// ---- end module exports ----

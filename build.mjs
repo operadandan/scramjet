@@ -3,7 +3,9 @@
 // script, in file-name order. They share one scope, so the numbering is the load order.
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 const dir = "src/client/js/";
-const js = readdirSync(dir).filter(f => f.endsWith(".js")).sort().map(f => readFileSync(dir + f, "utf8").replace(/\n$/, "")).join("\n");
+// Each file also carries "module links" import/export blocks so code tools can follow cross-file calls; they are stripped here.
+const links = /\n?\/\/ ---- module (?:links|exports):[^\n]*\n[\s\S]*?\/\/ ---- end module (?:links|exports) ----\n?/g;
+const js = readdirSync(dir).filter(f => f.endsWith(".js")).sort().map(f => readFileSync(dir + f, "utf8").replace(links, "\n").replace(/^\n+/, "").replace(/\n+$/, "")).join("\n");
 const html = readFileSync("src/client/index.html", "utf8").replace("/*@SCRIPTS@*/\n", () => js + "\n");
 const esc = html.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
 mkdirSync("dist", { recursive: true });

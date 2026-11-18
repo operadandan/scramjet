@@ -1,3 +1,12 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import { GFX, V3, camera, lerp, scene } from './00-setup.js';
+import { worldMeshes } from './01-world.js';
+import { Humanoid } from './03-humanoid.js';
+import { setHelmet } from './04-ragdoll.js';
+import { bulletTargets } from './16-ballistics.js';
+import { P, PALS, S, SKINS, localBody } from './17-dummies.js';
+import { ray } from './18-player.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- third person (Left Alt)
 let localVis = null;
 function tpBody() { if (!localVis) { const id = S.myId || 0; localVis = new Humanoid(Object.assign({ skin: SKINS[id % SKINS.length] }, PALS[id % PALS.length])); scene.add(localVis.root); } return localVis; }
@@ -33,3 +42,7 @@ function tpAim() {
   const origin = P.eye.clone().addScaledVector(camF, 0.35);
   return { origin, dir: T.sub(origin).normalize() };
 }
+
+// ---- module exports: build.mjs strips this block ----
+export { tpAim, tpCamera, updateTPBody };
+// ---- end module exports ----

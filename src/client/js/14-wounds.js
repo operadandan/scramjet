@@ -1,3 +1,24 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { GFX, V3, clamp, lerp, rnd, scene } from './00-setup.js';
+import { canvasTex, colliders, mat, worldMeshes } from './01-world.js';
+import { GC, bodyKey, bodyPatches, vcMat } from './02-body-parts.js';
+import { chunkGoneAt, chunkRootOf } from './02b-chunks.js';
+import { _Y, _a, _b, _rt } from './04-ragdoll.js';
+import { STRUCTS_BY_FRAME, pathDist } from './05-anatomy.js';
+import { WEAPONS, isPistol, isShotgun } from './06-weapons.js';
+import { bakeColored } from './07-gun-models.js';
+import { buildGripHand } from './08-hands.js';
+import { noiseHit } from './10-audio.js';
+import { PMAT, decals, fx, impactFx, irregular, particles, placeDecal, poolGeo, splatGeo } from './11-fx.js';
+import { BLOOD_MAT, BLOOD_MAX, POOL_MAT, bmat, drips, dropIM, drops, floorSplats, mistTex } from './12-blood.js';
+import { coneDir, goreBlast } from './12b-gore.js';
+import { addPepper, addSoak, updateSoaks } from './14b-soak.js';
+import { DESTR_OF, gridOpenW, pick, wallClipMat, wallDamage } from './15-destruction.js';
+import { P, S } from './17-dummies.js';
+import { drag } from './21-items-inventory.js';
+import { frame } from './22-menu-loop.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- holes in walls: decals with a clear middle
 const PIERCE_TEX = {
   concrete: decalCanvas2((g, s, c) => { irregular(g, c, c, s * 0.46, 22, 0.35, 'rgba(120,116,108,0.55)'); irregular(g, c, c, s * 0.34, 18, 0.4, 'rgba(80,77,71,0.9)'); irregular(g, c, c, s * 0.22, 14, 0.3, 'rgba(70,67,62,1)'); for (let i = 0; i < 26; i++) { const a = Math.random() * 6.28, d = (0.2 + 0.27 * Math.sqrt(Math.random())) * s; g.fillStyle = 'rgba(' + (150 + Math.random() * 50 | 0) + ',' + (146 + Math.random() * 50 | 0) + ',140,0.8)'; g.fillRect(c + Math.cos(a) * d, c + Math.sin(a) * d, rnd(2, 6), rnd(2, 6)); } }),
@@ -777,3 +798,7 @@ function footStep() {
   const m = new THREE.Mesh(splatGeo, BOOT_MAT[8 - P.bootBlood]); m.rotation.set(-Math.PI / 2, 0, ry); m.position.set(x, fy + 0.003, z); m.scale.set(0.13, 0.3, 1);
   m.receiveShadow = true; scene.add(m); decals.push(m); trimDecals(); P.bootBlood--;
 }
+
+// ---- module exports: build.mjs strips this block ----
+export { CAL, FABRIC_IN, HOLE_JAG, KIND_PEN, PEN_MAT, PIERCE_MAT, _hm, _sUp, addStump, addWound, bloodFx, blowSpatter, bodyPen, bodyWound, boxExit, buildVfgHand, clearPools, clearWounds, clipGroup, copySegment, cutHole, dropSplat, exitThrough, feedPool, floorAt, footStep, goreBurst, groundSplat, holeInGroup, holeTube, holeify, liquidBlood, mist, setSoak, soakMesh, spatR, spawnDrop, splatIM, tearMesh, trimDecals, updateBlood, updatePools, updateWounds, wallSpatter, wallSplat, worldPen };
+// ---- end module exports ----

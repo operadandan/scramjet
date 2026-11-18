@@ -1,3 +1,20 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { V3, clamp, rnd, scene } from './00-setup.js';
+import { colliders, mat } from './01-world.js';
+import { Body, HUM_DEFAULT, attachSkin, mergeTree, sph, vcMat } from './02-body-parts.js';
+import { chunkCopy } from './02b-chunks.js';
+import { WEAPONS } from './06-weapons.js';
+import { ATT_DEFAULT } from './09-attachments.js';
+import { noiseHit } from './10-audio.js';
+import { decals, puff, splatGeo } from './11-fx.js';
+import { bmat } from './12-blood.js';
+import { addStump, bloodFx, clipGroup, copySegment, feedPool, floorAt, goreBurst, holeInGroup, liquidBlood, setSoak, soakMesh, spawnDrop, tearMesh, trimDecals } from './14-wounds.js';
+import { gridOpenW, pick } from './15-destruction.js';
+import { addProp } from './16-ballistics.js';
+import { P, S, dummies } from './17-dummies.js';
+import { spawnItem } from './21-items-inventory.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- ragdoll (verlet with anatomical joint limits)
 const RAG_BONES = [[0, 1], [1, 2], [3, 4], [4, 5], [6, 7], [7, 8], [9, 10], [10, 11], [12, 13], [13, 14]];
 const RAG_TORSO = [[3, 6], [9, 12], [1, 3], [1, 6], [2, 9], [2, 12], [3, 2], [6, 2], [1, 9], [1, 12], [3, 9], [6, 12], [3, 12], [6, 9],
@@ -630,3 +647,7 @@ function detachSkin(g) {
     o._skin.at = keep;
   });
 }
+
+// ---- module exports: build.mjs strips this block ----
+export { RAG_MASS, _Y, _a, _b, _rt, freeRag, limbBodies, ragdolls, setHelmet, spawnRagdoll, syncLost, updateLimbs };
+// ---- end module exports ----

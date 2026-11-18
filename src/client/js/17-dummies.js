@@ -1,3 +1,19 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { V3, angLerp, clamp, damp, lerp, renderer, rnd, scene, smooth } from './00-setup.js';
+import { RANGE_DISTS, RANGE_X, mat } from './01-world.js';
+import { chunkReset } from './02b-chunks.js';
+import { CLUTCH_OK, Humanoid, hurtClutch, hurtLevel, reClutch, solveArm, updateBrace } from './03-humanoid.js';
+import { freeRag, setHelmet, spawnRagdoll, syncLost } from './04-ragdoll.js';
+import { Anatomy, PART_OF_REGION, makeLabel } from './05-anatomy.js';
+import { MEDKIT_W, PRIMARIES, SECONDARIES, WEAPONS, isPistol, isShotgun } from './06-weapons.js';
+import { ATT_DEFAULT, PLATE_W } from './09-attachments.js';
+import { killNotice } from './12-blood.js';
+import { clearWounds, feedPool, floorAt, spawnDrop, updateWounds } from './14-wounds.js';
+import { blocked } from './18-player.js';
+import { r3 } from './19b-explosives.js';
+import { spawnItem } from './21-items-inventory.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- state
 function loadLoadout() {
   let lo = [0, 1];
@@ -462,3 +478,6 @@ function bleedDrips(owner, rate, dt, artery, pressure) {
 }
 const arteryRate = an => { let r = 0; for (const w of an.wounds) if (w.artery && !w.treated) r += w.rate; return r; };
 
+// ---- module exports: build.mjs strips this block ----
+export { P, PALS, Remote, S, SKINS, arteryRate, bleedDrips, deathMasks, dummies, fpBody, fpClip, keys, localBody, mouse, reactPack, reactRun, reactStart, spawnDummies };
+// ---- end module exports ----

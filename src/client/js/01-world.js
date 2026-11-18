@@ -1,3 +1,8 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { V3, renderer, scene } from './00-setup.js';
+import { seg } from './19c-toolvm.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- textures / materials
 function canvasTex(draw, size, repeat) {
   size = size || 256;
@@ -153,3 +158,6 @@ function tpCyl(M, rad, len, c, parent, x, y, z, seg, r, m) {
 }
 function mark(parent, x, y, z) { const o = new THREE.Object3D(); o.position.set(x, y, z); parent.add(o); return o; }
 
+// ---- module exports: build.mjs strips this block ----
+export { GM, RANGE_DISTS, RANGE_X, buildArena, buildTest, canvasTex, colliders, fineNoise, makeTex, mark, mat, shadowMat, spawns, stipple, tpBox, worldMeshes };
+// ---- end module exports ----

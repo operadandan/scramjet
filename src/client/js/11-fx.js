@@ -1,3 +1,12 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
+import { V3, rnd, scene } from './00-setup.js';
+import { canvasTex } from './01-world.js';
+import { _a } from './04-ragdoll.js';
+import { noiseHit } from './10-audio.js';
+import { CAL, KIND_PEN, PEN_MAT, PIERCE_MAT, trimDecals } from './14-wounds.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- decal textures
 function irregular(g, cx, cy, r, n, jit, fill) {
   g.fillStyle = fill; g.beginPath();
@@ -153,3 +162,7 @@ function impactFx(point, n, surf) {
     noiseHit(1400, 0.06, 0.05);
   }
 }
+
+// ---- module exports: build.mjs strips this block ----
+export { PMAT, bulletHole, decalHelper, decals, fragScuff, fx, fxBox, impactFx, irregular, particles, placeDecal, poolGeo, puff, puffTex, splatGeo, tracer, updateHeats };
+// ---- end module exports ----

@@ -1,3 +1,26 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { $, V3, camera, clamp, damp, lerp, muzzleLight, ramp, rnd, scene, smooth, vmCamera, vmMuzzleLight } from './00-setup.js';
+import { colliders, spawns, worldMeshes } from './01-world.js';
+import { chunkReset } from './02b-chunks.js';
+import { hurtClutch, hurtLevel, reClutch, updateBrace } from './03-humanoid.js';
+import { _Y, _a, freeRag, setHelmet, spawnRagdoll, syncLost } from './04-ragdoll.js';
+import { Anatomy, DEATH_TEXT, LIMB_NAME, PART_OF_REGION, REGION_NAME, hitToFrame } from './05-anatomy.js';
+import { MEDKIT_W, WEAPONS, flashMat, freshGuns, isPistol, pelletDirs } from './06-weapons.js';
+import { SG_SEQ, VMW, makeReloadSeq } from './08-hands.js';
+import { blip, noiseHit, shotSound } from './10-audio.js';
+import { fx, tracer } from './11-fx.js';
+import { muzzleSmoke } from './12-blood.js';
+import { tpAim } from './13-third-person.js';
+import { clearWounds } from './14-wounds.js';
+import { gridOpenW, gridPass } from './15-destruction.js';
+import { addProp, ejectShell, spawnBullet } from './16-ballistics.js';
+import { P, S, arteryRate, bleedDrips, deathMasks, fpBody, fpClip, keys, localBody, mouse, reactRun, reactStart } from './17-dummies.js';
+import { net } from './19-network.js';
+import { updateC4, updateFrag } from './19b-explosives.js';
+import { keepSlot, updateFists } from './19c-toolvm.js';
+import { closeInv, dropWeapon } from './21-items-inventory.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- physics helpers
 function blocked(pos, h, r) {
   for (const c of colliders) if (pos.x + r > c.min.x && pos.x - r < c.max.x && pos.z + r > c.min.z && pos.z - r < c.max.z && pos.y + h > c.min.y && pos.y < c.max.y && !gridPass(c, pos, h, r)) return c;
@@ -596,3 +619,6 @@ function testDeath(head) {
   setTimeout(() => { if (S.mode === 'test') respawnLocal(spawns[0]); }, 3000);
 }
 
+// ---- module exports: build.mjs strips this block ----
+export { PITCH_MIN, blocked, canRack, esc, feed, flashMsg, hurtFlash, localDeath, magEstimate, onSelfHurt, pointBlocked, pumpCurve, rackK, rackNeeded, ray, remoteShot, respawnLocal, selectEmpty, standHeight, startInspect, startReload, switchWeapon, testDeath, testSelfHit, updatePlayer, updateWeapons, workAction };
+// ---- end module exports ----

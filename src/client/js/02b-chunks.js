@@ -1,3 +1,15 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { V3, clamp, rnd } from './00-setup.js';
+import { HUMAN_SEGS } from './02a-human-mesh.js';
+import { brainSmears, spawnGore } from './12b-gore.js';
+import { bloodFx } from './14-wounds.js';
+import { soakClear, soakCopy, soakFrame, soakUniforms } from './14b-soak.js';
+import { P, S, localBody } from './17-dummies.js';
+import { net } from './19-network.js';
+import { seg } from './19c-toolvm.js';
+import { frame } from './22-menu-loop.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- body chunks: the torso and head can be destroyed piece by piece
 // The trunk (pelvis to shoulders) is split into 48 irregular cells and the head into 24, a Voronoi split round fixed seed
 // points (the same on every client), so a piece of a body that goes is an uneven chunk, not a box. A body looks exactly the
@@ -473,3 +485,7 @@ function chunkCaps(root) {
     A[0].add(mesh); st.caps.push(mesh);
   }
 }
+
+// ---- module exports: build.mjs strips this block ----
+export { BZ_SEG, CH_GIB, chunkCenters, chunkCopy, chunkCount, chunkGoneAt, chunkReset, chunkRootOf, chunkRx, chunkShader, chunkShot, chunkUniforms, destroyChunks, ensureBZ, headCrater };
+// ---- end module exports ----

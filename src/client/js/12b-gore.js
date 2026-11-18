@@ -1,3 +1,14 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { V3, clamp, rnd, scene } from './00-setup.js';
+import { colliders } from './01-world.js';
+import { _Y } from './04-ragdoll.js';
+import { decals, splatGeo } from './11-fx.js';
+import { bmat } from './12-blood.js';
+import { feedPool, floorAt, mist, spatR, spawnDrop, trimDecals, wallSplat } from './14-wounds.js';
+import { gridOpenW, pick } from './15-destruction.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- gore: pieces of a body that come away in a blast
 // Skull plates (scalp outside, bone inside), brain, raw muscle with fat, bone shards, loops of gut, pieces of lung and liver.
 // They fly, tumble and bleed as they go, and where one lands it leaves a smear and a little pool. Each kind has several shapes.
@@ -160,3 +171,7 @@ function goreBlast(part, p, dir, k, skin) {
   for (let i = 0; i < 4; i++) mist(p.clone().addScaledVector(dir, 0.04 + i * 0.07), dir.clone().multiplyScalar(rnd(1.5, 4)).add(new V3(rnd(-0.5, 0.5), rnd(-0.2, 0.5), rnd(-0.5, 0.5))), 0.4 + i * 0.12 * k, 0.7, 0x5a0307, 0.5 - i * 0.07);
   for (let i = 0; i < Math.round(22 * k + 10); i++) spawnDrop(p, coneDir(dir, 0.7).multiplyScalar(rnd(3, 8)), spatR() * 1.4, 1, undefined, 0.3);
 }
+
+// ---- module exports: build.mjs strips this block ----
+export { boneIn, brainSmears, clearGore, coneDir, goreBlast, goreDry, goreWet, nz, spawnGore, updateGore };
+// ---- end module exports ----

@@ -1,3 +1,9 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import { clamp, rnd } from './00-setup.js';
+import { WEAPONS } from './06-weapons.js';
+import { P } from './17-dummies.js';
+import { PITCH_MIN } from './18-player.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- audio
 let actx = null, noiseBuf = null, aMaster = null;
 function audio() {
@@ -50,3 +56,6 @@ function noiseHit(freq, dur, vol) {
   src.connect(f).connect(g).connect(aMaster); src.start(t, Math.random() * 0.5, dur + 0.05);
 }
 
+// ---- module exports: build.mjs strips this block ----
+export { aMaster, actx, audio, blip, noiseBuf, noiseHit, shotSound, suppress };
+// ---- end module exports ----

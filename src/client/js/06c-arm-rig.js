@@ -1,3 +1,9 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { V3, clamp, lerp, renderer } from './00-setup.js';
+import { mat } from './01-world.js';
+import { P } from './17-dummies.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- skinned viewmodel arms (rigged from the Studio arm model)
 // public/models/arms/arms.bin holds both arms already skinned (assets/models/arms/rig.py): upper arm, forearm, hand, and three
 // joints for each finger and the thumb. Every bone's bind orientation is the identity, so a joint's rotation is just an angle
@@ -204,3 +210,7 @@ function lerpCurls(a, b, u, out) {
   for (const f of FINGERS) { const x = a[f], y = b[f], o = out[f] || (out[f] = [0, 0, 0, 0]); for (let i = 0; i < 4; i++) o[i] = lerp(x[i] || 0, y[i] || 0, u); }
   return out;
 }
+
+// ---- module exports: build.mjs strips this block ----
+export { ARM_DATA, ArmRig, FINGERS, GraspCloud, fingerTo, graspSolve, lerpCurls, thumbTo, v3a };
+// ---- end module exports ----

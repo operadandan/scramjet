@@ -1,3 +1,14 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { V3, clamp, damp, lerp, makeScopeLens, ramp, rnd, smooth } from './00-setup.js';
+import { GM, mark, mat, shadowMat } from './01-world.js';
+import { WEAPONS, addFlash, vcyl, vm } from './06-weapons.js';
+import { IMPORTED } from './06b-imported-models.js';
+import { ARM_DATA, ArmRig, FINGERS, GraspCloud, fingerTo, graspSolve, lerpCurls, thumbTo, v3a } from './06c-arm-rig.js';
+import { GUN_MODEL, KMAT, _Yc, bakeColored, bakeTextured, brassMatVM, compact, copperMat, makeKit } from './07-gun-models.js';
+import { MOUNTS } from './09-attachments.js';
+import { P, S, keys, mouse } from './17-dummies.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- hands and arms for the viewmodel: gloved, jointed fingers
 const _fp = new V3(), _fdir = new V3();
 function fingerChain(P, mt, p, d, ax, lens, curls, r) {
@@ -431,3 +442,7 @@ function poseAt(W, seq, t, outP, outQ) {
     }
   }
 }
+
+// ---- module exports: build.mjs strips this block ----
+export { HOLD_SEQ, SEQ, SG_SEQ, TP_KIT, VMW, VM_KIT, buildGripHand, ell, fingerChain, gloveCuff, gunItemMesh, gunMatOf, gunVcMat, inRanges, makeReloadSeq, poseAt, poseForRig, pressHand, settleHand, solveElbow, tpGun, tpGunGeo, updateArms, vsleeve };
+// ---- end module exports ----

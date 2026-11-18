@@ -1,3 +1,26 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { $, ENABLE_TEST_MODE, GFX, GFX_PRESETS, V3, camera, damp, lerp, renderScope, renderer, scene, sun, sunDir, vmCamera, vmScene } from './00-setup.js';
+import { buildArena, buildTest, spawns } from './01-world.js';
+import { updateCloth } from './02-body-parts.js';
+import { limbBodies, ragdolls, updateLimbs } from './04-ragdoll.js';
+import { freshGuns } from './06-weapons.js';
+import { updateDevices } from './09-attachments.js';
+import { audio } from './10-audio.js';
+import { decals, splatGeo, updateHeats } from './11-fx.js';
+import { drops } from './12-blood.js';
+import { clearGore, updateGore } from './12b-gore.js';
+import { tpCamera, updateTPBody } from './13-third-person.js';
+import { clearPools, splatIM, updateBlood, updatePools } from './14-wounds.js';
+import { DEB_POOLS, debris, updateDebris, updateFx, warmShaders } from './15-destruction.js';
+import { bullets, props, removeBullet, updateBullets, updateProps } from './16-ballistics.js';
+import { P, S, dummies, localBody, spawnDummies } from './17-dummies.js';
+import { esc, respawnLocal, updatePlayer, updateWeapons } from './18-player.js';
+import { api, joinPeer, net, netSend, onNet, startHosting } from './19-network.js';
+import { clearExplosives, updateExplosives } from './19b-explosives.js';
+import { setPixelation, updateCamera, updateHUD, updateViewmodel } from './20-camera-hud-input.js';
+import { clearItems, hlMesh, openAttMenu, updateInv, updatePickup, updateToolbar } from './21-items-inventory.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- scoreboard
 S.score = {};
 function scoreOf(id) { return S.score[id] || (S.score[id] = { k: 0, d: 0 }); }
@@ -243,3 +266,7 @@ function frame(now, hidden) {
   if (rt) { renderer.setRenderTarget(null); renderer.render(RETRO.scene, RETRO.cam); }
 }
 schedule();
+
+// ---- module exports: build.mjs strips this block ----
+export { frame, leave, renderScore, scoreOf };
+// ---- end module exports ----

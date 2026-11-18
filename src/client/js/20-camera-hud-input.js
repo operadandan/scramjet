@@ -1,3 +1,23 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { $, GFX, V3, camera, clamp, damp, lerp, ramp, renderer, rnd, sunDir, vmCamera, vmSun } from './00-setup.js';
+import { _Y, _a } from './04-ragdoll.js';
+import { DEATH_TEXT, makeBodyPanel } from './05-anatomy.js';
+import { WEAPONS, vm } from './06-weapons.js';
+import { lerpCurls } from './06c-arm-rig.js';
+import { HOLD_SEQ, SEQ, VMW, inRanges, poseAt, poseForRig, solveElbow, updateArms } from './08-hands.js';
+import { VMK, VMP } from './09-attachments.js';
+import { aMaster, actx, audio, blip, noiseHit, suppress } from './10-audio.js';
+import { smoke } from './12-blood.js';
+import { footStep } from './14-wounds.js';
+import { P, S, keys, localBody, mouse } from './17-dummies.js';
+import { PITCH_MIN, canRack, localDeath, pointBlocked, pumpCurve, rackK, rackNeeded, standHeight, startInspect, startReload, testDeath, testSelfHit, workAction } from './18-player.js';
+import { net } from './19-network.js';
+import { c4Mine } from './19b-explosives.js';
+import { TV, vmTools } from './19c-toolvm.js';
+import { closeInv, curSlot, dragRotate, dropHeld, openInv, pickUp, pressSlot } from './21-items-inventory.js';
+import { renderScore } from './22-menu-loop.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- camera / viewmodel
 const camTarget = new V3(), _camQ = new THREE.Quaternion(), _camE = new THREE.Quaternion(), _camEu = new THREE.Euler();
 function updateCamera(dt) {
@@ -318,3 +338,6 @@ addEventListener('resize', () => {
   camera.updateProjectionMatrix(); vmCamera.updateProjectionMatrix();
 });
 
+// ---- module exports: build.mjs strips this block ----
+export { setPixelation, updateCamera, updateHUD, updateViewmodel };
+// ---- end module exports ----

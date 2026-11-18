@@ -1,3 +1,19 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { V3, makeScopeLens, rnd, scene, vmScene } from './00-setup.js';
+import { GM, canvasTex, fineNoise } from './01-world.js';
+import { GC, plateGeo } from './02-body-parts.js';
+import { _Y } from './04-ragdoll.js';
+import { WEAPONS, glassFront, glassRear, rail, reticleTex, rubber, vbox, vcyl, vm, vrbox } from './06-weapons.js';
+import { IMPORTED } from './06b-imported-models.js';
+import { KMAT, compact, lensMat } from './07-gun-models.js';
+import { VMW, VM_KIT, ell, fingerChain, gloveCuff, vsleeve } from './08-hands.js';
+import { blip, noiseHit } from './10-audio.js';
+import { buildVfgHand } from './14-wounds.js';
+import { bulletTargets } from './16-ballistics.js';
+import { P, S, mouse } from './17-dummies.js';
+import { flashMsg, ray } from './18-player.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- attachments
 const ATT = {
   optic: { irons: 'Iron sights', holo: 'Holographic sight', reddot: 'Micro red dot', acog: '4x prism scope' },
@@ -321,3 +337,6 @@ function updatePlate(dt) {
   }
 }
 
+// ---- module exports: build.mjs strips this block ----
+export { ATT, ATTS, ATT_DEFAULT, ATT_SLOTS, ATT_SLOT_NAME, MOUNTS, PLATE_W, VMK, VMP, applyAttachments, attOf, buildMedPouch, installPlate, saveAtt, updateDevices };
+// ---- end module exports ----

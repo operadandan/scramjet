@@ -1,3 +1,14 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { V3, clamp, damp, lerp, rnd, smooth } from './00-setup.js';
+import { mark, mat, shadowMat, tpBox, worldMeshes } from './01-world.js';
+import { Body, HUM_DEFAULT, attachSkin, mergeTree, vcMat } from './02-body-parts.js';
+import { MEDKIT_W, WEAPONS, isPistol } from './06-weapons.js';
+import { gunMatOf, gunVcMat, tpGun, tpGunGeo } from './08-hands.js';
+import { addStump, clipGroup } from './14-wounds.js';
+import { P, keys } from './17-dummies.js';
+import { frame } from './22-menu-loop.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- humanoid (animated, arms by IK)
 const _S = new V3(), _D = new V3(), _PP = new V3(), _E = new V3(), _U = new V3(), _F = new V3(), _H = new V3();
 const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _DOWN = new V3(0, -1, 0), _YAX = new V3(0, 1, 0);
@@ -236,3 +247,6 @@ class Humanoid {
   }
 }
 
+// ---- module exports: build.mjs strips this block ----
+export { CLUTCH_OK, Humanoid, hurtClutch, hurtLevel, reClutch, solveArm, updateBrace };
+// ---- end module exports ----

@@ -1,3 +1,24 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { V3, camera, clamp, rnd, scene } from './00-setup.js';
+import { canvasTex, colliders, worldMeshes } from './01-world.js';
+import { sph } from './02-body-parts.js';
+import { CH_GIB, chunkCenters, chunkCount, chunkRx, destroyChunks, headCrater } from './02b-chunks.js';
+import { ragdolls, syncLost } from './04-ragdoll.js';
+import { hitToFrame } from './05-anatomy.js';
+import { vbox } from './06-weapons.js';
+import { aMaster, audio, blip, noiseBuf, noiseHit } from './10-audio.js';
+import { killNotice } from './12-blood.js';
+import { spawnGore } from './12b-gore.js';
+import { blowSpatter, floorAt, holeify } from './14-wounds.js';
+import { addBurn } from './14b-soak.js';
+import { DESTR, DESTR_OF, SLOTS, _sh, dust, gridOpenW, settleWall, spawnDebris, wallGrid, wallMask } from './15-destruction.js';
+import { bullets, onBulletHit, spawnBullet } from './16-ballistics.js';
+import { P, S, dummies, localBody, mouse } from './17-dummies.js';
+import { PITCH_MIN, flashMsg, onSelfHurt, selectEmpty } from './18-player.js';
+import { net } from './19-network.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- explosives: M112 C4 (slot 3) and the M67 fragmentation grenade (slot 4)
 // Charges are rated in kilograms of TNT. Blast effects scale with Hopkinson's scaled distance Z = d / W^(1/3) (m / kg^1/3):
 // below about 0.5 a body comes apart, below about 1.1 the overpressure alone kills (lungs, brain), below about 2.2 it knocks a
@@ -794,3 +815,7 @@ function clearExplosives() {
   for (const o of NADES) scene.remove(o.g); NADES.length = 0; for (const o of SPOONS) scene.remove(o.g); SPOONS.length = 0;
   for (const f of BOOM_FX) scene.remove(f.o); BOOM_FX.length = 0; boomLight.intensity = 0;
 }
+
+// ---- module exports: build.mjs strips this block ----
+export { c4Mine, clearExplosives, makeC4, makeFrag, makeRemote, onExplosiveMsg, r3, r4x, ragMeshes, updateC4, updateExplosives, updateFrag };
+// ---- end module exports ----

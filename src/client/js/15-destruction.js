@@ -1,3 +1,19 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
+import { GFX, V3, clamp, renderer, rnd, scene } from './00-setup.js';
+import { canvasTex, colliders, mat } from './01-world.js';
+import { _Y, _a } from './04-ragdoll.js';
+import { isPistol, isShotgun } from './06-weapons.js';
+import { noiseHit } from './10-audio.js';
+import { PMAT, decalHelper, decals, fx, fxBox, irregular, particles, puff, puffTex, splatGeo } from './11-fx.js';
+import { bmat } from './12-blood.js';
+import { boneIn, goreDry, goreWet, nz } from './12b-gore.js';
+import { CAL, FABRIC_IN, HOLE_JAG, _hm, _sUp, boxExit, cutHole, dropSplat, exitThrough, groundSplat, holeTube, holeify, trimDecals } from './14-wounds.js';
+import { P } from './17-dummies.js';
+import { pointBlocked } from './18-player.js';
+import { frame } from './22-menu-loop.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- backpack: rounds tear straight through the fabric and carry on
 // a round stopped by the plate still tears the carrier: a ragged hole in the fabric with the plate showing through
 function markPlate(hit, dir, w) {
@@ -553,3 +569,6 @@ function updateFx(dt) {
   }
 }
 
+// ---- module exports: build.mjs strips this block ----
+export { DEB_POOLS, DESTR, DESTR_OF, SLOTS, _sh, debris, dust, gridOpenW, gridPass, holePass, markPlate, packHit, pick, ragHitInfo, settleWall, spawnDebris, updateDebris, updateFx, wallClipMat, wallDamage, wallGrid, wallMask, warmShaders };
+// ---- end module exports ----

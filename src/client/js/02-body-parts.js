@@ -1,3 +1,19 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { V3, camera, clamp, lerp, scene, smooth } from './00-setup.js';
+import { mat, shadowMat } from './01-world.js';
+import { HUMAN_CLOTH, HUMAN_GARMENTS, HUMAN_MESH, HUMAN_SEGS } from './02a-human-mesh.js';
+import { chunkShader, chunkUniforms, ensureBZ } from './02b-chunks.js';
+import { bakeColored, polyShape } from './07-gun-models.js';
+import { fx } from './11-fx.js';
+import { soakShader } from './14b-soak.js';
+import { pick } from './15-destruction.js';
+import { P, S } from './17-dummies.js';
+import { seg } from './19c-toolvm.js';
+import { frame } from './22-menu-loop.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- body parts (shared by humanoids and ragdolls)
 const geoCache = {};
 const GC = (k, make) => geoCache[k] || (geoCache[k] = make());
@@ -561,3 +577,6 @@ class Body {
   }
 }
 
+// ---- module exports: build.mjs strips this block ----
+export { Body, GC, HUM_DEFAULT, attachSkin, bodyKey, bodyPatches, mergeTree, plateGeo, sph, updateCloth, vcMat };
+// ---- end module exports ----

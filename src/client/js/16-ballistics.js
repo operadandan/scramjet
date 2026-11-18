@@ -1,3 +1,23 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { $, V3, camera, clamp, rnd, scene } from './00-setup.js';
+import { colliders, worldMeshes } from './01-world.js';
+import { CH_GIB, chunkCount, chunkRootOf, chunkShot, headCrater } from './02b-chunks.js';
+import { RAG_MASS, _Y, _a, ragdolls, setHelmet, syncLost } from './04-ragdoll.js';
+import { LIMB_OF, LSEG, hitToFrame, regionOf } from './05-anatomy.js';
+import { WEAPONS, canDismember, isPistol } from './06-weapons.js';
+import { copperMat } from './07-gun-models.js';
+import { blip, noiseHit, suppress } from './10-audio.js';
+import { bulletHole, fragScuff, impactFx, puffTex, tracer } from './11-fx.js';
+import { goreBlast, spawnGore } from './12b-gore.js';
+import { addWound, bloodFx, blowSpatter, bodyPen, bodyWound, exitThrough, holeInGroup, wallSpatter, worldPen } from './14-wounds.js';
+import { DESTR_OF, holePass, markPlate, packHit, ragHitInfo } from './15-destruction.js';
+import { P, S, dummies, localBody } from './17-dummies.js';
+import { pointBlocked } from './18-player.js';
+import { net } from './19-network.js';
+import { seg } from './19c-toolvm.js';
+import { frame } from './22-menu-loop.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- props: shells, mags, dropped guns
 const props = [];
 const brassMat = new THREE.MeshStandardMaterial({ color: 0xc9a040, metalness: 1, roughness: 0.28 });
@@ -317,3 +337,6 @@ function onBulletHit(b, hit, dir, dist) {
 }
 function showRange(t) { const e = $('range'); e.textContent = t; e.style.transition = 'none'; e.style.opacity = '1'; clearTimeout(showRange.t); showRange.t = setTimeout(() => { e.style.transition = 'opacity .6s'; e.style.opacity = '0'; }, 1300); }
 
+// ---- module exports: build.mjs strips this block ----
+export { addProp, bulletTargets, bullets, ejectShell, onBulletHit, props, removeBullet, spawnBullet, updateBullets, updateProps };
+// ---- end module exports ----

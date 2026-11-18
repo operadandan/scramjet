@@ -3,6 +3,12 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import { canvasTex } from './01-world.js';
+import { VMW } from './08-hands.js';
+import { fx } from './11-fx.js';
+import { P, S } from './17-dummies.js';
+// ---- end module links ----
 
 // TEMPORARY: flip to false to remove testing mode
 const ENABLE_TEST_MODE = true;
@@ -130,3 +136,6 @@ function renderScope() {
   for (const o of hid) o.visible = true;
 }
 
+// ---- module exports: build.mjs strips this block ----
+export { $, ENABLE_TEST_MODE, GFX, GFX_PRESETS, V3, angLerp, camera, clamp, damp, lerp, makeScopeLens, muzzleLight, ramp, renderScope, renderer, rnd, scene, smooth, sun, sunDir, vmCamera, vmMuzzleLight, vmScene, vmSun };
+// ---- end module exports ----

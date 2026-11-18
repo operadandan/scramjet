@@ -1,3 +1,10 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { V3, vmCamera } from './00-setup.js';
+import { GM, canvasTex, fineNoise, makeTex } from './01-world.js';
+import { seg } from './19c-toolvm.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- weapons data
 // vel m/s, drag per metre, disp = intrinsic dispersion (rad), zero = barrel tilt so the sight is zeroed (M4 100 m, G17 25 m)
 // index is the network id. vel m/s, mass kg, drag per metre, disp = intrinsic dispersion (rad), sightH = sight height over bore (m)
@@ -108,3 +115,7 @@ const camoTex = canvasTex((g, s) => {
 camoTex.repeat.set(2, 1.2);
 GM.sleeve = new THREE.MeshStandardMaterial({ map: camoTex, roughness: 0.95, bumpMap: fineNoise, bumpScale: 1 });
 GM.glove = new THREE.MeshStandardMaterial({ color: 0x2b2a25, roughness: 0.88, bumpMap: fineNoise, bumpScale: 0.9 });
+
+// ---- module exports: build.mjs strips this block ----
+export { MEDKIT_W, PRIMARIES, SECONDARIES, WEAPONS, addFlash, canDismember, flashMat, freshGuns, glassFront, glassRear, isPistol, isShotgun, pelletDirs, rail, reticleTex, rubber, vbox, vcyl, vm, vrbox };
+// ---- end module exports ----

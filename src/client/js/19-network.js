@@ -1,3 +1,21 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import { $, V3, clamp } from './00-setup.js';
+import { spawns } from './01-world.js';
+import { chunkReset } from './02b-chunks.js';
+import { hurtClutch } from './03-humanoid.js';
+import { setHelmet, spawnRagdoll } from './04-ragdoll.js';
+import { Anatomy, DEATH_TEXT } from './05-anatomy.js';
+import { MEDKIT_W, WEAPONS } from './06-weapons.js';
+import { VMW } from './08-hands.js';
+import { killNotice } from './12-blood.js';
+import { clearWounds } from './14-wounds.js';
+import { P, Remote, S, localBody, reactPack } from './17-dummies.js';
+import { esc, feed, localDeath, onSelfHurt, remoteShot, respawnLocal } from './18-player.js';
+import { onExplosiveMsg } from './19b-explosives.js';
+import { onPunched } from './19c-toolvm.js';
+import { removeItem, spawnItem } from './21-items-inventory.js';
+import { leave, scoreOf } from './22-menu-loop.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- transport (Durable Object websocket, or peer-to-peer WebRTC with the room creator as host)
 const net = {
   mode: null, ws: null, host: null, rel: null, unr: null, pcs: [], timers: [], code: '', hostId: '',
@@ -250,3 +268,6 @@ function netSend(dt) {
   }, true);
 }
 
+// ---- module exports: build.mjs strips this block ----
+export { api, joinPeer, net, netSend, onNet, startHosting };
+// ---- end module exports ----

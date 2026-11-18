@@ -1,3 +1,10 @@
+// ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
+import * as THREE from 'three';
+import { V3, clamp, rnd } from './00-setup.js';
+import { WEAPONS, canDismember, isPistol, isShotgun } from './06-weapons.js';
+import { S } from './17-dummies.js';
+import { frame } from './22-menu-loop.js';
+// ---- end module links ----
 // ---------------------------------------------------------------- anatomy: bones, joints, organs, arteries, blood
 // Structures live in the coordinate frame of a skeleton group. a/b = segment ends (b omitted for spheres), r = radius (m).
 // rate = bleed ml/s when severed/destroyed. Damage comes only from bullet velocity, mass and what the path passes through.
@@ -483,3 +490,6 @@ function makeLabel(text, color) {
   return s;
 }
 
+// ---- module exports: build.mjs strips this block ----
+export { Anatomy, DEATH_TEXT, LIMB_NAME, LIMB_OF, LSEG, PART_OF_REGION, REGION_NAME, STRUCTS_BY_FRAME, hitToFrame, makeBodyPanel, makeLabel, pathDist, regionOf };
+// ---- end module exports ----
