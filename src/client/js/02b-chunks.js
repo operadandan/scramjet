@@ -2,10 +2,10 @@
 import * as THREE from 'three';
 import { V3, clamp, rnd, scene } from './00-setup.js';
 import { HUMAN_SEGS } from './02a-human-mesh.js';
-import { RAG_LIMBS } from './04-ragdoll.js';
+import { RAG_LIMBS, _Y } from './04-ragdoll.js';
 import { brainSmears, goreThrow, spawnGore } from './12b-gore.js';
-import { bloodFx, copySegment, spawnDrop } from './14-wounds.js';
-import { soakClear, soakCopy, soakFrame, soakUniforms } from './14b-soak.js';
+import { bloodFx, copySegment, liquidBlood, spawnDrop } from './14-wounds.js';
+import { addSoak, soakClear, soakCopy, soakFrame, soakUniforms } from './14b-soak.js';
 import { P, S, localBody } from './17-dummies.js';
 import { net } from './19-network.js';
 import { seg } from './19c-toolvm.js';
@@ -158,6 +158,9 @@ function destroyChunks(root, pred, dir, skin) {
     if (typeof bloodFx === 'function') bloodFx(m, dir, true, Math.min(3, 1 + res.pts.length * 0.25));
     chunkOpen(root); if (typeof chunkNet === 'function') chunkNet(root);
     chunkIslands(root, dir);
+    if (res.t) { const W = []; for (const c of chunkCenters(root)) if (c.k === 'T' && st.T[c.i] > 0.5 && res.pts.some(p => p.distanceTo(c.p) < 0.01)) { const sp = c.y > 0.07;
+        W.push({ seg: sp ? 'spine' : 'hips', c: new V3(c.x, c.y, c.z), r: 0.06, off: sp ? -0.07 : 0, mid: new V3(0, c.y, -0.02) }); }
+      woundBlood(root, W.slice(0, 3), dir); }
   }
   return res;
 }
@@ -184,7 +187,13 @@ function chunkTubes(root) {
 // Blood lying on the body (the wet drops round a wound, the runs, the tear at a blast wound), stumps and bleeding points are
 // separate meshes the shader does not cut: when what they lay on is blown away they would hang in the air. They go with it,
 // and blood that was lying there falls as drops.
-const _clw = new V3();
+const _clw = new V3(), _clM = new THREE.Matrix4();
+function liqTrim(root, im) {
+  const L = im.userData.liqI, keep = [];
+  for (const e of L) { _clw.copy(e.p).applyMatrix4(im.matrixWorld); if (chunkGoneAt(root, _clw)) { if (typeof spawnDrop === 'function' && Math.random() < 0.3) spawnDrop(_clw, new V3(rnd(-0.2, 0.2), 0, rnd(-0.2, 0.2)), clamp(e.r * 0.5, 0.0015, 0.0045)); } else keep.push(e); }
+  if (keep.length === L.length) return;
+  keep.forEach((e, i) => im.setMatrixAt(i, _clM.compose(e.p, e.q, e.s))); im.count = keep.length; im.userData.liqI = keep; im.instanceMatrix.needsUpdate = true;
+}
 function chunkLoose(root) {
   const at = root.userData.chunkAt, st = root.userData.chunk; if (!at || !st || !st.any.value) return;
   root.updateMatrixWorld(true); const rg = root.userData.ragObj, seen = new Set(), gone = [];
@@ -192,6 +201,8 @@ function chunkLoose(root) {
     const A = at[seg]; if (!A || seen.has(A[0])) continue; seen.add(A[0]);
     A[0].traverse(o => {
       if (o === A[0] || o.userData.cavity || o.userData.chCap || o.userData.tube || o.userData.armor || o.userData.ci !== undefined) return;
+      // a patch of wet blood is many drops in one mesh: only the drops over what is gone go (each falls as a drop)
+      if (o.isInstancedMesh && o.userData.liqI) { liqTrim(root, o); return; }
       if (o.isMesh) { if (o.geometry.attributes.bz || !o.visible) return; if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere(); _clw.copy(o.geometry.boundingSphere.center).applyMatrix4(o.matrixWorld); }
       else if (!o.children.length && o.userData.keep) o.getWorldPosition(_clw);
       else return;
@@ -305,6 +316,7 @@ function headCrater(root, wp, r, dir, skin, quiet) {
   }
   craterSync(root); chunkOpen(root); if (typeof chunkNet === 'function') chunkNet(root);
   chunkIslands(root, dir);
+  { const h = H.find(x => x.c.distanceTo(c) < x.r + 0.01) || { c, r }; woundBlood(root, [{ seg: 'head', c: h.c.clone(), r: h.r, off: 0, mid: new V3(0, 0.08, -0.03) }], dir); }
   return { t: 0, h: 1 };
 }
 const CRATER_GEO = new THREE.IcosahedronGeometry(1, 3);
@@ -347,6 +359,33 @@ if (vQ.z < zl - 0.004 || vQ.z > zh + 0.004) discard;`)
   craterSync(root);
 }
 
+// ---------------------------------------------------------------- the wound itself: blood round a blown-out hole
+// Round the edge of a crater or a hole in the trunk the skin and hair are soaked dark, wet blood sits on the surface and runs,
+// and on a body that is down the hole keeps welling and pumping out in pulses for a while. No solid pieces.
+function woundBlood(root, pts, dir) {
+  const at = root.userData.chunkAt, st = root.userData.chunk; if (!at || !st) return;
+  root.updateMatrixWorld(true); const rg = root.userData.ragObj; let made = 0, anch = 0;
+  for (const P of pts) {
+    const A = at[P.seg]; if (!A) continue;
+    for (let k = 0; k < 20 && made < 8 * pts.length; k++) {
+      const u = new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize(), q = P.c.clone().addScaledVector(u, P.r + rnd(0.004, 0.014));
+      const lp = new V3(q.x, q.y + P.off + A[1], q.z), wp = A[0].localToWorld(lp.clone()); if (chunkGoneAt(root, wp)) continue;
+      const n = q.clone().sub(P.mid); if (P.seg !== 'head') n.y *= 0.3; n.normalize();
+      // the wet blood is laid on the skin out along that way (it finds the surface itself)
+      const sq = P.mid.clone().addScaledVector(n, P.seg === 'head' ? 0.09 : 0.14), sp = new V3(sq.x, sq.y + P.off + A[1], sq.z);
+      if (typeof liquidBlood === 'function' && !chunkGoneAt(root, A[0].localToWorld(sp.clone()))) liquidBlood(A[0], sp, n, rnd(0.03, 0.05), 14, made % 2 ? 1 : 2, 0);
+      // and the skin, hair and clothes round the hole are soaked dark at once
+      if (made % 2 === 0 && typeof addSoak === 'function') addSoak(root, P.seg, A[0], lp, P.seg === 'head' ? 0.12 : 0.17, 10);
+      // the hole keeps bleeding where the body lies: a pumping point on its edge
+      if (rg && anch < 3 && made % 2 === 0) { const a = new THREE.Object3D(); a.position.copy(lp); a.userData.cavity = true; A[0].add(a); rg.anchors.push({ m: a, n: n.clone(), spurt: rnd(6, 10) }); anch++; }
+      made++;
+    }
+    // a wet gush out of the hole as it opens
+    if (typeof spawnDrop === 'function') { const c = A[0].localToWorld(new V3(P.c.x, P.c.y + P.off + A[1], P.c.z));
+      for (let i = 0; i < 26; i++) spawnDrop(c, (dir || _Y).clone().multiplyScalar(rnd(0.3, 1.6)).add(new V3(rnd(-0.8, 0.8), rnd(-0.2, 1), rnd(-0.8, 0.8))), rnd(0.002, 0.0045)); }
+  }
+  if (rg && anch) { rg.bleedR += 25 * anch; rg.asleep = false; }
+}
 // ---------------------------------------------------------------- loose pieces
 // Whatever the damage leaves with nothing joining it to the rest of the body comes away as its own piece with its own
 // physics: a trunk cell (or a group of them) cut off from the rest, a strip of scalp or an eye left between two head craters,

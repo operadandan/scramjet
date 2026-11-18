@@ -422,6 +422,10 @@ class Ragdoll {
     const per = r * dt / this.anchors.length, w = new V3(), n = new V3();
     for (const a of this.anchors) {
       if (!a.m.parent) continue; a.m.getWorldPosition(w); n.copy(a.n).transformDirection(a.m.parent.matrixWorld);
+      // a blown-open wound pumps for a while: a gush with each beat, weaker and further apart as the pressure goes
+      if (a.spurt > 0) { a.spurt -= dt; a.beat = (a.beat || 0) - dt;
+        if (a.beat <= 0) { a.beat = rnd(0.55, 0.85) * (1 + (8 - Math.min(8, a.spurt)) * 0.08); const k = Math.min(1, a.spurt / 6);
+          for (let i = 0; i < Math.round(6 + 10 * k); i++) spawnDrop(w, n.clone().multiplyScalar(rnd(0.15, 0.6) * (0.4 + k)).add(new V3(rnd(-0.15, 0.15), rnd(0.1, 0.6), rnd(-0.15, 0.15))), rnd(0.002, 0.0045), 1, undefined, per * 2); } }
       const fy = floorAt(w.x, w.y, w.z);
       if (w.y - fy < 0.5) feedPool(w.x + n.x * 0.07, fy, w.z + n.z * 0.07, per);
       else { a.drip = (a.drip || 0) + dt * Math.min(6, 0.5 + r * 0.05); while (a.drip > 1) { a.drip--; spawnDrop(w, new V3(rnd(-0.05, 0.05), -0.1, rnd(-0.05, 0.05)), rnd(0.005, 0.008), 1, 0.6, per * 4); } }

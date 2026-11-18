@@ -81,13 +81,13 @@ function soakSync(root) {
   if (!was && (U.soakN.value || U.pepN.value || U.burn.value.w > 0)) root.traverse(o => { if (o.isMesh && o._skin && o.geometry.attributes.bz) o.material.needsUpdate = true; });
 }
 // a new soak at a wound: tgt is how far it spreads (m)
-function addSoak(root, frame, group, p, tgt) {
+function addSoak(root, frame, group, p, tgt, t0) {
   if (!root) return; chunkUniforms(root); const st = root.userData.chunk, f = soakFrame(root, frame, group, p); if (!f) return;
   const L = st.soaks = st.soaks || [];
   // a wound right next to one already soaking just makes that one spread further
   for (const s of L) if (s.w === f[0] && s.q.distanceTo(f[1]) < s.r * 0.6) { s.tgt = Math.min(0.2, Math.max(s.tgt, tgt) * 1.15); return; }
   if (L.length >= SOAK_N) { L.sort((a, b) => b.tgt - a.tgt); L.pop(); }
-  L.push({ w: f[0], q: f[1].clone(), c: f[1].clone(), r: 0.018, tgt, t: 0 });
+  L.push({ w: f[0], q: f[1].clone(), c: f[1].clone(), r: 0.018, tgt, t: t0 || 0 });   // t0: already that many seconds spread (a blown-open wound soaks at once)
   SOAK_ROOTS.add(root); soakSync(root);
 }
 function addPepper(root, frame, group, p) {
