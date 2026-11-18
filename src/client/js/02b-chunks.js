@@ -33,7 +33,7 @@ const CH_SEEDS = (() => {
 const CH_SEEDS_GLSL = k => 'const vec3 CS' + k + '[' + CH_N[k] + '] = vec3[' + CH_N[k] + '](' + CH_SEEDS[k].map(v => 'vec3(' + v.x.toFixed(4) + ',' + v.y.toFixed(4) + ',' + v.z.toFixed(4) + ')').join(',') + ');\n';
 // colours here are written as sRGB (what they look like on screen) and converted to the renderer's linear space
 const CHUNK_F = `
-uniform float chT[${CH_N.T}]; uniform float chH[${CH_N.H}]; uniform float chAny; varying vec4 vBZ;
+uniform float chT[${CH_N.T}]; uniform float chH[${CH_N.H}]; uniform float chAny; uniform vec4 hc[4]; uniform float hcN; varying vec4 vBZ;
 ${CH_SEEDS_GLSL('T')}${CH_SEEDS_GLSL('H')}
 vec3 chS(vec3 c) { return pow(c, vec3(2.2)); }
 float chHs(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
@@ -58,11 +58,21 @@ float chEdge(vec3 q, int i, float w) { int n = w < 1.5 ? ${CH_N.T} : ${CH_N.H}; 
 // the skin near the cut is meat; away from any cut it is not drawn at all (the cut faces close the body).
 const CHUNK_MAIN = `
 if (vBZ.w > 0.5 && vBZ.w < 2.5 && chAny > 0.5) {
-  vec3 q = vBZ.xyz, qj = q + chWarp(q);
-  int ci = chNear(qj, vBZ.w);
-  if (chGone(ci, vBZ.w) > 0.5) discard;
-  float dE = chEdge(qj, ci, vBZ.w);
   bool head = vBZ.w > 1.5;
+  vec3 q = vBZ.xyz;
+  float dE = 1.0;
+  if (head) {
+    // the head: one or more blown-out craters (spheres), each a single clean, solid wound; the rim torn a little
+    if (hcN < 0.5) { dE = 1.0; } else {
+      vec3 qh = q + (vec3(chN(q * 30.0), chN(q * 30.0 + 5.3), chN(q * 30.0 + 9.1)) - 0.5) * 0.014;
+      for (int i = 0; i < 4; i++) { if (float(i) >= hcN) break; float d = length(qh - hc[i].xyz) - hc[i].w; if (d < 0.0) discard; dE = min(dE, d); }
+    }
+  } else {
+    vec3 qj = q + chWarp(q);
+    int ci = chNear(qj, vBZ.w);
+    if (chGone(ci, vBZ.w) > 0.5) discard;
+    dE = chEdge(qj, ci, vBZ.w);
+  }
   float bn = chN(q * 60.0);
   vec3 blood = chS(mix(vec3(0.24, 0.03, 0.025), vec3(0.42, 0.06, 0.045), chN(q * 140.0)));
   vec3 meat = chS(mix(vec3(0.36, 0.06, 0.05), vec3(0.5, 0.1, 0.08), chN(q * 110.0)) * (0.85 + 0.25 * chN(q * vec3(320.0, 45.0, 320.0))));
@@ -72,7 +82,7 @@ if (vBZ.w > 0.5 && vBZ.w < 2.5 && chAny > 0.5) {
     if (dE < 0.03) {
       vec3 c = diffuseColor.rgb;
       c = mix(c, c * vec3(0.45, 0.16, 0.14), (1.0 - smoothstep(0.01, 0.03, dE)) * 0.8);
-      c = mix(c, blood, (1.0 - smoothstep(0.004, 0.014, dE)) * 0.7);
+      c = mix(c, blood, (1.0 - smoothstep(0.004, 0.016, dE)) * 0.75);
       if (${'SOLID'}) {
         c = mix(c, layer, smoothstep(0.008, 0.006, dE) * (1.0 - smoothstep(0.004, 0.003, dE)) * (head ? 0.9 : 0.7));
         c = mix(c, head ? blood : meat, smoothstep(0.004, 0.002, dE));
@@ -88,7 +98,8 @@ if (vBZ.w > 0.5 && vBZ.w < 2.5 && chAny > 0.5) {
 `;
 function chunkShader(sh, U, solid) {
   if (!U.chT) Object.assign(U, { chT: { value: new Float32Array(CH_N.T) }, chH: { value: new Float32Array(CH_N.H) }, chAny: { value: 0 } });   // a cut-off piece: no cells
-  sh.uniforms.chT = U.chT; sh.uniforms.chH = U.chH; sh.uniforms.chAny = U.chAny;
+  if (!U.hc) Object.assign(U, { hc: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) }, hcN: { value: 0 } });
+  sh.uniforms.chT = U.chT; sh.uniforms.chH = U.chH; sh.uniforms.chAny = U.chAny; sh.uniforms.hc = U.hc; sh.uniforms.hcN = U.hcN;
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 bz;\nvarying vec4 vBZ;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvBZ = bz;');
   sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + CHUNK_F).replace('#include <emissivemap_fragment>',
     CHUNK_MAIN.split('SOLID').join(solid ? 'true' : 'false') + '#include <emissivemap_fragment>');
@@ -96,7 +107,8 @@ function chunkShader(sh, U, solid) {
 function chunkUniforms(root) {
   const c = root.userData.chunk || (root.userData.chunk = { T: new Float32Array(CH_N.T), H: new Float32Array(CH_N.H), any: { value: 0 } });
   if (!c.sk) c.sk = soakUniforms();
-  return Object.assign({ chT: { value: c.T }, chH: { value: c.H }, chAny: c.any }, c.sk);
+  if (!c.hcU) { c.hcU = { hc: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) }, hcN: { value: 0 } }; c.HC = []; }
+  return Object.assign({ chT: { value: c.T }, chH: { value: c.H }, chAny: c.any }, c.sk, c.hcU);
 }
 // which cell a body-frame point is in
 function chunkCell(k, q) { let bi = 0, bd = 1e9; const S = CH_SEEDS[k]; for (let i = 0; i < S.length; i++) { const d = S[i].distanceToSquared(q); if (d < bd) { bd = d; bi = i; } } return bi; }
@@ -104,7 +116,7 @@ function chunkCell(k, q) { let bi = 0, bd = 1e9; const S = CH_SEEDS[k]; for (let
 function chunkCenters(root) {
   const at = root.userData.chunkAt; if (!at) return [];
   const out = [];
-  for (const k of ['T', 'H']) CH_SEEDS[k].forEach((s, i) => {
+  for (const k of ['T']) CH_SEEDS[k].forEach((s, i) => {
     const seg = k === 'H' ? 'head' : s.y > 0.07 ? 'spine' : 'hips'; const A = at[seg]; if (!A) return;
     for (let q = A[0]; q; q = q.parent) if (!q.visible) return;
     const off = seg === 'spine' ? -0.07 : 0;
@@ -138,7 +150,7 @@ function destroyChunks(root, pred, dir, skin) {
 function chunkOpen(root) {
   const st = root.userData.chunk; st.any.value = 1;
   if (!st.open) { st.open = true; root.traverse(o => { if (o.isMesh && o._skin && o.geometry.attributes.bz) { o.material.side = THREE.DoubleSide; o.material.needsUpdate = true; } }); }
-  chunkPrepInside(root); chunkTubes(root); chunkCaps(root); for (const c of root.userData.chunk.caps || []) c.visible = true;
+  chunkPrepInside(root); chunkTubes(root); chunkCaps(root); chunkCraters(root); for (const c of root.userData.chunk.caps || []) c.visible = true; craterSync(root);
 }
 // a wound channel (the walled tube along a bullet's track) running through a cell that is now gone would stand in open air:
 // it goes with the cell
@@ -189,12 +201,12 @@ function chunkPrepInside(root) {
 }
 function chunkCopy(from, to) {
   const a = from && from.userData.chunk, b = to && to.userData.chunk; if (!a || !b) return;
-  b.T.set(a.T); b.H.set(a.H); if (a.any.value) chunkOpen(to);
+  b.T.set(a.T); b.H.set(a.H); chunkUniforms(to); b.HC = (a.HC || []).map(h => ({ c: h.c.clone(), r: h.r })); craterSync(to); if (a.any.value) chunkOpen(to);
   soakCopy(from, to);
 }
 function chunkReset(root) {
   const st = root && root.userData.chunk; if (!st) return; const was = st.open;
-  st.T.fill(0); st.H.fill(0); st.any.value = 0; st.open = false; soakClear(root);
+  st.T.fill(0); st.H.fill(0); st.any.value = 0; st.open = false; soakClear(root); st.HC = []; if (st.hcU) st.hcU.hcN.value = 0;
   for (const c of st.caps || []) c.visible = false;
   root.traverse(o => { if (o.isMesh && o.userData.chVis0 !== undefined) { o.visible = o.userData.chVis0; delete o.userData.chVis0; } });
   if (was) root.traverse(o => { if (o.isMesh && o._skin && o.geometry.attributes.bz) { o.material.side = o.geometry.attributes.fab ? THREE.DoubleSide : THREE.FrontSide; o.material.needsUpdate = true; } });
@@ -206,10 +218,10 @@ function segDist(p, a, b) { const ab = b.clone().sub(a), t = clamp(p.clone().sub
 function chunkShot(root, p, dir, frame, skin) {
   if (!root) return { t: 0, h: 0 };
   if (frame === 'head') {
-    const a = p.clone().addScaledVector(dir, -0.02), b = p.clone().addScaledVector(dir, 0.24), ex = p.clone().addScaledVector(dir, 0.19);
-    const cs = chunkCenters(root).filter(c => c.k === 'H'), hit = new Set(cs.filter(c => segDist(c.p, a, b) < 0.05 || c.p.distanceTo(ex) < 0.075).map(c => c.i));
-    if (hit.size) { const up = cs.filter(c => !hit.has(c.i) && c.y > 0.05).sort(() => Math.random() - 0.5); for (const c of up.slice(0, 2 + Math.floor(Math.random() * 3))) hit.add(c.i); }
-    return destroyChunks(root, c => c.k === 'H' && hit.has(c.i), dir, skin);
+    // a .50 through the head: a small entry and a big blown-out exit, the cavity between them
+    const ex = p.clone().addScaledVector(dir, 0.13);
+    headCrater(root, p.clone().addScaledVector(dir, 0.015), 0.03, dir, skin, true);
+    return headCrater(root, ex, rnd(0.07, 0.085), dir, skin);
   }
   if (frame === 'spine' || frame === 'hips') {
     const ex = p.clone().addScaledVector(dir, 0.22); let best = null, bd = 0.13;
@@ -220,7 +232,75 @@ function chunkShot(root, p, dir, frame, skin) {
   }
   return { t: 0, h: 0 };
 }
-const chunkCount = (root, k) => { const st = root && root.userData.chunk; if (!st) return 0; let n = 0; for (const v of st[k]) n += v > 0.5 ? 1 : 0; return n; };
+const chunkCount = (root, k) => { const st = root && root.userData.chunk; if (!st) return 0; if (k === 'H') return headGone(root) ? CH_GIB : (st.HC || []).length; let n = 0; for (const v of st[k]) n += v > 0.5 ? 1 : 0; return n; };
+// ---------------------------------------------------------------- head craters
+// A head is too small for cells: chunks of it read as random shards. What a big round does to a head is blow out one part of
+// it, so the head carries up to four craters (body-frame centre and radius). Inside a crater everything (skin, hair, skull,
+// brain, eyes) is gone; the crater's wall is drawn as a solid cavity (scalp, skull, then brain), so the hole is one clean wound.
+function craterSync(root) {
+  const st = root.userData.chunk; if (!st || !st.hcU) return; const H = st.HC || [];
+  H.forEach((h, i) => st.hcU.hc.value[i].set(h.c.x, h.c.y, h.c.z, h.r)); st.hcU.hcN.value = H.length;
+  for (const m of st.craters || []) { const i = m.userData.ci, h = H[i]; m.visible = !!h; if (h) { m.position.copy(h.c); m.scale.setScalar(h.r); m.material.userData.cC.value.set(h.c.x, h.c.y, h.c.z, h.r); } }
+}
+const headGone = root => { const H = (root && root.userData.chunk && root.userData.chunk.HC) || []; let s = 0, m = 0; for (const h of H) { s += h.r; m = Math.max(m, h.r); } return s >= 0.16 || m >= 0.095; };
+// a crater at the world point wp, radius r. Returns { t: 0, h: 1 } like destroyChunks when it took something
+function headCrater(root, wp, r, dir, skin, quiet) {
+  if (!root) return { t: 0, h: 0 }; chunkUniforms(root); const at = root.userData.chunkAt; if (!at || !at.head) return { t: 0, h: 0 };
+  const g = at.head[0]; for (let q = g; q; q = q.parent) if (!q.visible) return { t: 0, h: 0 };
+  const f = soakFrame(root, 'head', g, g.worldToLocal(wp.clone())); if (!f) return { t: 0, h: 0 };
+  const c = f[1]; c.x = clamp(c.x, -0.09, 0.09); c.y = clamp(c.y, -0.07, 0.17); c.z = clamp(c.z, -0.15, 0.06);
+  const st = root.userData.chunk, H = st.HC = st.HC || [];
+  let hit = H.find(h => h.c.distanceTo(c) < Math.max(h.r, r) * 0.7);
+  if (hit) { hit.r = Math.min(0.11, Math.max(hit.r, r) * 1.12); hit.c.lerp(c, 0.3); }
+  else { if (H.length >= 4) { H.sort((a, b) => b.r - a.r); H.pop(); } H.push({ c: c.clone(), r }); }
+  if (!quiet && typeof spawnGore === 'function') {
+    const k = r / 0.07;
+    spawnGore(wp, dir, 'skull', Math.round(4 * k), 4, 0.5, 0.03, skin); spawnGore(wp, dir, 'brain', Math.round(4 * k), 3.5, 0.5, 0.026, skin);
+    spawnGore(wp, dir, 'flesh', Math.round(5 * k), 4, 0.55, 0.022, skin); spawnGore(wp, dir, 'bone', Math.round(2 * k), 4.5, 0.55, 0.012, skin);
+    if (typeof bloodFx === 'function') bloodFx(wp, dir, true, 1 + k);
+    if (typeof brainSmears === 'function') brainSmears(wp, dir, 2 + Math.floor(k * 2));
+  }
+  craterSync(root); chunkOpen(root); if (typeof chunkNet === 'function') chunkNet(root);
+  return { t: 0, h: 1 };
+}
+const CRATER_GEO = new THREE.IcosahedronGeometry(1, 3);
+function chunkCraters(root) {
+  const at = root.userData.chunkAt, st = root.userData.chunk; if (!at || !at.head || st.craters) return; st.craters = [];
+  const A = at.head, H = CAP_HF[2], tex = st.hf2 || (st.hf2 = capDepthMap(root, 2)), U = chunkUniforms(root);
+  const box = new THREE.Group(); box.position.y = A[1]; box.userData.keep = true; A[0].add(box);
+  for (let i = 0; i < 4; i++) {
+    const m = new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0, side: THREE.BackSide });
+    const CU = { hf: { value: tex }, hfR: { value: new THREE.Vector4(H.X0, H.X1, H.Y0, H.Y1) }, hfZ: { value: new THREE.Vector2(H.Z0, H.Z1) }, cC: { value: new THREE.Vector4() }, cI: { value: i } };
+    m.userData.cC = CU.cC;
+    m.onBeforeCompile = sh => {
+      Object.assign(sh.uniforms, CU); sh.uniforms.hc = U.hc; sh.uniforms.hcN = U.hcN; sh.uniforms.chT = U.chT; sh.uniforms.chH = U.chH; sh.uniforms.chAny = U.chAny;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform vec4 cC;\nvarying vec3 vQ;\nvarying vec3 vWN;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvQ = position * cC.w + cC.xyz; vWN = normalize(mat3(modelMatrix) * -normal);');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + CHUNK_F + 'uniform sampler2D hf;\nuniform vec4 hfR;\nuniform vec2 hfZ;\nuniform vec4 cC;\nuniform float cI;\nvarying vec3 vQ;\nvarying vec3 vWN;\n')
+        .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+for (int j = 0; j < 4; j++) { if (float(j) >= hcN) break; if (abs(float(j) - cI) < 0.5) continue; if (length(vQ - hc[j].xyz) < hc[j].w) discard; }
+vec4 hft = texture2D(hf, vec2((vQ.x - hfR.x) / (hfR.y - hfR.x), (vQ.y - hfR.z) / (hfR.w - hfR.z)));
+if (hft.b < 0.6) discard;
+float zl = mix(hfZ.x, hfZ.y, hft.r), zh = mix(hfZ.x, hfZ.y, hft.g);
+if (vQ.z < zl - 0.004 || vQ.z > zh + 0.004) discard;`)
+        .replace('#include <color_fragment>', `#include <color_fragment>
+{ vec3 q = vQ; float d = min(min(q.z - zl, zh - q.z), (hft.b - 0.6) * 0.09) + (chN(q * 18.0) - 0.5) * 0.006;
+  vec3 blood = chS(mix(vec3(0.22, 0.025, 0.02), vec3(0.38, 0.05, 0.04), chN(q * 120.0)));
+  vec3 bone = mix(chS(vec3(0.66, 0.56, 0.47)), blood, chN(q * 70.0) * 0.5);
+  float fold = smoothstep(0.35, 0.65, chN(q * vec3(90.0, 60.0, 90.0) + chN(q * 25.0) * 2.0));
+  vec3 brain = mix(chS(mix(vec3(0.5, 0.33, 0.32), vec3(0.34, 0.17, 0.17), fold)), blood, smoothstep(0.3, 0.7, chN(q * 20.0)) * 0.8);
+  vec3 c = d < 0.004 ? chS(vec3(0.33, 0.07, 0.06)) : d < 0.012 ? bone : brain;
+  if (q.y < -0.03 && d >= 0.012) c = chS(mix(vec3(0.34, 0.06, 0.05), vec3(0.48, 0.1, 0.08), chN(q * 90.0)));
+  c = mix(c, blood * 0.8, smoothstep(0.2, 0.9, vWN.y) * 0.6);
+  diffuseColor.rgb = c; }`);
+    };
+    m.customProgramCacheKey = () => 'crater';
+    const mesh = new THREE.Mesh(CRATER_GEO, m); mesh.userData.ci = i; mesh.userData.keep = true; mesh.userData.chCap = true; mesh.visible = false; mesh.frustumCulled = false; mesh.receiveShadow = true;
+    box.add(mesh); st.craters.push(mesh);
+  }
+  craterSync(root);
+}
+
 
 // online: what is gone from a player's body is the same for everyone. Whoever works it out sends the body's whole set; the
 // rest take it (sets only ever grow, so the order messages arrive in does not matter)
@@ -234,15 +314,16 @@ function chunkOwner(root) {
 function chunkNet(root) {
   if (CHUNK_RX) return; const id = chunkOwner(root); if (id == null) return;
   const st = root.userData.chunk, T = [], H = [];
-  st.T.forEach((v, i) => { if (v > 0.5) T.push(i); }); st.H.forEach((v, i) => { if (v > 0.5) H.push(i); });
-  net.send({ t: 'x', a: 'chk', i: 0, p: [0, 0, 0], tg: id, T, H });
+  st.T.forEach((v, i) => { if (v > 0.5) T.push(i); });
+  const C = []; for (const h of st.HC || []) C.push(+h.c.x.toFixed(3), +h.c.y.toFixed(3), +h.c.z.toFixed(3), +h.r.toFixed(3));
+  net.send({ t: 'x', a: 'chk', i: 0, p: [0, 0, 0], tg: id, T, H, C });
 }
 function chunkRx(m) {
   const roots = m.tg === S.myId ? [localBody.root, P.rag && P.rag.group] : (() => { const r = S.remotes.get(m.tg); return r ? [r.hum.root, r.rag && r.rag.group, r.deadRag && r.deadRag.group] : []; })();
   for (const root of roots) {
     const st = root && root.userData.chunk; if (!st) continue; let n = 0;
     for (const i of m.T || []) if (i >= 0 && i < CH_N.T && !(st.T[i] > 0.5)) { st.T[i] = 1; n++; }
-    for (const i of m.H || []) if (i >= 0 && i < CH_N.H && !(st.H[i] > 0.5)) { st.H[i] = 1; n++; }
+    if (Array.isArray(m.C)) { chunkUniforms(root); const Hc = st.HC = st.HC || []; for (let k = 0; k + 3 < m.C.length && k < 16; k += 4) { const c = new V3(+m.C[k], +m.C[k + 1], +m.C[k + 2]), r = clamp(+m.C[k + 3] || 0, 0, 0.11); if (!(r > 0) || Hc.some(h => h.c.distanceTo(c) < 0.005 && Math.abs(h.r - r) < 0.003)) continue; if (Hc.length >= 4) Hc.shift(); Hc.push({ c, r }); n++; } if (n) craterSync(root); }
     if (n) { CHUNK_RX = true; try { chunkOpen(root); } finally { CHUNK_RX = false; } }
   }
 }
@@ -370,7 +451,7 @@ const _capGeo = {};
 function chunkCaps(root) {
   const at = root.userData.chunkAt, st = root.userData.chunk; if (!at || !st || st.caps) return; st.caps = [];
   const U = chunkUniforms(root);
-  for (const [seg, k, ya, yb, off] of [['hips', 'T', -1, 0.07, 0], ['spine', 'T', 0.07, 1, -0.07], ['head', 'H', -1, 1, 0]]) {
+  for (const [seg, k, ya, yb, off] of [['hips', 'T', -1, 0.07, 0], ['spine', 'T', 0.07, 1, -0.07]]) {
     const A = at[seg]; if (!A) continue;
     const w = k === 'T' ? 1 : 2, H = CAP_HF[w];
     const tex = st['hf' + w] || (st['hf' + w] = capDepthMap(root, w));

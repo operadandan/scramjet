@@ -75,7 +75,7 @@ class HostRoom {
       }
       case 'idrop': { const s = JSON.stringify(m); if (p.ready && s.length < 600 && m.it && typeof m.it === 'object') this.broadcast({ t: 'idrop', it: m.it, p: m.p, v: m.v }, p); break; }
       case 'itake': if (p.ready) this.broadcast({ t: 'itake', iid: Number(m.iid) || 0 }, p); break;
-      case 'x': if (p.ready && JSON.stringify(m).length < 600 && ['c4p', 'c4t', 'nade', 'boom', 'chk'].includes(m.a)) this.broadcast({ t: 'x', id: p.id, a: m.a, k: m.k, i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: m.f, w: m.w, c: m.c, tg: m.tg, tp: m.tp, lp: m.lp, lq: m.lq, ob: m.ob, T: m.T, H: m.H }, p); break;
+      case 'x': if (p.ready && JSON.stringify(m).length < 600 && ['c4p', 'c4t', 'nade', 'boom', 'chk'].includes(m.a)) this.broadcast({ t: 'x', id: p.id, a: m.a, k: m.k, i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: m.f, w: m.w, c: m.c, tg: m.tg, tp: m.tp, lp: m.lp, lq: m.lq, ob: m.ob, T: m.T, C: m.C, H: m.H }, p); break;
       case 'punch': { const tgt = this.players.get(m.id); if (p.ready && p.alive && tgt && tgt !== p && tgt.alive) this.send(tgt, { t: 'punched', by: p.id, f: String(m.f || '').slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)) }); break; }
       case 'hit': this.hit(p, m); break;
       case 'died': this.died(p, m); break;

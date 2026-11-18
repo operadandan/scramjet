@@ -346,6 +346,10 @@ function blastChunks(root, p, cW, kind, an, dir, skin) {
     if (ok && contact && Math.random() < 0.25) ok = false;
     return ok;
   }, dir, skin);
+  // the head: one crater on the side facing the charge, as big as the blast is close
+  { const at = root.userData.chunkAt, hg = at && at.head && at.head[0];
+    if (hg) { const hp = hg.localToWorld(new V3(0, 0.1, -0.02)), dh = hp.distanceTo(p);
+      if (dh < R * 1.6) { const r = clamp((R * 1.6 - dh) * 0.5 + 0.05, 0.05, 0.11), at2 = hp.clone().addScaledVector(p.clone().sub(hp).normalize(), 0.06); const hr = headCrater(root, at2, r, dir, skin); ch.h += hr.h; } } }
   if (an && ch.t + ch.h) {
     if (ch.h) an.wounds.push({ region: 'head', name: 'Head blown apart', rate: 150, treated: false, artery: 1 });
     if (ch.t) an.wounds.push({ region: 'chest', name: 'Torso blown open', rate: 150, treated: false, artery: 1 });

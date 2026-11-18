@@ -189,8 +189,8 @@ function blastVisual(shot, hit, dir, info, key, hum) {
     spawnGore(c, dir, 'flesh', 6, 3, 0.5, 0.018); spawnGore(c, dir, 'bone', 3, 3.5, 0.5, 0.012); spawnGore(c, dir, 'skull', 4, 3.5, 0.5, 0.03, skin); spawnGore(c, dir, 'brain', 3, 3, 0.5, 0.024);
     if (root && !shot.frag) {
       // the load tears out every head cell round where it struck, more the tighter it hit
-      const R = 0.07 + clamp(0.1 - sp, 0, 0.1) * 0.6, ex = c.clone().addScaledVector(dir, 0.08);
-      const ch = destroyChunks(root, q => q.k === 'H' && (q.p.distanceTo(c) < R || q.p.distanceTo(ex) < R * 0.9), dir, skin);
+      // one blown-out crater where the load went in, bigger the tighter it hit
+      const ch = headCrater(root, c.clone().addScaledVector(dir, 0.03), clamp(0.045 + (0.1 - sp) * 0.35, 0.045, 0.08), dir, skin, true);
       if (ch.h) { if (hum) hum._skullOpen = true; if (key && key.gibHead && chunkCount(root, 'H') >= CH_GIB && key.headG.visible) key.gibHead(dir); }
     }
   }
@@ -249,7 +249,8 @@ function onBulletHit(b, hit, dir, dist) {
       else rag.cutFibers(hit.point, b.w === 2 ? 99 : b.shot ? 2 : 1);
       if (b.w === 2) cont = null;
     }
-    else if (b.w === 2 && info.frame === 'head' && rag.headG.visible) { chunkShot(rag.group, hit.point, dir, 'head', rag.skin); cont = null; if (chunkCount(rag.group, 'H') >= CH_GIB) rag.gibHead(dir); }
+    // (the same round carrying on into the ragdoll that body has just become does not blow the head out a second time)
+    else if (b.w === 2 && info.frame === 'head' && rag.headG.visible && !(b.headDone && b.headDone === ((own.dummy || own.nd || {}).hum))) { chunkShot(rag.group, hit.point, dir, 'head', rag.skin); cont = null; if (chunkCount(rag.group, 'H') >= CH_GIB) rag.gibHead(dir); }
     else if (b.w === 2 && (info.frame === 'spine' || info.frame === 'hips')) chunkShot(rag.group, hit.point, dir, info.frame, rag.skin);
     else if (cont && (info.frame === 'head' || info.frame === 'neck')) wallSpatter(cont.point, dir, rnd(0.55, 0.8), true);
     let ni = 1, nd = 1e9; for (let i = 0; i < 16; i++) { const dd = rag.p[i].distanceToSquared(hit.point); if (dd < nd) { nd = dd; ni = i; } }
@@ -290,7 +291,7 @@ function onBulletHit(b, hit, dir, dist) {
       if (ud.hum.flinch && ud.hum.root.visible) ud.hum.flinch(info.frame, info.d, clamp(Eh / 1700, 0.3, 2.2) * (b.shot ? 0.45 : 1));
       if (b.shot) blastVisual(b.shot, hit, dir, info, ud.hum, ud.hum);
       if (b.w === 2 && !b.shot && b.local) erode(ud.hum, hit.object.parent, info.frame, hit.object.parent.worldToLocal(hit.point.clone()), 0.045, info, dir);
-      if (b.w === 2 && !b.shot) { const cr = chunkShot(ud.hum.root, hit.point, dir, info.frame, ud.hum.pal && ud.hum.pal.skin); if (cr && cr.h) ud.hum._skullOpen = true; }
+      if (b.w === 2 && !b.shot) { const cr = chunkShot(ud.hum.root, hit.point, dir, info.frame, ud.hum.pal && ud.hum.pal.skin); if (cr && cr.h) { ud.hum._skullOpen = true; b.headDone = ud.hum; } }
     }
     if (!b.local) return cont;
     if (ud.hum.remote) net.send({ t: 'hit', id: ud.hum.remote.id, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
