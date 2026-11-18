@@ -570,5 +570,5 @@ function updateFx(dt) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { DEB_POOLS, DESTR, DESTR_OF, SLOTS, _sh, debris, dust, gridOpenW, gridPass, holePass, markPlate, packHit, pick, ragHitInfo, settleWall, spawnDebris, updateDebris, updateFx, wallClipMat, wallDamage, wallGrid, wallMask, warmShaders };
+export { DEB_POOLS, DESTR, DESTR_OF, REBAR_GEO, REBAR_MAT, SLOTS, _sh, cutSlot, debris, dust, edgeClipMat, gridOpenW, gridPass, holePass, markPlate, packHit, pick, ragHitInfo, settleWall, spawnDebris, updateDebris, updateFx, wallClipMat, wallDamage, wallGrid, wallMask, warmShaders };
 // ---- end module exports ----

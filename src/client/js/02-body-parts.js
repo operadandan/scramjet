@@ -331,9 +331,22 @@ const TORSO_PTS = [[0.0, 0.0], [0.145, 0.0], [0.15, 0.06], [0.148, 0.14], [0.158
 const PELVIS_PTS = [[0.0, -0.13], [0.09, -0.125], [0.15, -0.08], [0.165, -0.02], [0.158, 0.05], [0.148, 0.1], [0.0, 0.1]];
 // merge each skeleton segment's meshes into one vertex-coloured mesh (one draw call per bone instead of dozens)
 const vcMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
+const MERGE_CACHE = new Map();   // merged body geometry by what it was made of (oldest dropped past 160)
 function mergeChildren(group, matl, pick) {
   const parts = group.children.filter(pick || (c => c.isMesh && !c.isInstancedMesh && !c.userData.armor && !c.userData.keep && !c.userData.organ && !c.userData.inner && !c.userData.under && !c.userData.tex));
   if (parts.length < 2) return parts[0] || null;
+  // the same parts in the same places merge to the same geometry (every ragdoll of the same body, every respawn): it is
+  // built once and shared, which was most of the time it took a body to go down. Nothing changes a merged geometry later.
+  let key = matl.uuid;
+  for (const m of parts) { m.updateMatrix(); const e = m.matrix.elements; key += '|' + m.geometry.uuid + ':' + (m.material.color ? m.material.color.getHex() : '-'); for (let i = 0; i < 16; i++) key += ',' + Math.round(e[i] * 1e5); }
+  const hit = MERGE_CACHE.get(key);
+  if (hit) {
+    let frame = null, hum = null; for (const m of parts) { if (m.userData.frame) { frame = m.userData.frame; hum = m.userData.hum; } group.remove(m); }
+    MERGE_CACHE.delete(key); MERGE_CACHE.set(key, hit);
+    const merged = new THREE.Mesh(hit, matl); merged.castShadow = true; merged.receiveShadow = matl !== shadowMat;
+    if (frame) { merged.userData.frame = frame; merged.userData.hum = hum; }
+    group.add(merged); return merged;
+  }
   const geos = []; let frame = null, hum = null;
   for (const m of parts) {
     m.updateMatrix();
@@ -360,7 +373,9 @@ function mergeChildren(group, matl, pick) {
   }
   if (geos.some(g => g.attributes.nw)) for (const g of geos) if (!g.attributes.nw) { const n = g.attributes.position.count; g.setAttribute('p2', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('p3', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('nb', new THREE.BufferAttribute(new Float32Array(n * 2), 2)); g.setAttribute('nw', new THREE.BufferAttribute(new Float32Array(n * 2), 2)); }
   if (geos.some(g => g.attributes.fab)) for (const g of geos) if (!g.attributes.fab) { const n = g.attributes.position.count; g.setAttribute('hc', new THREE.BufferAttribute(new Float32Array(n).fill(1), 1)); g.setAttribute('fab', new THREE.BufferAttribute(new Float32Array(n), 1)); for (const k of ['ck', 'cr', 'ca']) g.setAttribute(k, new THREE.BufferAttribute(new Float32Array(n), 1)); }
-  const merged = new THREE.Mesh(mergeGeometries(geos), matl);
+  const mg = mergeGeometries(geos); for (const g of geos) g.dispose();
+  mg.userData.shared = true; MERGE_CACHE.set(key, mg); if (MERGE_CACHE.size > 160) MERGE_CACHE.delete(MERGE_CACHE.keys().next().value);
+  const merged = new THREE.Mesh(mg, matl);
   merged.castShadow = true; merged.receiveShadow = matl !== shadowMat;
   if (frame) { merged.userData.frame = frame; merged.userData.hum = hum; }
   group.add(merged);

@@ -20,6 +20,7 @@ import { api, joinPeer, net, netSend, onNet, startHosting } from './19-network.j
 import { clearExplosives, updateExplosives } from './19b-explosives.js';
 import { setPixelation, updateCamera, updateHUD, updateViewmodel } from './20-camera-hud-input.js';
 import { clearItems, hlMesh, openAttMenu, updateInv, updatePickup, updateToolbar } from './21-items-inventory.js';
+import { warmFx } from './22b-warm.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- scoreboard
 S.score = {};
@@ -59,6 +60,8 @@ function enterGame(mode) {
   $('pauseinfo').innerHTML = mode === 'online' ? 'Room code: <b style="color:#fff;letter-spacing:3px">' + S.room + '</b><br>Share it so friends can join.' : 'Testing mode';
   renderer.domElement.requestPointerLock();
   audio();
+  // every effect's shader built now, in the background, rather than the first time it happens (see 22b-warm.js)
+  setTimeout(() => warmFx(), 200);
 }
 async function startOnline(code, create) {
   $('err').textContent = 'Checking server...';

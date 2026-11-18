@@ -3,12 +3,27 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import { canvasTex } from './01-world.js';
 import { VMW } from './08-hands.js';
 import { fx } from './11-fx.js';
 import { P, S } from './17-dummies.js';
 // ---- end module links ----
+// Raycasts against big meshes (bodies, walls, floors) go through a bounds tree, built the first time each geometry is hit:
+// a shot, a wound track, a blood drop or a grenade fragment tests a handful of triangles instead of every one. The tree is
+// kept beside the geometry (indirect), so the geometry itself, its index and its triangle order are left exactly as they were.
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree; THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+{ const slow = THREE.Mesh.prototype.raycast;
+  THREE.Mesh.prototype.raycast = function (rc, hits) {
+    const g = this.geometry;
+    if (!g.boundsTree && !g.userData.noBVH && !this.isSkinnedMesh && !this.isInstancedMesh && g.attributes.position && !g.morphAttributes.position && (g.index ? g.index.count : g.attributes.position.count) > 450)
+      try { g.computeBoundsTree({ indirect: true }); } catch (e) { g.userData.noBVH = true; }
+    return g.boundsTree ? acceleratedRaycast.call(this, rc, hits) : slow.call(this, rc, hits);
+  };
+  // a geometry thrown away takes its tree with it
+  const dsp = THREE.BufferGeometry.prototype.dispose; THREE.BufferGeometry.prototype.dispose = function () { this.boundsTree = null; return dsp.call(this); };
+}
 
 // TEMPORARY: flip to false to remove testing mode
 const ENABLE_TEST_MODE = true;
@@ -35,6 +50,8 @@ const GFX_PRESETS = {
 const GFX = Object.assign({ preset: 'high', fov: 75, sens: 1 }, GFX_PRESETS.high);
 try { Object.assign(GFX, JSON.parse(localStorage.getItem('breach_gfx') || '{}')); } catch (e) {}
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+// a shader is not checked for errors when it is first used: that check made the renderer wait for the GPU to finish compiling it
+renderer.debug.checkShaderErrors = false;
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -137,5 +154,5 @@ function renderScope() {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { $, ENABLE_TEST_MODE, GFX, GFX_PRESETS, V3, angLerp, camera, clamp, damp, lerp, makeScopeLens, muzzleLight, ramp, renderScope, renderer, rnd, scene, smooth, sun, sunDir, vmCamera, vmMuzzleLight, vmScene, vmSun };
+export { $, ENABLE_TEST_MODE, GFX, GFX_PRESETS, V3, angLerp, camera, clamp, damp, lerp, makeScopeLens, muzzleLight, ramp, renderScope, renderer, rnd, scene, scopeRT, smooth, sun, sunDir, vmCamera, vmMuzzleLight, vmScene, vmSun };
 // ---- end module exports ----

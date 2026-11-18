@@ -548,6 +548,27 @@ const LIQ_MAT = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3
 const LIQ_COL = [0x7a0f0c, 0x6a0c0a, 0x5a0a08, 0x8a1410].map(c => new THREE.Color(c));
 const _lray = new THREE.Raycaster(), _lqL = new THREE.Quaternion(), _lqG = new THREE.Quaternion();
 const _lqM = new THREE.Matrix4();
+// liqPrime(group, worldCentre, radius): gather the triangles of group within radius of the centre once, for the patches of
+// wet blood about to be laid round one wound; liqPrime(null) when done
+const LIQ_CACHE = { g: null, c: new V3(), R: 0, tris: [], tm: [] };
+function liqPrime(group, c, R) {
+  LIQ_CACHE.g = null; LIQ_CACHE.tris = []; LIQ_CACHE.tm = []; if (!group) return;
+  group.updateMatrixWorld(true); const croot = chunkRootOf(group), R2 = R * R, a = new V3(), b = new V3(), cc = new V3();
+  group.traverse(m => {
+    if (!m.isMesh || m.userData.keep || m.userData.organ || m.userData.inner || m.userData.tube || !m.visible) return;
+    const P = m.geometry.attributes.position, I = m.geometry.index, mw = m.matrixWorld, nT = I ? I.count / 3 : P.count / 3;
+    if (m.geometry.boundingSphere === null) m.geometry.computeBoundingSphere();
+    if (m.geometry.boundingSphere.distanceToPoint(a.copy(c).applyMatrix4(_lqM.copy(mw).invert())) > R / mw.getMaxScaleOnAxis()) return;
+    for (let t = 0; t < nT; t++) {
+      const i0 = I ? I.getX(t * 3) : t * 3, i1 = I ? I.getX(t * 3 + 1) : t * 3 + 1, i2 = I ? I.getX(t * 3 + 2) : t * 3 + 2;
+      a.fromBufferAttribute(P, i0).applyMatrix4(mw); if (a.distanceToSquared(c) > R2) { b.fromBufferAttribute(P, i1).applyMatrix4(mw); if (b.distanceToSquared(c) > R2) continue; }
+      const A = a.clone(), B = new V3().fromBufferAttribute(P, i1).applyMatrix4(mw), C = new V3().fromBufferAttribute(P, i2).applyMatrix4(mw);
+      if (croot && chunkGoneAt(croot, cc.copy(A).add(B).add(C).multiplyScalar(1 / 3))) continue;
+      LIQ_CACHE.tris.push(A, B, C); LIQ_CACHE.tm.push(m);
+    }
+  });
+  LIQ_CACHE.g = group; LIQ_CACHE.c.copy(c); LIQ_CACHE.R = R;
+}
 function liquidBlood(group, p, n, R, count, runs, hr) {
   hr = hr || 0;
   group.updateMatrixWorld(true);
@@ -561,7 +582,10 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
   // instead of a full raycast through the whole body mesh (dozens of those per wound was the hitch when shooting bodies)
   const tris = [], tm = [], rr2 = Math.pow(R * 2.6 + 0.12, 2), _ta = new V3(), _tb = new V3(), _tc = new V3();
   const croot = chunkRootOf(group);
-  for (const m of targets) {
+  // several patches laid round one wound at once (liqPrime) share one gathering of the triangles near it
+  const LC = LIQ_CACHE.g === group && LIQ_CACHE.c.distanceTo(wp) + Math.sqrt(rr2) <= LIQ_CACHE.R ? LIQ_CACHE : null;
+  if (LC) { for (let t = 0; t < LC.tris.length; t += 3) { const a = LC.tris[t]; if (a.distanceToSquared(wp) > rr2 && LC.tris[t + 1].distanceToSquared(wp) > rr2) continue; tris.push(a, LC.tris[t + 1], LC.tris[t + 2]); tm.push(LC.tm[t / 3]); } }
+  else for (const m of targets) {
     const P = m.geometry.attributes.position, I = m.geometry.index, mw = m.matrixWorld, nT = I ? I.count / 3 : P.count / 3;
     const ctr = _ta.copy(wp).applyMatrix4(_lqM.copy(mw).invert()); if (m.geometry.boundingSphere === null) m.geometry.computeBoundingSphere();
     const sc = mw.getMaxScaleOnAxis(); if (m.geometry.boundingSphere.distanceToPoint(ctr) > Math.sqrt(rr2) / sc) continue;
@@ -574,10 +598,19 @@ function liquidBlood(group, p, n, R, count, runs, hr) {
     }
   }
   const _hp2 = new V3(), _tn = new V3(), _e1 = new V3(), _e2 = new V3(); let b_mesh = null, lastN = null; const L = [];
+  // every drop's ray runs along -wn: file the triangles by where they lie across that direction, so a drop only tests the
+  // ones it can actually meet
+  const GC = 0.01, grid = new Map(), gk = (u, v) => Math.floor(u / GC) * 73856093 ^ Math.floor(v / GC) * 19349663;
+  for (let t = 0; t < tris.length; t += 3) {
+    let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
+    for (let j = 0; j < 3; j++) { _tc.subVectors(tris[t + j], wp); const u = _tc.dot(t1), v = _tc.dot(t2); u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+    for (let a = Math.floor(u0 / GC); a <= Math.floor(u1 / GC); a++) for (let b = Math.floor(v0 / GC); b <= Math.floor(v1 / GC); b++) { const k = a * 73856093 ^ b * 19349663; let c = grid.get(k); if (!c) grid.set(k, c = []); c.push(t); }
+  }
   const drop = (o, r, stretch, along) => {
     _lray.ray.set(o.clone().addScaledVector(wn, 0.12), wn.clone().negate());
     let best = 0.26, hp = null, hn = null, hm = null;
-    for (let t = 0; t < tris.length; t += 3) {
+    _tc.subVectors(_lray.ray.origin, wp); const cand = grid.get(gk(_tc.dot(t1), _tc.dot(t2))) || [];
+    for (const t of cand) {
       const q = _lray.ray.intersectTriangle(tris[t], tris[t + 1], tris[t + 2], false, _hp2); if (!q) continue;
       const d = q.distanceTo(_lray.ray.origin); if (d < best) { best = d; hp = q.clone(); hm = tm[t / 3]; hn = _tn.crossVectors(_e1.subVectors(tris[t + 1], tris[t]), _e2.subVectors(tris[t + 2], tris[t])).normalize().clone(); }
     }
@@ -804,5 +837,5 @@ function footStep() {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { CAL, FABRIC_IN, HOLE_JAG, KIND_PEN, PEN_MAT, PIERCE_MAT, _hm, _sUp, addStump, addWound, bloodFx, blowSpatter, bodyPen, bodyWound, boxExit, buildVfgHand, clearPools, clearWounds, clipGroup, copySegment, cutHole, dropSplat, exitThrough, feedPool, floorAt, footStep, goreBurst, groundSplat, holeInGroup, holeTube, holeify, liquidBlood, mist, setSoak, soakMesh, spatR, spawnDrop, splatIM, tearMesh, trimDecals, updateBlood, updatePools, updateWounds, wallSpatter, wallSplat, worldPen };
+export { CAL, FABRIC_IN, HOLE_JAG, KIND_PEN, PEN_MAT, PIERCE_MAT, _hm, _sUp, addStump, addWound, bloodFx, blowSpatter, bodyPen, bodyWound, boxExit, buildVfgHand, clearPools, clearWounds, clipGroup, copySegment, cutHole, dropSplat, exitThrough, feedPool, floorAt, footStep, goreBurst, groundSplat, holeInGroup, holeTube, holeify, liqPrime, liquidBlood, mist, pools, seeds, setSoak, soakMesh, spatR, spawnDrop, splatIM, tearMesh, trimDecals, updateBlood, updatePools, updateWounds, wallSpatter, wallSplat, worldPen };
 // ---- end module exports ----

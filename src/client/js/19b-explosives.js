@@ -18,6 +18,7 @@ import { bullets, onBulletHit, spawnBullet } from './16-ballistics.js';
 import { P, S, dummies, localBody, mouse } from './17-dummies.js';
 import { PITCH_MIN, flashMsg, onSelfHurt, selectEmpty } from './18-player.js';
 import { net } from './19-network.js';
+import { WARMING } from './22b-warm.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- explosives: M112 C4 (slot 3) and the M67 fragmentation grenade (slot 4)
 // Charges are rated in kilograms of TNT. Blast effects scale with Hopkinson's scaled distance Z = d / W^(1/3) (m / kg^1/3):
@@ -165,6 +166,7 @@ const SOIL = { deb: 'rock', col: 0x6b6253, pit: 0x4a4339, dust: 0x8a7d68 };
 const boomLight = new THREE.PointLight(0xffa850, 0, 28, 2); scene.add(boomLight);
 let boomL = 0, tinn = 0;
 function boomSound(dist, W) {
+  if (typeof WARMING !== 'undefined' && WARMING) return;   // (the warm-up's rehearsal blasts are silent)
   const a = audio(), t = a.currentTime + dist / 343, big = Math.cbrt(W) / 0.9, att = 1 / (1 + dist * 0.035);
   const src = a.createBufferSource(); src.buffer = noiseBuf;
   const f = a.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = clamp(2600 - dist * 14, 260, 2600);
@@ -286,12 +288,14 @@ function fragsAt(p, meshes, nFrag, area, owner, apply, vs) {
   const u = Math.abs(ax.y) < 0.9 ? new V3(0, 1, 0).cross(ax).normalize() : new V3(1, 0, 0).cross(ax).normalize(), v = ax.clone().cross(u);
   // only what could stand between the burst and the body: things within reach of the segment, plus the ground
   const reach = d + R, cand = worldMeshes.filter(m => { const b = m.userData.box; if (!b) return true; const q = new V3(clamp(p.x, b.min.x, b.max.x), clamp(p.y, b.min.y, b.max.y), clamp(p.z, b.min.z, b.max.z)); if (q.distanceTo(p) > reach) return false; const cb = new V3(clamp(c.x, b.min.x, b.max.x), clamp(c.y, b.min.y, b.max.y), clamp(c.z, b.min.z, b.max.z)); return cb.distanceTo(c) < reach; }).concat(meshes);
-  let hits = 0;
+  let hits = 0; const fho = !cand.some(m => m.userData.grid);
   for (let i = 0; i < n && hits < 60; i++) {
     const cz = 1 - Math.random() * (1 - cosT), sz = Math.sqrt(Math.max(0, 1 - cz * cz)), ph = Math.random() * 6.2832;
     const dir = ax.clone().multiplyScalar(cz).addScaledVector(u, sz * Math.cos(ph)).addScaledVector(v, sz * Math.sin(ph));
     _ray.set(p, dir); _ray.far = d + R;
-    const h = _ray.intersectObjects(cand, false).find(x => !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(dir, 0.01))));
+    // (with no break-grid wall in the way only the nearest hit on each mesh is wanted: the bounds trees can stop at it)
+    _ray.firstHitOnly = fho; const hs = _ray.intersectObjects(cand, false); _ray.firstHitOnly = false;
+    const h = hs.find(x => !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(dir, 0.01))));
     if (!h || !meshes.includes(h.object)) continue;
     // real ground is never flat: dirt, stones, grass and kerbs stand a few centimetres up, and a fragment skimming
     // along under that height for a metre or two is very likely to hit something and stop
@@ -817,5 +821,5 @@ function clearExplosives() {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { c4Mine, clearExplosives, makeC4, makeFrag, makeRemote, onExplosiveMsg, r3, r4x, ragMeshes, updateC4, updateExplosives, updateFrag };
+export { BOOM_FX, EXPL, boomVisual, c4Mine, clearExplosives, makeC4, makeFrag, makeRemote, onExplosiveMsg, r3, r4x, ragMeshes, updateC4, updateExplosives, updateFrag };
 // ---- end module exports ----

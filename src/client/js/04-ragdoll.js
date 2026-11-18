@@ -477,7 +477,7 @@ class Ragdoll {
     }
   }
   tag(key, val) { this.group.traverse(o => { if (o.isMesh) o.userData[key] = val; }); }
-  dispose() { if (this.fibers) for (const f of this.fibers) f.m.removeFromParent(); scene.remove(this.group); if (this.pool) scene.remove(this.pool); this.group.traverse(o => { if (o.isMesh && o.userData.holeN) o.material.dispose(); if (o.isMesh && o.material === vcMat) o.geometry.dispose(); }); }
+  dispose() { if (this.fibers) for (const f of this.fibers) f.m.removeFromParent(); scene.remove(this.group); if (this.pool) scene.remove(this.pool); this.group.traverse(o => { if (o.isMesh && o.userData.holeN) o.material.dispose(); if (o.isMesh && o.material === vcMat && !o.geometry.userData.shared) o.geometry.dispose(); }); }   // (shared: a merged body geometry other ragdolls use too)
 }
 function spawnRagdoll(hum, vel, dir, part, head, masks) {
   masks = Object.assign({ nh: !!hum.helmetOff, w: hum.wounds, h: hum.holes }, masks);
@@ -672,5 +672,5 @@ function detachSkin(g) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { RAG_LIMBS, RAG_MASS, _Y, _a, _b, _rt, freeRag, limbBodies, ragdolls, setHelmet, spawnRagdoll, syncLost, updateLimbs };
+export { RAG_LIMBS, RAG_MASS, Ragdoll, _Y, _a, _b, _rt, freeRag, limbBodies, ragdolls, setHelmet, spawnRagdoll, syncLost, updateLimbs };
 // ---- end module exports ----

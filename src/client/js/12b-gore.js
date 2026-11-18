@@ -240,5 +240,5 @@ function goreBlast(part, p, dir, k, skin) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { boneIn, brainSmears, clearGore, coneDir, goreBlast, goreDry, goreThrow, goreWet, nz, spawnGore, updateGore };
+export { GORE_GEO, boneIn, brainSmears, clearGore, coneDir, dropGore, gore, goreBlast, goreDry, goreThrow, goreWet, nz, spawnGore, updateGore };
 // ---- end module exports ----

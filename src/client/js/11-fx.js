@@ -164,5 +164,5 @@ function impactFx(point, n, surf) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { PMAT, bulletHole, decalHelper, decals, fragScuff, fx, fxBox, impactFx, irregular, particles, placeDecal, poolGeo, puff, puffTex, splatGeo, tracer, updateHeats };
+export { DECAL_MAT, DECAL_SIZE, FRAG_SCUFF, PMAT, bulletHole, decalHelper, decals, fragScuff, fx, fxBox, glowTex, heats, impactFx, irregular, particles, placeDecal, poolGeo, puff, puffTex, splatGeo, tracer, updateHeats };
 // ---- end module exports ----

@@ -6,7 +6,7 @@ import { skinShader } from './02-body-parts.js';
 import { HUMAN_SEGS } from './02a-human-mesh.js';
 import { RAG_LIMBS, _Y } from './04-ragdoll.js';
 import { brainSmears, goreThrow, spawnGore } from './12b-gore.js';
-import { bloodFx, copySegment, liquidBlood, spawnDrop } from './14-wounds.js';
+import { bloodFx, copySegment, liqPrime, liquidBlood, spawnDrop } from './14-wounds.js';
 import { addSoak, soakClear, soakCopy, soakFrame, soakUniforms } from './14b-soak.js';
 import { P, S, localBody } from './17-dummies.js';
 import { net } from './19-network.js';
@@ -389,6 +389,7 @@ function woundBlood(root, pts, dir) {
   root.updateMatrixWorld(true); const rg = root.userData.ragObj; let made = 0, anch = 0;
   for (const P of pts) {
     const A = at[P.seg]; if (!A) continue;
+    if (typeof liqPrime === 'function') liqPrime(A[0], A[0].localToWorld(new V3(P.c.x, P.c.y + P.off + A[1], P.c.z)), P.r + 0.32);
     for (let k = 0; k < 20 && made < 8 * pts.length; k++) {
       const u = new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize(), q = P.c.clone().addScaledVector(u, P.r + rnd(0.004, 0.014));
       const lp = new V3(q.x, q.y + P.off + A[1], q.z), wp = A[0].localToWorld(lp.clone()); if (chunkGoneAt(root, wp)) continue;
@@ -406,6 +407,7 @@ function woundBlood(root, pts, dir) {
     if (typeof spawnDrop === 'function') { const c = A[0].localToWorld(new V3(P.c.x, P.c.y + P.off + A[1], P.c.z));
       for (let i = 0; i < 26; i++) spawnDrop(c, (dir || _Y).clone().setY(0).multiplyScalar(rnd(0.1, 0.5)).add(new V3(rnd(-0.3, 0.3), rnd(0.4, 1.3), rnd(-0.3, 0.3))), rnd(0.002, 0.0045)); }
   }
+  if (typeof liqPrime === 'function') liqPrime(null);
   if (rg && anch) { rg.bleedR += 25 * anch; rg.asleep = false; }
 }
 // ---------------------------------------------------------------- loose pieces
@@ -487,23 +489,36 @@ function trunkFragment(root, r, cells, dir) {
 }
 // the head: its surface and points part way in toward the middle, every one not inside a crater; what is not joined (within
 // a centimetre and a half) to the bottom of the head, where the neck holds it, is loose
+// the head's points (its surface, and points part way in), in its body frame, one per 6 mm cell: they only change when what
+// is drawn on the head changes, so they are kept on the head and worked out again only then
+function headNodes(root, A) {
+  const st = root.userData.chunk, ms = []; A[0].traverse(o => { if (o.isMesh && o.visible && o.geometry.attributes.bz) ms.push(o); });
+  const key = ms.map(o => o.geometry.uuid).join();
+  if (st.hiN && st.hiK === key) return st.hiN;
+  const cc = [0, 0.08, -0.03], q = 0.006, seen = new Set(), out = [];
+  for (const o of ms) { const b = o.geometry.attributes.bz;
+    for (let i = 0; i < b.count; i += 3) { if (Math.abs(b.getW(i) - 2) >= 0.1) continue; const x = b.getX(i), y = b.getY(i), z = b.getZ(i);
+      for (const k of [1, 0.6, 0.25]) { const X = cc[0] + (x - cc[0]) * k, Y = cc[1] + (y - cc[1]) * k, Z = cc[2] + (z - cc[2]) * k, c = (Math.floor(X / q) + 512) * 1048576 + (Math.floor(Y / q) + 512) * 1024 + (Math.floor(Z / q) + 512);
+        if (seen.has(c)) continue; seen.add(c); out.push(X, Y, Z); } } }
+  st.hiK = key; st.hiN = new Float32Array(out); return st.hiN;
+}
 function headIslands(root, st, r, dir) {
   const H = st.HC || []; if (!H.length || !r.headG.visible || r.headGone) return;
   const at = root.userData.chunkAt, A = at && at.head; if (!A) return;
-  const pts = [];
-  A[0].traverse(o => { if (!o.isMesh || !o.visible) return; const b = o.geometry.attributes.bz; if (!b) return;
-    for (let i = 0; i < b.count; i += 3) if (Math.abs(b.getW(i) - 2) < 0.1) pts.push(new V3(b.getX(i), b.getY(i), b.getZ(i))); });
-  if (pts.length < 30) return;
-  const cc = new V3(0, 0.08, -0.03), nodes = []; for (const p of pts) for (const k of [1, 0.6, 0.25]) nodes.push(cc.clone().lerp(p, k));
-  const live = nodes.filter(n => H.every(h => n.distanceTo(h.c) > h.r + 0.004)); if (!live.length) return;
+  const N = headNodes(root, A); if (N.length < 90) return;
+  const cc = new V3(0, 0.08, -0.03);
+  // the points no crater has taken
+  const L = []; for (let i = 0; i < N.length; i += 3) { let ok = true; for (const h of H) { const dx = N[i] - h.c.x, dy = N[i + 1] - h.c.y, dz = N[i + 2] - h.c.z, rr = h.r + 0.004; if (dx * dx + dy * dy + dz * dz <= rr * rr) { ok = false; break; } } if (ok) L.push(i); }
+  if (!L.length) return;
+  const live = L.map(i => new V3(N[i], N[i + 1], N[i + 2]));
   let lo = 1e9; for (const n of live) lo = Math.min(lo, n.y);
-  const hh = 0.015, B = new Map(), key = (x, y, z) => x + ',' + y + ',' + z;
-  live.forEach((n, i) => { const k = key(Math.floor(n.x / hh), Math.floor(n.y / hh), Math.floor(n.z / hh)); (B.get(k) || B.set(k, []).get(k)).push(i); });
-  const seen = new Array(live.length).fill(false), comps = [];
-  for (let s = 0; s < live.length; s++) { if (seen[s]) continue; const c = [s]; seen[s] = true;
+  const hh = 0.015, B = new Map(), key = (x, y, z) => (x + 512) * 1048576 + (y + 512) * 1024 + (z + 512);
+  live.forEach((n, i) => { const k = key(Math.floor(n.x / hh), Math.floor(n.y / hh), Math.floor(n.z / hh)); let c = B.get(k); if (!c) B.set(k, c = []); c.push(i); });
+  const seen = new Uint8Array(live.length), comps = [];
+  for (let s = 0; s < live.length; s++) { if (seen[s]) continue; const c = [s]; seen[s] = 1;
     for (let k = 0; k < c.length; k++) { const n = live[c[k]], X = Math.floor(n.x / hh), Y = Math.floor(n.y / hh), Z = Math.floor(n.z / hh);
-      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) for (const j of B.get(key(X + dx, Y + dy, Z + dz)) || [])
-        if (!seen[j] && n.distanceToSquared(live[j]) < hh * hh) { seen[j] = true; c.push(j); } }
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) { const b = B.get(key(X + dx, Y + dy, Z + dz)); if (b) for (const j of b)
+        if (!seen[j] && n.distanceToSquared(live[j]) < hh * hh) { seen[j] = 1; c.push(j); } } }
     comps.push(c); }
   if (comps.length < 2) return;
   // the piece the neck holds: the one reaching lowest
