@@ -63,7 +63,10 @@ const colliders = [], worldMeshes = [];
 let spawns = [new V3()];
 
 function clearWorld() {
-  worldGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material.map) o.material.map.dispose(); });
+  // (the old materials go a few seconds later, once the new world has been drawn: let go now, the shader they share would be
+  // thrown away and built again, a hitch at the start of every round)
+  const mats = new Set(); worldGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material.map) o.material.map.dispose(); if (o.material && !Array.isArray(o.material) && !o.material.userData.shared) mats.add(o.material); });
+  setTimeout(() => { for (const m of mats) m.dispose(); }, 4000);
   scene.remove(worldGroup); worldGroup = new THREE.Group(); scene.add(worldGroup);
   colliders.length = 0; worldMeshes.length = 0; if (typeof clearDoors === 'function') clearDoors();
 }
@@ -171,5 +174,5 @@ function tpCyl(M, rad, len, c, parent, x, y, z, seg, r, m) {
 function mark(parent, x, y, z) { const o = new THREE.Object3D(); o.position.set(x, y, z); parent.add(o); return o; }
 
 // ---- module exports: build.mjs strips this block ----
-export { GM, RANGE_DISTS, RANGE_X, SURF, TEX, addBox, buildArena, buildTest, canvasTex, colliders, fineNoise, makeTex, mark, mat, shadowMat, spawns, stipple, tpBox, worldGroup, worldMeshes };
+export { GM, RANGE_DISTS, RANGE_X, SURF, TEX, addBox, addGround, buildTest, canvasTex, clearWorld, colliders, fineNoise, makeTex, mark, mat, shadowMat, spawns, stipple, tpBox, worldGroup, worldMeshes };
 // ---- end module exports ----

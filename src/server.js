@@ -119,6 +119,7 @@ export class GameRoom extends DurableObject {
     super(ctx, env);
     this.players = new Map();
     this.nextId = 1;
+    this.rInit();
   }
 
   async fetch(request) {
@@ -134,7 +135,7 @@ export class GameRoom extends DurableObject {
     const p = { id: this.nextId++, ws: server, name: "", ready: false, hp: 100, alive: false, state: null, lastHit: 0, kills: 0, deaths: 0 };
     this.players.set(p.id, p);
     server.addEventListener("message", e => this.onMessage(p, e.data));
-    const drop = () => { if (this.players.delete(p.id)) this.broadcast({ t: "leave", id: p.id }); };
+    const drop = () => { if (this.players.delete(p.id)) { this.broadcast({ t: "leave", id: p.id }); if (!this.players.size) { if (this.R.tm) clearTimeout(this.R.tm); this.rInit(); } else this.rCheck(); } };
     server.addEventListener("close", drop);
     server.addEventListener("error", drop);
     return new Response(null, { status: 101, webSocket: client });
@@ -154,10 +155,13 @@ export class GameRoom extends DurableObject {
         if (p.ready) return;
         p.name = String(m.name || "").replace(/[<>]/g, "").slice(0, 16) || ("Op" + p.id);
         p.ready = true;
-        const players = [...this.players.values()].filter(x => x.ready).map(x => ({ id: x.id, name: x.name, alive: x.alive, state: x.state, k: x.kills, d: x.deaths }));
-        this.send(p, { t: "welcome", id: p.id, players });
-        this.broadcast({ t: "join", id: p.id, name: p.name }, p);
-        this.spawn(p);
+        p.team = this.rTeam();
+        const players = [...this.players.values()].filter(x => x.ready).map(x => ({ id: x.id, name: x.name, alive: x.alive, state: x.state, k: x.kills, d: x.deaths, tm: x.team }));
+        this.send(p, { t: "welcome", id: p.id, players, r: this.rMsg() });
+        this.broadcast({ t: "join", id: p.id, name: p.name, tm: p.team }, p);
+        // mid-round: waits for the next one
+        if (this.R.ph === "warm" || this.R.ph === "pre") this.spawn(p);
+        this.rCheck();
         break;
       }
       case "s": {
@@ -207,27 +211,68 @@ export class GameRoom extends DurableObject {
   }
 
   died(p, m) {
-    if (!p.ready || !p.alive) return;
+    // (a death from a life already over, arriving late, is dropped)
+    if (!p.ready || !p.alive || (m.lf !== undefined && m.lf !== p.life)) return;
     p.alive = false; p.deaths++;
-    const by = this.players.has(m.by) && m.by !== p.id ? m.by : 0, kc = by && !p.credited ? 1 : 0;
+    const by = this.players.has(m.by) && m.by !== p.id ? m.by : 0, kc = by && !p.credited && this.players.get(by).team !== p.team ? 1 : 0;
     if (kc) this.players.get(by).kills++;
     this.broadcast({ t: "die", id: p.id, by, kc, part: ["head", "torso", "arm", "leg"].includes(m.part) ? m.part : "torso", head: !!m.head, gib: m.gib ? 1 : 0,
       d: Array.isArray(m.d) ? m.d.slice(0, 3).map(Number) : [0, 0, -1], dist: Math.max(0, Math.min(5000, Math.round(Number(m.dist) || 0))), cause: String(m.cause || "").slice(0, 10) });
-    setTimeout(() => this.spawn(p), 4000);
+    // warm-up: back in 4 s; in a round: out until the next one
+    if (this.R.ph === "warm") setTimeout(() => { if (this.R.ph === "warm" && !p.alive) this.spawn(p); }, 4000); else this.rCheck();
   }
 
   // downing someone counts as the kill, once per life
   down(p, m) {
-    if (!p.ready || !p.alive || p.credited) return;
+    if (!p.ready || !p.alive || p.credited || (m.lf !== undefined && m.lf !== p.life)) return;
     const by = this.players.has(m.by) && m.by !== p.id ? m.by : 0;
-    if (!by) return;
+    if (!by || this.players.get(by).team === p.team) return;
     p.credited = by; this.players.get(by).kills++;
     this.broadcast({ t: "kill", id: p.id, by });
   }
 
   spawn(p) {
     if (!this.players.has(p.id)) return;
-    p.hp = 100; p.alive = true; p.state = null; p.credited = 0;
-    this.broadcast({ t: "spawn", id: p.id, sp: Math.floor(Math.random() * SPAWN_COUNT) });
+    p.hp = 100; p.alive = true; p.state = null; p.credited = 0; p.life = (p.life || 0) + 1;
+    this.broadcast({ t: "spawn", id: p.id, lf: p.life, sp: Math.floor(Math.random() * SPAWN_COUNT), tm: p.team });
   }
+  // ---------------------------------------------------------------- teams and rounds
+  // Red attacks, Blue defends the house. While either team is empty it is warm-up (respawn after 4 s). With someone on both
+  // teams a round starts: everyone spawns on their side, the dead stay dead until the next round. Attackers win by killing
+  // every defender, defenders by killing every attacker or by holding out until the clock runs out.
+  rInit() { this.R = { n: 0, ph: 'warm', end: 0, sc: { r: 0, b: 0 }, tm: null }; }
+  rTeam() { let r = 0, b = 0; for (const x of this.players.values()) if (x.ready && x.team) x.team === 'r' ? r++ : b++; return r < b ? 'r' : b < r ? 'b' : (Math.random() < 0.5 ? 'r' : 'b'); }
+  rCount(alive) { const c = { r: 0, b: 0 }; for (const x of this.players.values()) if (x.ready && x.team && (!alive || x.alive)) c[x.team]++; return c; }
+  rTeams() { const o = {}; for (const x of this.players.values()) if (x.ready && x.team) o[x.id] = x.team; return o; }
+  rMsg(extra) { return Object.assign({ t: 'round', n: this.R.n, ph: this.R.ph, left: Math.max(0, this.R.end - Date.now()), sc: this.R.sc, tm: this.rTeams() }, extra || {}); }
+  rTimer(ms, f) { if (this.R.tm) clearTimeout(this.R.tm); this.R.tm = setTimeout(() => { this.R.tm = null; f(); }, ms); }
+  rCheck() {
+    const R = this.R, c = this.rCount(false);
+    // warm-up with two or more players all on one side: the newest crosses over, so a round can start
+    if (R.ph === 'warm' && c.r + c.b >= 2 && !(c.r && c.b)) { const from = c.r ? 'r' : 'b', mv = [...this.players.values()].filter(x => x.ready && x.team === from).pop(); mv.team = from === 'r' ? 'b' : 'r'; c.r = c.r ? c.r - 1 : 1; c.b = c.b ? c.b - 1 : 1; this.broadcast(this.rMsg()); }
+    if (R.ph === 'warm') { if (c.r && c.b) { R.ph = 'pre'; R.end = Date.now() + 5000; this.broadcast(this.rMsg()); this.rTimer(5000, () => this.rStart()); } return; }
+    if (R.ph === 'pre' && !(c.r && c.b)) { R.ph = 'warm'; R.end = 0; if (R.tm) clearTimeout(R.tm); R.tm = null; this.broadcast(this.rMsg()); for (const x of this.players.values()) if (x.ready && !x.alive) this.spawn(x); return; }
+    if (R.ph !== 'live') return;
+    if (!c.r && !c.b) { if (R.tm) clearTimeout(R.tm); R.tm = null; R.ph = 'warm'; R.end = 0; this.broadcast(this.rMsg()); return; }
+    if (!c.r || !c.b) return this.rEnd(c.r ? 'r' : 'b', 'left');
+    const a = this.rCount(true);
+    if (!a.b) this.rEnd('r', 'elim'); else if (!a.r) this.rEnd('b', 'elim');
+  }
+  rStart() {
+    const R = this.R; let c = this.rCount(false);
+    // evens the teams up first (the newest to join moves)
+    while (Math.abs(c.r - c.b) > 1) { const from = c.r > c.b ? 'r' : 'b', mv = [...this.players.values()].filter(x => x.ready && x.team === from).pop(); mv.team = from === 'r' ? 'b' : 'r'; c = this.rCount(false); }
+    if (!c.r || !c.b) { R.ph = 'warm'; R.end = 0; this.broadcast(this.rMsg()); for (const x of this.players.values()) if (x.ready && !x.alive) this.spawn(x); return; }
+    R.n++; R.ph = 'live'; R.end = Date.now() + 180000;
+    this.broadcast(this.rMsg());
+    for (const x of this.players.values()) if (x.ready && x.team) this.spawn(x);
+    const n = R.n; this.rTimer(180000, () => { if (R.n === n && R.ph === 'live') this.rEnd('b', 'time'); });
+  }
+  rEnd(win, why) {
+    const R = this.R; if (R.ph !== 'live') return;
+    R.ph = 'post'; R.sc[win]++; R.end = Date.now() + 7000;
+    this.broadcast(this.rMsg({ win, why }));
+    this.rTimer(7000, () => this.rStart());
+  }
+
 }

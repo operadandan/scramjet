@@ -194,12 +194,17 @@ function reactUnpack(x, hum) {
     sway: n(x.sw), swayF: n(x.sf), twist: n(x.tw), lean: n(x.le), step: clamp(n(x.st), 0, 1), side: n(x.si) < 0 ? -1 : 1, slump: n(x.sl), knee: !!x.kn,
     hand: x.h === 'L' || x.h === 'R' ? x.h : null, wound: w, wf, yaw0: n(x.y0), home: new V3(n(x.h0 && x.h0[0]), n(x.h0 && x.h0[1]), n(x.h0 && x.h0[2])) };
 }
+const TEAM_PAL = {
+  r: { shirt: 0x7c2b25, vest: 0x5e2622, vest2: 0x52201d, pack: 0x4d2a26, helmet: 0x5c2c28 },
+  b: { shirt: 0x2b4a70, vest: 0x24384f, vest2: 0x1f3146, pack: 0x263548, helmet: 0x283a52 }
+};
 class Remote {
-  constructor(id, name) {
-    this.id = id; this.name = name;
-    this.hum = new Humanoid(Object.assign({ skin: SKINS[id % SKINS.length] }, PALS[id % PALS.length]));
+  constructor(id, name, tm) {
+    this.id = id; this.name = name; this.tm = tm || '';
+    // dressed in their team's colours (the shirt, vest, pack and helmet), so friend and foe can be told apart
+    this.hum = new Humanoid(Object.assign({ skin: SKINS[id % SKINS.length] }, PALS[id % PALS.length], TEAM_PAL[tm] || {}));
     this.hum.remote = this; scene.add(this.hum.root); addTPSupp(this.hum);
-    this.label = makeLabel(name); this.hum.root.add(this.label);
+    this.label = makeLabel(name, tm === 'r' ? '#ff9a8f' : tm === 'b' ? '#9cc2ff' : '#fff'); this.hum.root.add(this.label);
     this.pos = new V3(); this.tpos = new V3(); this.yaw = 0; this.tyaw = 0;
     this.st = null; this.alive = false; this.snap = true;
   }
@@ -246,7 +251,7 @@ class Remote {
     this.hum.update(dt);
     bleedDrips(this, m.bl || 0, dt);
   }
-  dispose() { scene.remove(this.hum.root); }
+  dispose() { scene.remove(this.hum.root); if (this.label) { this.label.material.map.dispose(); this.label.material.dispose(); } }
 }
 
 // ---------------------------------------------------------------- dummies (testing mode)

@@ -1,7 +1,8 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { $, ENABLE_TEST_MODE, GFX, GFX_PRESETS, V3, camera, damp, lerp, renderScope, renderer, scene, sun, sunDir, vmCamera, vmScene } from './00-setup.js';
-import { buildArena, buildTest, spawns } from './01-world.js';
+import { buildTest, spawns } from './01-world.js';
+import { buildTown } from './01b-town.js';
 import { updateCloth } from './02-body-parts.js';
 import { limbBodies, ragdolls, updateLimbs } from './04-ragdoll.js';
 import { freshGuns } from './06-weapons.js';
@@ -17,7 +18,7 @@ import { updateDoors } from './15b-doors.js';
 import { bullets, props, removeBullet, updateBullets, updateProps } from './16-ballistics.js';
 import { P, S, dummies, localBody, spawnDummies } from './17-dummies.js';
 import { esc, respawnLocal, updatePlayer, updateWeapons } from './18-player.js';
-import { api, joinPeer, net, netSend, onNet, startHosting } from './19-network.js';
+import { api, joinPeer, net, netSend, onNet, roundHud, startHosting } from './19-network.js';
 import { clearExplosives, updateExplosives } from './19b-explosives.js';
 import { setPixelation, updateCamera, updateHUD, updateViewmodel } from './20-camera-hud-input.js';
 import { clearItems, hlMesh, openAttMenu, updateInv, updatePickup, updateToolbar } from './21-items-inventory.js';
@@ -72,8 +73,8 @@ async function startOnline(code, create) {
     $('err').innerHTML = 'Multiplayer is not set up yet. In the Cloudflare dashboard: <b>Storage &amp; Databases &rarr; D1 &rarr; Create</b> a database, then on this Worker go to <b>Settings &rarr; Bindings &rarr; Add &rarr; D1 database</b> and name the variable <b>DB</b>.';
     return;
   }
-  S.room = code; S.names = {}; S.score = {}; S.welcomed = false; S.closeReason = ''; S.myName = playerName();
-  buildArena(); P.alive = false; P.rag = null;
+  S.room = code; S.names = {}; S.score = {}; S.team = {}; S.R = null; S.welcomed = false; S.closeReason = ''; S.myName = playerName();
+  buildTown(); P.alive = false; P.rag = null;
   enterGame('online');
   $('deathmsg').style.display = 'block'; $('deathmsg').textContent = (create ? 'CREATING ROOM ' : 'CONNECTING TO ') + code;
   if (h.rooms) {
@@ -110,11 +111,11 @@ function leave() {
   while (bullets.length) removeBullet(bullets.length - 1);
   S.slow = false; S.ts = 1; S.target = null; S.testKills = 0; S.testDeaths = 0; P.downed = false; $('scope').style.display = 'none'; $('score').style.display = 'none'; S.filt = ''; renderer.domElement.style.filter = ''; $('slowmo').style.display = 'none';
   $('vig').style.display = $('vigads').style.display = 'none';
-  S.mode = null; P.alive = false; P.rag = null; localBody.root.visible = false;
+  S.mode = null; P.alive = false; P.rag = null; localBody.root.visible = false; S.R = null; $('rbanner').style.opacity = '0';
   $('hud').style.display = 'none'; $('pause').style.display = 'none'; $('menu').style.display = 'flex';
   $('black').style.opacity = '0'; $('deathmsg').style.display = 'none'; $('dmgv').style.opacity = '0';
   if (document.pointerLockElement) document.exitPointerLock();
-  buildArena(); setTimeout(warmShaders, 50);
+  buildTown(); setTimeout(warmShaders, 50);
 }
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 $('create').onclick = () => { let c = ''; for (let i = 0; i < 5; i++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]; startOnline(c, true); };
@@ -130,7 +131,7 @@ document.querySelectorAll('.attm1').forEach(b => b.onclick = () => openAttMenu(P
 $('leave').onclick = () => leave();
 
 // ---------------------------------------------------------------- main loop
-buildArena(); setTimeout(warmShaders, 300);
+buildTown(); setTimeout(warmShaders, 300);
 let last = performance.now(), frameN = 0;
 const focus = new V3();
 // ---------------------------------------------------------------- retro pixelation: the frame is drawn at a fixed number of lines and
@@ -249,7 +250,7 @@ function frame(now, hidden) {
   }
   updateBullets(wdt);
   for (const r of ragdolls) r.update(wdt);
-  updateFx(wdt); updateDebris(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); updateLimbs(wdt); updateHeats(wdt);
+  updateFx(wdt); updateDebris(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); roundHud(); updateLimbs(wdt); updateHeats(wdt);
   updateCamera(dt); if (S.mode && P.alive && !P.downed) tpCamera();
   if (S.mode) { updateViewmodel(dt); vmCamera.updateMatrixWorld(true); updateDevices(); } else updateDevices();
   updateTPBody(dt);

@@ -111,7 +111,7 @@ function updatePlayer(dt) {
     } else { P.react = null; enterDowned(); }
   }
   // a down only counts as a kill for the shooter if it isn't just pain (spine or both legs gone); pain knockouts wait for the death
-  if (P.downed && !P.downSent && S.mode === 'online' && an.lastBy && (an.paralyzed || an.bothLegs())) { P.downSent = true; net.send({ t: 'down', by: an.lastBy }); }
+  if (P.downed && !P.downSent && S.mode === 'online' && an.lastBy && (an.paralyzed || an.bothLegs())) { P.downSent = true; net.send({ t: 'down', by: an.lastBy, lf: S.life }); }
   else if (P.downed && !an.isDowned() && !P.forceDown) wakeUp();
   if (P.downed) { bleedDrips(P, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1)); localBody.root.visible = false; fpBody.root.visible = false; if (P.rag) P.pos.set(P.rag.p[2].x, 0, P.rag.p[2].z); P.vel.set(0, 0, 0); P.speed = 0; return; }
   let fx_ = 0, fz = 0;
@@ -533,7 +533,7 @@ function localDeath() {
   const part = PART_OF_REGION(an.lastRegion), killer = an.lastBy ? (S.names[an.lastBy] || ('P' + an.lastBy)) : '';
   killSelf(head, an.lastDir.clone(), part, killer, DEATH_TEXT[an.cause]);
   const dm = P.deathM = deathMasks(an);
-  if (S.mode === 'online') net.send({ t: 'died', by: an.lastBy || 0, part, head, d: an.lastDir.toArray(), dist: Math.round(an.lastDist || 0), cause: an.cause, gib: dm.gib ? 1 : 0, tear: dm.tear ? 1 : 0, bl: Math.round(dm.bleed), tw: +dm.twitch.toFixed(1) });
+  if (S.mode === 'online') net.send({ t: 'died', lf: S.life, by: an.lastBy || 0, part, head, d: an.lastDir.toArray(), dist: Math.round(an.lastDist || 0), cause: an.cause, gib: dm.gib ? 1 : 0, tear: dm.tear ? 1 : 0, bl: Math.round(dm.bleed), tw: +dm.twitch.toFixed(1) });
   else { S.testDeaths = (S.testDeaths || 0) + 1; setTimeout(() => { if (S.mode === 'test') respawnLocal(spawns[0]); }, 4000); }
 }
 function onSelfHurt(res) {

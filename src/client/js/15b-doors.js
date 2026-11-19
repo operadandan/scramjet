@@ -33,7 +33,7 @@ const DOOR_KIND = {
   metal: { leaf: 'metal', color: 0x55606a, frameColor: 0x3c3a36, t: 0.05, k: 22, c: 7.5, shootParts: false }
 };
 const _dv = new V3(), _dq = new THREE.Quaternion(), _dRay = new THREE.Raycaster(), _X1 = new V3(1, 0, 0);
-const hingeMat = new THREE.MeshStandardMaterial({ color: 0x9a927e, metalness: 0.85, roughness: 0.35 });
+const hingeMat = new THREE.MeshStandardMaterial({ color: 0x9a927e, metalness: 0.85, roughness: 0.35 }); hingeMat.userData.shared = true;
 let DOOR_RX = false;   // applying a door message from someone else: nothing goes back out
 const doorNet = m => { if (S.mode === 'online' && !DOOR_RX) net.send(Object.assign({ t: 'door' }, m)); };
 const r3d = x => Math.round(x * 1000) / 1000;

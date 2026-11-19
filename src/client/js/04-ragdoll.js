@@ -33,6 +33,7 @@ const _a = new V3(), _b = new V3(), _c = new V3(), _m4 = new THREE.Matrix4(), _Y
 const fiberMat = new THREE.MeshStandardMaterial({ color: 0x7a1010, roughness: 0.45, side: THREE.DoubleSide }), fiberMat2 = new THREE.MeshStandardMaterial({ color: 0x7a3a38, roughness: 0.6, side: THREE.DoubleSide });
 const _rf = new V3(), _ru = new V3(), _rs = new V3(), _rt = new V3(), _rd = new V3();
 const _rf2 = new V3();
+const _rbV = new V3();
 class Ragdoll {
   constructor(pts, pal, vel, hitIdx, dir, power, masks) {
     masks = masks || {}; this.anchors = [];
@@ -365,6 +366,15 @@ class Ragdoll {
       }
     }
   }
+  // dead on their feet: nothing holds them up any more, so the knees give first. The hips drop almost straight down, the knees
+  // go forward, and the upper body folds after them (forward, or back over the heels), instead of the body toppling stiff
+  buckle() {
+    const p = this.p, q = this.q, h = 1 / 120, up = _a.subVectors(p[1], p[2]).normalize(), side = _b.subVectors(p[6], p[3]).normalize();
+    const fwd = _c.crossVectors(up, side).normalize(), lean = Math.random() < 0.65 ? 1 : -1, sw = rnd(-0.35, 0.35), dn = new V3(0, -1, 0);
+    const v = (i, f, d) => { if (p[i]) q[i].addScaledVector(_rbV.copy(fwd).multiplyScalar(f).addScaledVector(dn, d).addScaledVector(side, sw * d * 0.3), -h); };
+    v(10, 1.5, 0.5); v(13, 1.4, 0.5); v(9, -0.1, 1.9); v(12, -0.1, 1.9); v(2, -0.15, 2);
+    v(1, 0.55 * lean, 1.4); v(3, 0.5 * lean, 1.4); v(6, 0.5 * lean, 1.4); v(0, 0.8 * lean, 1.3);
+  }
   kick(dir, power, idx) { const h = 1 / 120; const i = idx === undefined ? 1 : idx; this.q[i].addScaledVector(dir, -power * h); this.q[2].addScaledVector(dir, -power * 0.3 * h); this.life = Math.min(this.life, 4); this.kT = this.life; this.asleep = false; this.still = 0; }
   // ---------------------------------------------------------------- the body moving on its own
   // Writhing: someone down but awake rolls side to side, draws the knees up and holds the wound, weaker as the blood runs out.
@@ -490,6 +500,7 @@ function spawnRagdoll(hum, vel, dir, part, head, masks) {
   }
   const r = new Ragdoll(hum.capture(), hum.pal, vel || new V3(), part === 'arm' ? (Math.random() < 0.5 ? 4 : 7) : part === 'leg' ? (Math.random() < 0.5 ? 10 : 13) : PART_IDX[part] || 1, dir, masks.soft ? 0.25 : head ? 5.5 : 3, masks);
   { const BN = ['shL', 'elL', 'shR', 'elR', 'lgL', 'knL', 'lgR', 'knR']; for (const l of r.limbs) { const b = hum[BN[l.seg]]; if (b) l.q0 = b.getWorldQuaternion(new THREE.Quaternion()); } r.sync(); }
+  if (!masks.vTop && !masks.soft && !masks.keep && r.p[2].y > 0.7) r.buckle();
   chunkCopy(hum.root, r.group);
   if (masks.gib) r.gibHead(dir, true);
   chunkIslands(r.group, dir);
