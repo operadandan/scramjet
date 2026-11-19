@@ -58,7 +58,7 @@ function screenFx(dt) {
   // dead: the last seconds go grey, swim and darken; then (in a round) the view goes to a teammate
   if (SFX.deadT === 0) screenBlood(1.5, an.lastDir);
   SFX.deadT += dt; const t = SFX.deadT;
-  const sp = S.mode === 'online' && t > 5 ? specList() : [];
+  const sp = S.mode === 'online' && t > 4 ? specList() : [];
   if (sp.length) {
     SFX.spec = sp[SFX.specIdx % sp.length].id; $('black').style.transition = 'none'; $('black').style.opacity = '0'; $('dmgv').style.opacity = '0';
     SFX.tn.style.opacity = '0.25'; sfxFilter('grayscale(0.35)'); return;
@@ -71,5 +71,5 @@ function screenFx(dt) {
 function specNext() { if (!P.alive && SFX.spec) SFX.specIdx++; }
 
 // ---- module exports: build.mjs strips this block ----
-export { SFX, screenBlood, screenFx, specNext };
+export { SFX, screenBlood, screenFx, sfxClear, specNext };
 // ---- end module exports ----

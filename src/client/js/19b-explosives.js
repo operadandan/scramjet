@@ -21,6 +21,7 @@ import { PITCH_MIN, flashMsg, onSelfHurt, selectEmpty } from './18-player.js';
 import { net } from './19-network.js';
 import { WARMING } from './22b-warm.js';
 import { siegeBlast } from './23-siege.js';
+import { GD, flashBang, gadgetBlast, gadgetRemove, gadgetRx, gdKey, smokeCloud } from './27-gadgets.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- explosives: M112 C4 (slot 3) and the M67 fragmentation grenade (slot 4)
 // Charges are rated in kilograms of TNT. Blast effects scale with Hopkinson's scaled distance Z = d / W^(1/3) (m / kg^1/3):
@@ -30,7 +31,7 @@ import { siegeBlast } from './23-siege.js';
 //   M67: 180 g of Composition B (RE 1.35) = 0.24 kg TNT inside a 2.5 mm steel body that breaks into a few thousand fragments.
 //   Fuze M213: the striker is held by the spoon; once the spoon flies the delay burns 4 to 5.5 s. Pulling the pin alone
 //   does nothing as long as the spoon is held. Lethal radius about 5 m, casualties out to about 15 m.
-const EXPL = { c4: { W: 0.76, frags: 0 }, frag: { W: 0.24, frags: 5500 } };
+const EXPL = { c4: { W: 0.76, frags: 0 }, frag: { W: 0.24, frags: 5500 }, claymore: { W: 0.3, frags: 3000 }, smoke: { W: 0, frags: 0 }, flash: { W: 0.02, frags: 0 } };
 const NADE_R = 0.032, C4_REACH = 1.7;
 const CHARGES = [], NADES = [], BOOM_FX = [];
 let explSeq = 1;
@@ -469,7 +470,11 @@ function fragHit(h, fd, v, L, shot, p) {
 function ragMeshes(r) { const out = []; r.group.traverse(o => { if (o.isMesh && o.visible && o.userData.rag) out.push(o); }); return out; }
 // ---------------------------------------------------------------- the explosion
 function explode(p, kind, owner, isOwner, n, onBody) {
-  const E = EXPL[kind]; n = n || new V3(0, 1, 0);
+  // smoke and flash don't blow anything up
+  if (kind === 'smoke') return smokeCloud(p);
+  if (kind === 'flash') return flashBang(p);
+  const E = EXPL[kind] || EXPL.frag; n = n || new V3(0, 1, 0); gadgetBlast(p, E.W);
+  if (kind === 'claymore') kind = 'frag';   // (a claymore is a big frag, as far as walls and bodies go)
   boomVisual(p, n, E.W, kind);
   blastWalls(p, E.W, owner, doorAt(p, E.W));
   doorBlast(p, E.W, isOwner || S.mode !== 'online'); siegeBlast(p, E.W);
@@ -509,9 +514,11 @@ const r3 = x => Math.round(x * 1000) / 1000;
 // are hit too, so a grenade can bounce off someone's legs.
 const NADE_M = 0.4, NADE_I = 0.4 * NADE_M * NADE_R * NADE_R, NADE_DRAG = 0.5 * 1.2 * 0.5 * Math.PI * NADE_R * NADE_R / NADE_M;
 const SURF_PHYS = { metal: [0.5, 0.25], concrete: [0.42, 0.55], drywall: [0.3, 0.6], plywood: [0.33, 0.5], crate: [0.33, 0.5], wood: [0.33, 0.5], ground: [0.32, 0.65], body: [0.12, 0.8] };
-function throwNade(owner, id, p, v, fuse, local, w, curl) {
-  const n = makeFrag(); n.pin.visible = false; n.spoon.visible = false; n.g.position.copy(p); scene.add(n.g);
+const NADE_TINT = new Map();   // (smoke and flash bodies: one recoloured material per original, kept)
+function throwNade(owner, id, p, v, fuse, local, w, curl, kind) {
+  const n = makeFrag(); if (kind === 'smoke' || kind === 'flash') n.g.traverse(o => { if (o.isMesh && o.material && o.material.color && !o.userData.keepCol) { const key = kind + o.material.uuid; let mm = NADE_TINT.get(key); if (!mm) { mm = o.material.clone(); mm.color.set(kind === 'smoke' ? 0x6a6e6a : 0x3a4048); NADE_TINT.set(key, mm); } o.material = mm; } }); n.pin.visible = false; n.spoon.visible = false; n.g.position.copy(p); scene.add(n.g);
   const o = { g: n.g, p: p.clone(), v: v.clone(), w: w ? w.clone() : new V3(rnd(-12, 12), rnd(-6, 6), rnd(-12, 12)), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(rnd(0, 6), rnd(0, 6), rnd(0, 6))), fuse, owner, id, local, t: 0, curl: curl === undefined ? rnd(-0.12, 0.12) : curl, ground: false };
+  o.kind = Object.hasOwn(EXPL, kind) ? kind : 'frag';
   NADES.push(o); return o;
 }
 // one contact: normal n (out of the surface), surface kind for restitution and friction
@@ -598,7 +605,7 @@ function updateNades(dt) {
     if (o.hitV) { const k = o.hitK, dist = camera.position.distanceTo(o.p), vol = clamp(o.hitV * 0.035, 0, 0.3) / (1 + dist * 0.1); if (k === 'metal') { noiseHit(rnd(2600, 3400), 0.07, vol); blip(rnd(1700, 2300), 0.06, vol * 0.25, 'triangle'); } else if (k === 'body') noiseHit(rnd(400, 700), 0.05, vol * 0.7); else noiseHit(rnd(1400, 2600), 0.04, vol); o.hitV = 0; }
     o.g.position.copy(o.p); o.g.quaternion.copy(o.q);
     if (o.fuse <= 0) {
-      if (o.local) { if (S.mode === 'online') net.send({ t: 'x', a: 'boom', k: 'frag', i: o.id, p: o.p.toArray().map(r3) }); explode(o.p.clone(), 'frag', o.owner, true); }
+      if (o.local) { if (S.mode === 'online') net.send({ t: 'x', a: 'boom', k: o.kind, i: o.id, p: o.p.toArray().map(r3) }); explode(o.p.clone(), o.kind, o.owner, true); }
       if (o.local || o.fuse < -4) { scene.remove(o.g); NADES.splice(i, 1); }
     }
   }
@@ -632,7 +639,7 @@ function nadeReset() { P.nade = { ph: 'idle', t: 0, btn: 0, fuse: 0, cook: false
 function throwOrigin(d) { return camera.position.clone().addScaledVector(d, 0.45); }
 function updateFrag(dt) {
   const N = P.nade || (nadeReset(), P.nade); N.t += dt; N.draw = Math.max(0, N.draw - dt);
-  if (N.cook) { N.fuse -= dt; if (N.fuse <= 0) { const hp = camera.position.clone().add(new V3(0.12, -0.15, -0.3).applyQuaternion(camera.quaternion)); N.cook = false; P.fragN = Math.max(0, P.fragN - 1); nadeReset(); if (S.mode === 'online') net.send({ t: 'x', a: 'boom', k: 'frag', i: 0, p: hp.toArray().map(r3) }); explode(hp, 'frag', S.myIdOr0(), true); return; } }
+  if (N.cook) { N.fuse -= dt; if (N.fuse <= 0) { const hp = camera.position.clone().add(new V3(0.12, -0.15, -0.3).applyQuaternion(camera.quaternion)); N.cook = false; P.fragN = Math.max(0, P.fragN - 1); nadeReset(); if (S.mode === 'online') net.send({ t: 'x', a: 'boom', k: P.tool3 || 'frag', i: 0, p: hp.toArray().map(r3) }); explode(hp, P.tool3 || 'frag', S.myIdOr0(), true); return; } }
   if (N.ph === 'idle') {
     N.inHand = P.fragN > 0;
     if (P.fragN <= 0) { if (N.t > 0.3) selectEmpty(3); return; }
@@ -651,8 +658,8 @@ function updateFrag(dt) {
       // spin: overhand it leaves the fingertips with backspin; underhand it is bowled with forward roll
       const side = new V3(1, 0, 0).applyQuaternion(q).setY(0).normalize();
       const w = side.multiplyScalar(over ? rnd(8, 16) : -rnd(0.5, 0.8) * speed / NADE_R * 0.35).add(new V3(rnd(-3, 3), rnd(-3, 3), rnd(-3, 3))), curl = rnd(-0.12, 0.12);
-      throwNade(S.myIdOr0(), id, p0, v, fuse, true, w, curl);
-      if (S.mode === 'online') net.send({ t: 'x', a: 'nade', i: id, p: p0.toArray().map(r3), v: v.toArray().map(r3), f: r3(fuse), w: w.toArray().map(r3), c: r3(curl) });
+      throwNade(S.myIdOr0(), id, p0, v, fuse, true, w, curl, P.tool3);
+      if (S.mode === 'online') net.send({ t: 'x', a: 'nade', k: P.tool3 || 'frag', i: id, p: p0.toArray().map(r3), v: v.toArray().map(r3), f: r3(fuse), w: w.toArray().map(r3), c: r3(curl) });
       if (!N.cook) { blip(3000, 0.04, 0.05, 'triangle'); flySpoon(p0.clone(), v.clone().multiplyScalar(0.3).add(new V3(rnd(-1, 1), rnd(2, 3.5), rnd(-1, 1)))); }      // the spoon flies off
       noiseHit(700, 0.12, 0.06); N.cook = false; P.fragN = Math.max(0, P.fragN - 1);
     }
@@ -801,6 +808,7 @@ function updateExplosives(dt) {
 function onExplosiveMsg(m) {
   const ok = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
   if (m.a === 'chk') { chunkRx(m); return; }
+  if (m.a === 'gdx') { gadgetRx(m); return; }
   if (!ok(m.p)) return;
   const p = new V3().fromArray(m.p);
   if (m.a === 'c4p' && ok(m.n)) {
@@ -813,10 +821,13 @@ function onExplosiveMsg(m) {
     } else addCharge(m.id, m.i, p, new V3().fromArray(m.n).normalize());
   }
   else if (m.a === 'c4t' && ok(m.v)) throwC4(m.id, m.i, p, new V3().fromArray(m.v), ok(m.w) ? new V3().fromArray(m.w) : new V3(), false);
-  else if (m.a === 'nade' && ok(m.v)) throwNade(m.id, m.i, p, new V3().fromArray(m.v), clamp(Number(m.f) || 4, 0, 6) + 0.5, false, ok(m.w) ? new V3().fromArray(m.w) : null, clamp(Number(m.c) || 0, -0.2, 0.2));
+  else if (m.a === 'nade' && ok(m.v)) throwNade(m.id, m.i, p, new V3().fromArray(m.v), clamp(Number(m.f) || 4, 0, 6) + 0.5, false, ok(m.w) ? new V3().fromArray(m.w) : null, clamp(Number(m.c) || 0, -0.2, 0.2), m.k);
   else if (m.a === 'chk') chunkRx(m);
+  else if (m.a === 'gd') gadgetRx(m);
   else if (m.a === 'boom') {
-    const kind = m.k === 'c4' ? 'c4' : 'frag';
+    const kind = Object.hasOwn(EXPL, m.k) ? m.k : 'frag';
+    // (a claymore is set off by whoever walks into it, but it is its owner's blast)
+    if (kind === 'claymore') { const o = GD.find(x => x.key === gdKey(m.tg, m.i)); if (o) gadgetRemove(o); explode(p, kind, Number.isFinite(m.tg) ? m.tg : m.id, false, ok(m.n) ? new V3().fromArray(m.n) : null, !!m.ob); return; }
     for (const c of CHARGES.slice()) if (c.owner === m.id && c.id === m.i) { removeCharge(c); if (c.g.parent) c.g.parent.remove(c.g); }
     for (let i = C4_FLY.length - 1; i >= 0; i--) if (C4_FLY[i].owner === m.id && C4_FLY[i].id === m.i) { scene.remove(C4_FLY[i].g); C4_FLY.splice(i, 1); }
     for (let i = NADES.length - 1; i >= 0; i--) if (NADES[i].owner === m.id && NADES[i].id === m.i) { scene.remove(NADES[i].g); NADES.splice(i, 1); }
@@ -830,5 +841,5 @@ function clearExplosives() {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { BOOM_FX, CHARGES, EXPL, boomVisual, c4Mine, chargePos, clearExplosives, makeC4, makeFrag, makeRemote, onExplosiveMsg, r3, r4x, ragMeshes, updateC4, updateExplosives, updateFrag };
+export { BOOM_FX, CHARGES, EXPL, boomL, boomLight, boomVisual, c4Mine, chargePos, clearExplosives, deafen, explSeq, explode, los, makeC4, makeFrag, makeRemote, onExplosiveMsg, r3, r4x, ragMeshes, updateC4, updateExplosives, updateFrag };
 // ---- end module exports ----

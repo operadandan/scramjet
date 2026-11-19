@@ -1,6 +1,6 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
-import { $, V3, camera, clamp, damp, lerp, muzzleLight, ramp, rnd, scene, smooth, vmCamera, vmMuzzleLight } from './00-setup.js';
+import { $, V3, camera, clamp, damp, lerp, muzzleLight, ramp, renderer, rnd, scene, smooth, vmCamera, vmMuzzleLight } from './00-setup.js';
 import { colliders, spawns, worldMeshes } from './01-world.js';
 import { chunkReset } from './02b-chunks.js';
 import { hurtClutch, hurtLevel, reClutch, updateBrace } from './03-humanoid.js';
@@ -18,10 +18,12 @@ import { addProp, ejectShell, spawnBullet } from './16-ballistics.js';
 import { P, S, arteryRate, bleedDrips, deathMasks, fpBody, fpClip, keys, localBody, mouse, reactRun, reactStart } from './17-dummies.js';
 import { net } from './19-network.js';
 import { updateC4, updateFrag } from './19b-explosives.js';
-import { keepSlot, updateFists } from './19c-toolvm.js';
+import { TV, keepSlot, updateFists } from './19c-toolvm.js';
 import { closeInv, dropWeapon } from './21-items-inventory.js';
-import { screenBlood } from './21b-screenfx.js';
+import { SFX, screenBlood, sfxClear } from './21b-screenfx.js';
 import { CON } from './25-console.js';
+import { gadgetGhostOff, updateGadget } from './27-gadgets.js';
+import { applyGadgets } from './28-match.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- physics helpers
 function blocked(pos, h, r) {
@@ -418,7 +420,7 @@ function updateWeapons(dt) {
   rackHint();
   if (P.downed || !P.alive || (!G && P.slot < 2)) { P.ads = 0; muzzleLight.intensity = 0; vmMuzzleLight.intensity = 0; return; }
   if (P.slot >= 2) {
-    keepSlot(); if (P.slot === 2) updateC4(dt); else if (P.slot === 3) updateFrag(dt); else if (P.slot === 4) updateFists(dt);
+    keepSlot(); if (P.slot !== 2) gadgetGhostOff(); if (P.slot === 2) (P.tool2 && P.tool2 !== 'c4' ? updateGadget(dt) : (typeof TV !== 'undefined' && TV.c4 && (TV.c4.visible = true), updateC4(dt))); else if (P.slot === 3) updateFrag(dt); else if (P.slot === 4) updateFists(dt);
     P.ads = damp(P.ads, 0, 14, dt); P.sprintBlend = damp(P.sprintBlend, P.sprinting ? 1 : 0, 10, dt);
     P.kick = damp(P.kick, 0, 14, dt); P.recoilPitch = damp(P.recoilPitch, 0, 9, dt);
     VMW.forEach(v => { v.flash.visible = false; }); muzzleLight.intensity = 0; vmMuzzleLight.intensity = 0;
@@ -626,11 +628,13 @@ function respawnLocal(sp) {
   // a fresh body: no holes, wounds, blood, tubes or missing parts carried over from the last life, on either body you own
   clearWounds(localBody); clearWounds(fpBody); fpBody.setLost(0); setHelmet(localBody, true);
   { const a = localBody.anim; a.hurt = 0; a.clutchT = 0; a.clutchW = 0; a.clutchF = null; a.woundF = null; a.braceP = null; a.braceW = 0; a.stag = 0; a.stagW = 0; localBody.fl = null; }
-  P.anat = new Anatomy(); P.downed = false; localBody.setLost(0); P.stance = 0; P.prone = 0; P.slot = 0; P.weapon = P.loadout[0]; P.medUses = 3; P.c4N = 2; P.fragN = 3; P.nade = null; P.c4 = null; P.emptySel = -1; P.healing = false; P.healT = 0; P.platesInv = 0; P.plating = false; P.plateTarget = null; P.invPlate = null; P.packGuns = []; P.loose = []; P.packPos = {}; P.supp = 0; P.downSent = false; P.lookX = P.lookY = 0; setHelmet(localBody, true);
+  P.anat = new Anatomy(); P.downed = false; localBody.setLost(0); P.stance = 0; P.prone = 0; P.slot = 0; P.weapon = P.loadout[0]; P.medUses = 3; P.c4N = 2; P.fragN = 3; P.tool2 = 'c4'; P.tool3 = 'frag'; if (S.mode === 'online') applyGadgets(); P.defOut = false; P.trapped = null; P.nade = null; P.c4 = null; P.emptySel = -1; P.healing = false; P.healT = 0; P.platesInv = 0; P.plating = false; P.plateTarget = null; P.invPlate = null; P.packGuns = []; P.loose = []; P.packPos = {}; P.supp = 0; P.downSent = false; P.lookX = P.lookY = 0; setHelmet(localBody, true);
   P.alive = true; P.stamina = 100; P.staminaLock = false; P.mantle = null; P.mantleK = 0; P.jumpCD = 0; P.landK = 0; P.crouch = 0; P.lean = 0; P.leanState = 0; P.adsOn = false;
   P.activeLo = P.loadout.slice(); P.guns = freshGuns(P.activeLo); P.reloading = false; P.inspecting = false; P.rag = null; P.headDeath = false;
   $('black').style.transition = 'opacity .35s'; $('black').style.opacity = '0';
   $('deathmsg').style.display = 'none'; $('dmgv').style.opacity = '0';
+  // nothing of the last life left on the screen: no blood on it, no downed text, no grey or blur
+  $('downmsg').style.display = 'none'; sfxClear(); SFX.deadT = 0; SFX.spec = 0; if (SFX.tn) SFX.tn.style.opacity = '0'; S.filt = null; SFX.filt = ''; renderer.domElement.style.filter = '';
 }
 function hurtFlash() { const d = $('dmgv'); d.style.transition = 'none'; d.style.opacity = '0.7'; requestAnimationFrame(() => { d.style.transition = 'opacity .6s'; d.style.opacity = String(clamp((5000 - P.anat.blood) / 6000, 0, 0.4)); }); }
 function hitmarker(kill) {

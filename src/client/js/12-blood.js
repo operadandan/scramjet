@@ -218,7 +218,7 @@ function muzzleSmoke(p, dir, wi, sup) {
 // ---------------------------------------------------------------- kill notification: skull and name, when you down or kill someone
 const SKULL_SVG = '<svg viewBox="0 0 64 64" width="30" height="30"><path fill="#e9e6df" d="M32 4C17 4 7 14 7 28c0 8 4 14 9 17v8c0 3 2 5 5 5h3v-6h4v6h8v-6h4v6h3c3 0 5-2 5-5v-8c5-3 9-9 9-17C57 14 47 4 32 4z"/><circle cx="22" cy="29" r="7" fill="#111"/><circle cx="42" cy="29" r="7" fill="#111"/><path d="M32 36l-5 8h10z" fill="#111"/></svg>';
 function killNotice(name) {
-  const k = $('killn'); k.innerHTML = SKULL_SVG + '<span>' + esc(name) + '</span>';
+  const k = $('killn'); k.innerHTML = '<span>' + esc(name) + '</span>';
   k.style.transition = 'none'; k.style.opacity = '1'; k.style.transform = 'translateX(-50%) scale(1.12)';
   requestAnimationFrame(() => requestAnimationFrame(() => { k.style.transition = 'transform .18s, opacity .5s 1.8s'; k.style.transform = 'translateX(-50%) scale(1)'; k.style.opacity = '0'; }));
   blip(880, 0.08, 0.05, 'sine'); setTimeout(() => blip(660, 0.12, 0.04, 'sine'), 70);

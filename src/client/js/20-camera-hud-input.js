@@ -1,7 +1,7 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { $, GFX, V3, camera, clamp, damp, lerp, ramp, renderer, rnd, sunDir, vmCamera, vmSun } from './00-setup.js';
-import { _Y, _a, _b, _c } from './04-ragdoll.js';
+import { _Y, _a, _b } from './04-ragdoll.js';
 import { DEATH_TEXT, makeBodyPanel } from './05-anatomy.js';
 import { WEAPONS, vm } from './06-weapons.js';
 import { lerpCurls } from './06c-arm-rig.js';
@@ -21,9 +21,11 @@ import { SFX, specNext } from './21b-screenfx.js';
 import { renderScore } from './22-menu-loop.js';
 import { siegeKeyDown, siegeKeyUp } from './23-siege.js';
 import { CON, conClose } from './25-console.js';
+import { GADGETS } from './27-gadgets.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- camera / viewmodel
 const camTarget = new V3(), _camQ = new THREE.Quaternion(), _camE = new THREE.Quaternion(), _camEu = new THREE.Euler();
+function specHeadLayer(r, l) { if (r && r.hum && r.hum.head) r.hum.head.traverse(o => o.layers.set(l)); }
 function updateCamera(dt) {
   if (!S.mode || (!P.alive && !P.rag)) {
     const t = performance.now() / 1000 * 0.05;
@@ -31,16 +33,18 @@ function updateCamera(dt) {
     camera.fov = 70; camera.updateProjectionMatrix();
     return;
   }
-  // dead in a round: over the shoulder of a teammate still fighting
+  // dead in a round: through a living teammate's eyes, looking where they look
   if (!P.alive && SFX.spec && S.remotes.get(SFX.spec)) {
-    const r = S.remotes.get(SFX.spec), y = r.yaw, pi = (r.st && r.st.pi) || 0, fw = _a.set(-Math.sin(y), 0, -Math.cos(y));
-    camTarget.copy(r.pos).add(_b.set(0, 1.85, 0)).addScaledVector(fw, -1.9).add(_c.set(Math.cos(y), 0, -Math.sin(y)).multiplyScalar(0.45));
-    camera.position.lerp(camTarget, 1 - Math.exp(-8 * dt));
-    _camQ.setFromEuler(_camEu.set(pi * 0.8 - 0.12, y, 0, 'YXZ')); camera.quaternion.slerp(_camQ, 1 - Math.exp(-8 * dt));
-    camera.fov = 75; camera.updateProjectionMatrix();
+    const r = S.remotes.get(SFX.spec), y = r.yaw, pi = (r.st && r.st.pi) || 0, c = (r.st && r.st.c) || 0, fw = _a.set(-Math.sin(y), 0, -Math.cos(y));
+    // (their head is kept off this camera's layer, not hidden: hidden doubles as 'no head' for the gore)
+    if (SFX.specHead !== r) { specHeadLayer(SFX.specHead, 0); SFX.specHead = r; specHeadLayer(r, 1); }
     if (P.rag && P.rag.headG) P.rag.headG.visible = true;
+    camera.position.copy(r.pos).add(_b.set(0, 1.62 - c * 0.55, 0)).addScaledVector(fw, 0.12);
+    _camQ.setFromEuler(_camEu.set(pi, y, 0, 'YXZ')); camera.quaternion.slerp(_camQ, 1 - Math.exp(-20 * dt));
+    camera.fov = 75; camera.updateProjectionMatrix();
     return;
   }
+  if (SFX.specHead) { specHeadLayer(SFX.specHead, 0); SFX.specHead = null; }
   if (!P.alive || P.downed) {
     // first person from the ragdoll's own head: the view goes where the head goes, the mouse only shifts the eyes a little
     const rg = P.rag; rg.headG.visible = false;
@@ -103,6 +107,8 @@ function updateCamera(dt) {
     P.ldv = (P.ldv || 0) + (-140 * (P.ld || 0) - 14 * (P.ldv || 0)) * h2; P.ld = (P.ld || 0) + P.ldv * h2;
     if (P.stepDip) { P.ld -= Math.min(P.stepDip, 0.36) * 0.5; P.stepDip = 0; }
     camera.position.y += clamp(P.ld, -0.25, 0.1); }
+  // vaulting through a window: the head ducks under the top of it, the whole way across
+  if (P.mantle && P.mantle.vault) camera.position.y = Math.min(camera.position.y, P.mantle.top + 0.72);
   // climbing over something: the head pitches down at the edge and comes up as the body goes over
   // staggered: the view reels and sinks, the head lolling forward; rocked by a hit: a short jolt
   P.stunV = damp(P.stunV || 0, P.stun > 0 ? 1 : 0, 14, dt);
@@ -262,7 +268,7 @@ function updateViewmodel(dt) {
 const bodyPanel = makeBodyPanel($('bodyui'), 'CONDITION'), targetPanel = makeBodyPanel($('targetui'), 'TARGET');
 function updateHUD() {
   const w = WEAPONS[P.weapon];
-  $('wname').textContent = P.downed ? (P.anat.paralyzed ? 'PARALYZED' : 'UNCONSCIOUS') : P.slot === 2 ? (P.c4N > 0 ? 'C4 x' + P.c4N : 'REMOTE DETONATOR') + (c4Mine().length ? '  (' + c4Mine().length + ' SET)' : '') : P.slot === 3 ? 'M67 x' + P.fragN + (P.nade && P.nade.cook ? '  (COOKING)' : P.nade && P.nade.ph === 'ready' ? '  (PIN OUT)' : '') : P.slot === 4 ? 'FISTS' : w.name + (P.anat.anyArm() ? '  (ARM DISABLED)' : '');
+  $('wname').textContent = P.downed ? (P.anat.paralyzed ? 'PARALYZED' : 'UNCONSCIOUS') : P.slot === 2 ? (P.tool2 && P.tool2 !== 'c4' ? GADGETS[P.tool2].name.toUpperCase() + ' x' + P.c4N + '  (CLICK TO PLACE)' : P.c4N > 0 ? 'C4 x' + P.c4N : 'REMOTE DETONATOR') + (c4Mine().length ? '  (' + c4Mine().length + ' SET)' : '') : P.slot === 3 ? GADGETS[P.tool3 || 'frag'].name.toUpperCase() + ' x' + P.fragN + (P.nade && P.nade.cook ? '  (COOKING)' : P.nade && P.nade.ph === 'ready' ? '  (PIN OUT)' : '') : P.slot === 4 ? (P.defOut ? 'DEFUSER' : 'FISTS') : w.name + (P.anat.anyArm() ? '  (ARM DISABLED)' : '');
   if (P.downed) $('downwhy').textContent = P.anat.paralyzed ? 'Spinal cord injury. You will not get up.' : 'You blacked out from the pain. You may come to if it eases (pain ' + Math.round(P.anat.painLvl) + ').';
   if (!P.alive || P.downed || P.slot >= 2) { $('scope').style.display = 'none'; $('acog').style.display = 'none'; }
   bodyPanel.update(P.alive ? P.anat : null, P.prone > 0.5 ? (P.anat.bothLegs() ? 'Legs out: crawling' : 'Prone') : '');
@@ -306,7 +312,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Backquote') { S.slow = !S.slow; $('slowmo').style.display = S.slow ? 'block' : 'none'; }
   if (e.code === 'KeyQ') P.leanState = P.leanState === -1 ? 0 : -1;
   if (e.code === 'KeyE') P.leanState = P.leanState === 1 ? 0 : 1;
-  { const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code); if (n >= 0) pressSlot(n); }
+  { const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].indexOf(e.code); if (n >= 0) pressSlot(n); }
   if (e.code === 'Space' && P.alive && P.downed && !e.repeat) { P.anat.kill('gaveup'); localDeath(); }
   if (e.code === 'KeyC' && P.alive && !P.anat.bothLegs()) P.stance = P.stance === 1 ? 0 : 1;
   if (e.code === 'KeyX' && P.alive && !P.anat.bothLegs()) { P.stance = P.stance === 2 ? 0 : 2; if (P.stance === 2) P.leanState = 0; }
@@ -339,7 +345,7 @@ addEventListener('wheel', e => { if (S.mode && S.locked) pressSlot((curSlot() + 
 document.addEventListener('pointerlockchange', () => {
   S.locked = document.pointerLockElement === renderer.domElement;
   if (S.locked && CON.open) conClose(true);
-  $('pause').style.display = (!S.locked && S.mode && !S.inv && !CON.open) ? 'flex' : 'none';
+  $('pause').style.display = (!S.locked && S.mode && !S.inv && !CON.open && !S.loOpen) ? 'flex' : 'none';
   if (!S.locked) { mouse.left = false; for (const k in keys) keys[k] = false; }
 });
 // pixelation: the scene is drawn at a lower resolution and scaled up with hard edges. 0 is off, 100 is very blocky

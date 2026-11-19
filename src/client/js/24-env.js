@@ -2,17 +2,18 @@
 import * as THREE from 'three';
 import { V3, camera, clamp, renderer, rnd, scene, sky, sun, sunDir, vmScene, vmSun } from './00-setup.js';
 import { colliders } from './01-world.js';
+import { HOUSE, TOWN, lampMat } from './01b-town.js';
 import { noiseHit } from './10-audio.js';
 import { pick } from './15-destruction.js';
 import { S } from './17-dummies.js';
 import { net } from './19-network.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- time of day and weather
-// The sun goes round (a whole day in 24 minutes by default), the sky, the light, its colour and the fog follow it; at night a
+// The sun goes round (a whole day in an hour by default; the house map starts every round at dawn, in the rain), the sky, the light, its colour and the fog follow it; at night a
 // dim blue moonlight is left, and the lights in the house come on. The weather drifts on its own every few minutes between
 // clear, cloudy, rain, storm (rain, wind, lightning) and fog, easing from one into the next. Online the host's clock and
 // weather are everyone's (sent with each round and whenever the weather turns); the command bar can set either.
-const ENV = { tod: 13, rate: 1 / 60, w: 'clear', from: 'clear', k: 1, nextT: 200, flash: 0, thunderT: 0, sendT: 0 };
+const ENV = { tod: 6.4, rate: 1 / 150, w: 'rain', from: 'rain', k: 1, nextT: 200, flash: 0, thunderT: 0, sendT: 0 };
 const WEATHER = {
   clear: { cloud: 0, rain: 0, fog: 0.0011, wind: 0.2 },
   cloudy: { cloud: 0.65, rain: 0, fog: 0.0028, wind: 0.5 },
@@ -24,9 +25,9 @@ const _hemi = scene.children.find(o => o.isHemisphereLight), _hemiI = _hemi ? _h
 const _fogDay = new THREE.Color(0xb4c2cf), _fogNight = new THREE.Color(0x0a0e15), _fogGrey = new THREE.Color(0x8a9096), _sunDay = new THREE.Color(0xfff0d8), _sunLow = new THREE.Color(0xff9a50), _moon = new THREE.Color(0x8fa6d8), _tmpC = new THREE.Color();
 const _sunReal = new V3();
 // the house lights: always there (a light added later would rebuild every shader), only lit at night
-const houseLights = [new THREE.PointLight(0xffd8a0, 0, 16, 1.6), new THREE.PointLight(0xffd8a0, 0, 16, 1.6), new THREE.PointLight(0xffd8a0, 0, 12, 1.6)];
-houseLights[0].position.set(-2, 2.5, 2); houseLights[1].position.set(2, 5.5, -2); houseLights[2].position.set(5, 2.5, -3.5);
-for (const l of houseLights) scene.add(l);
+// (one per room the map puts a lamp in: TOWN.lamps; the rest stay dark)
+const houseLights = []; for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xffd8a0, 0, 9, 1.7); l.position.set(0, -50, 0); scene.add(l); houseLights.push(l); }
+// (the lamp shades' glowing material, lampMat, is in 01b-town: the map is built before this file runs)
 // rain: streaks in a box that follows the camera
 const RAIN_N = 2400, rainGeo = new THREE.BufferGeometry(), rainPos = new Float32Array(RAIN_N * 6);
 for (let i = 0; i < RAIN_N; i++) { const x = rnd(-22, 22), y = rnd(0, 20), z = rnd(-22, 22); rainPos.set([x, y, z, x, y - 0.5, z], i * 6); }
@@ -76,10 +77,15 @@ function updateEnv(dt) {
   _tmpC.copy(_fogNight).lerp(_fogDay, day).lerp(_fogGrey, cloud * day * 0.7);
   scene.fog.color.copy(_tmpC); scene.fog.density = fogD;
   // the house lights at dusk
-  const lit = clamp(1 - day * 1.4, 0, 1) + cloud * 0.25 * day; for (const l of houseLights) l.intensity = lit * 7;
+  // the house lights: on through the day too when it is dark out (they are what lights the inside), brighter at night
+  const lit = clamp(0.55 + (1 - day) * 0.45 + cloud * 0.15, 0, 1), lamps = (typeof TOWN !== 'undefined' && TOWN.lamps) || [];
+  for (let i = 0; i < houseLights.length; i++) { const l = houseLights[i], q = lamps[i]; if (q && S.mode) { l.position.copy(q); l.intensity = lit * 6; } else l.intensity = 0; }
+  lampMat.emissiveIntensity = lamps.length ? lit * 1.6 : 0;
+  ENV.day = day; ENV.cloud = cloud; ENV.fogK = clamp((fogD - 0.002) / 0.02, 0, 1);
   // rain round the camera, falling and blown with the wind; not under a roof (it is only drawn outdoors)
-  const indoor = rain > 0.02 && colliders.some(c => c.min.y > camera.position.y + 0.3 && c.min.y < camera.position.y + 12 && camera.position.x > c.min.x && camera.position.x < c.max.x && camera.position.z > c.min.z && camera.position.z < c.max.z && (c.max.x - c.min.x) > 3 && (c.max.z - c.min.z) > 3);
-  rainMat.opacity = rain * (indoor ? 0.08 : 0.5); rainMesh.visible = rain > 0.02 && S.mode;
+  const cp = camera.position, inHouse = S.world !== 'lobby' && cp.x > HOUSE.x0 && cp.x < HOUSE.x1 && cp.z > HOUSE.z0 && cp.z < HOUSE.z1 && cp.y < HOUSE.f1 + HOUSE.H + 1;
+  const indoor = rain > 0.02 && (inHouse || colliders.some(c => c.min.y > camera.position.y + 0.3 && c.min.y < camera.position.y + 12 && camera.position.x > c.min.x && camera.position.x < c.max.x && camera.position.z > c.min.z && camera.position.z < c.max.z && (c.max.x - c.min.x) > 3 && (c.max.z - c.min.z) > 3));
+  rainMat.opacity = rain * 0.5; rainMesh.visible = rain > 0.02 && S.mode && !indoor;
   if (rainMesh.visible) {
     const P_ = rainGeo.attributes.position.array, fall = (9 + rain * 4) * dt, wind = envMix('wind') * 2.2 * dt;
     rainMesh.position.set(Math.floor(camera.position.x), 0, Math.floor(camera.position.z));
@@ -99,5 +105,5 @@ function updateEnv(dt) {
 const envClock = () => { const h = Math.floor(ENV.tod), m = Math.floor((ENV.tod - h) * 60); return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'); };
 
 // ---- module exports: build.mjs strips this block ----
-export { ENV, WEATHER, envApply, envClock, envCur, envSet, envShare, envSnap, updateEnv };
+export { ENV, WEATHER, envApply, envClock, envCur, envSet, envShare, envSnap, houseLights, updateEnv };
 // ---- end module exports ----

@@ -1,9 +1,10 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { V3 } from './00-setup.js';
-import { addBox, addGround, canvasTex, clearWorld, spawns, worldGroup, worldMeshes } from './01-world.js';
+import { addBox, addGround, canvasTex, clearWorld, mat, spawns, worldGroup, worldMeshes } from './01-world.js';
 import { DOOR_FW, DOOR_H, DOOR_W, addDoor } from './15b-doors.js';
 import { items } from './21-items-inventory.js';
+import { boardWindow, reinforceBox } from './23-siege.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- map building helpers (the multiplayer map is at the end)
 // (the helpers below were written for a whole street of houses: walls with openings, flats, cars, trees, fences)
@@ -73,10 +74,27 @@ const townFence = (ax, a, b, c, h) => townWall(ax, a, b, c, h || 1.5, 0.06, 'ply
 // start inside and have two bomb sites to hold (A: the kitchen downstairs, B: the main bedroom upstairs); the attackers start
 // out on the street and down the side road. Every window can be boarded up and every full-height wall panel reinforced.
 // x runs east, z south; the house stands from x -10 to 10, z -7 to 7, the front (south) facing the street.
+// small furnishings share a material per colour (kept from round to round: the world rebuilds every round)
+const DECO_MATS = new Map();
+// the lamp shades glow when the lights are on (shared by every lamp; 24-env sets how bright); the boards' colour
+const lampMat = new THREE.MeshStandardMaterial({ color: 0xf4ead8, emissive: 0xffd8a0, emissiveIntensity: 0, roughness: 0.8 }); lampMat.userData.shared = true;
+const BOARD_COL = 0x9a7a52;
+function decoMat(c) { let m = DECO_MATS.get(c); if (!m) { m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 }); m.userData.shared = true; DECO_MATS.set(c, m); } return m; }
+// the bomb: a steel case, three canisters strapped to it, the wiring, and a box with a lit display
+function townBomb(p) {
+  addBox(p.x, p.y, p.z, 0.64, 0.3, 0.44, 'metal', 0x2e322e); const g = new THREE.Group(); g.position.copy(p); worldGroup.add(g);
+  const mk = (geo, c, x, y, z, rx, rz, em) => { const m = new THREE.Mesh(geo, em ? new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 2.2, toneMapped: false }) : decoMat(c)); m.position.set(x, y, z); if (rx) m.rotation.x = rx; if (rz) m.rotation.z = rz; m.castShadow = true; g.add(m); return m; };
+  const can = new THREE.CylinderGeometry(0.075, 0.075, 0.5, 16);
+  for (const z of [-0.13, 0, 0.13]) mk(can, 0x4a5a32, 0, 0.375, z, 0, Math.PI / 2);
+  for (const x of [-0.17, 0.17]) mk(new THREE.BoxGeometry(0.035, 0.17, 0.42), 0x1a1a1a, x, 0.39, 0);
+  mk(new THREE.BoxGeometry(0.2, 0.12, 0.16), 0x202224, 0.06, 0.52, 0);
+  mk(new THREE.BoxGeometry(0.13, 0.045, 0.01), 0xff3020, 0.06, 0.53, 0.082, 0, 0, true);
+  for (let k = 0; k < 4; k++) mk(new THREE.CylinderGeometry(0.006, 0.006, 0.34, 5), [0xc02020, 0x2050c0, 0xe0c020, 0x20a040][k], -0.08 + k * 0.025, 0.47, -0.02 + k * 0.012, 0.9, 0.5);
+}
 const HOUSE = { x0: -10, x1: 10, z0: -7, z1: 7, f1: 3.0, H: 2.8, t: 0.2 };
 function buildTown() {
   clearWorld();
-  TOWN.windows = []; TOWN.sites = []; TOWN.def = []; TOWN.atk = [];
+  TOWN.windows = []; TOWN.sites = []; TOWN.def = []; TOWN.atk = []; TOWN.lamps = [];
   addGround(180, 'ground'); { const g = worldMeshes[worldMeshes.length - 1], t = TOWN_TEX.grass.clone(); t.needsUpdate = true; t.repeat.set(60, 60); g.material.map.dispose(); g.material.map = t; }
   const E = 46;
   // the street out front, the side road to the west, pavements, the drive and the path
@@ -134,26 +152,78 @@ function buildTown() {
   addBox(-3, f1 - 0.2, z1 + 1.4, 5, 0.2, 2.6, 'crate', 0x4a4440); for (const px of [-5.3, -0.7]) addBox(px, 0, z1 + 2.55, 0.18, f1 - 0.2, 0.18, 'crate', 0xe8e3d8);
   addBox(-3, 0, z1 + 0.9, 3, 0.15, 1.6, 'concrete', 0x9b978f);
   addBox(-6.6, 0, z1 + 1.9, 2, 1.45, 1.4, 'metal', 0x2e5a3a); addBox(-5.5, 0, z1 + 1.4, 0.1, f1, 2.6, 'crate', 0xe8e3d8);   // (and the porch's side wall, to get a hand on)   // (stand on it, then up onto the porch roof, then in at the window above)
-  // ---- furniture: cover inside (and something to plant beside on each site)
-  addBox(-6.5, 0, 4.8, 2.2, 0.85, 0.9, 'crate', 0x5b6a7a); addBox(-8.8, 0, 1.4, 0.9, 0.8, 2, 'crate', 0x5b6a7a);   // couches
-  addBox(4.5, 0, 4, 1.8, 0.78, 1, 'crate', 0x7a5a3a);   // dining table
-  addBox(2.5, 0, -6.4, 4, 0.95, 0.65, 'crate', 0xd8d2c4); addBox(9.35, 0, -4.9, 0.65, 0.95, 2.6, 'crate', 0xd8d2c4); addBox(4.5, 0, -3, 1.8, 0.95, 0.9, 'crate', 0xb8b2a4);   // kitchen counters and island
-  addBox(6.5, f1, -5, 2.2, 0.55, 2, 'crate', 0x8a96a8); addBox(9.4, f1, -1.2, 0.6, 1.9, 1.4, 'crate', 0x6a4e34);   // main bedroom
-  addBox(-7, f1, 4.6, 2, 0.55, 1.6, 'crate', 0xa8908a); addBox(-2.3, f1, -4, 1.4, 0.75, 0.7, 'crate', 0x6a4e34); addBox(6, f1, 5.8, 2.2, 0.85, 0.9, 'crate', 0x7a6a5a);
-  // ---- the two bomb sites
-  TOWN.sites = [{ id: 'A', p: new V3(6.5, 0, -3), name: 'A · Kitchen' }, { id: 'B', p: new V3(4.4, f1, -4.2), name: 'B · Main bedroom' }];
-  // ---- the lot: fences round the back garden, a shed, a car in the drive, trees, the street
+  // ---- furniture. Big pieces are solid (cover, things to vault and stand on); small things are only looks
+  const deco = (x, y, z, w, h, d, c, mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat || decoMat(c)); m.position.set(x, y + h / 2, z); m.castShadow = m.receiveShadow = true; worldGroup.add(m); return m; };
+  const cyl = (x, y, z, r, h, c) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 14), decoMat(c)); m.position.set(x, y + h / 2, z); m.castShadow = true; worldGroup.add(m); return m; };
+  const lamp = (x, y, z, light) => { deco(x, y - 0.16, z, 0.42, 0.14, 0.42, 0, lampMat); deco(x, y - 0.03, z, 0.06, 0.05, 0.06, 0x2a2a2a); if (light) TOWN.lamps.push(new V3(x, y - 0.35, z)); };
+  // living room (south-west): couches round a coffee table and the TV, a bookcase, a rug
+  addBox(-6.5, 0, 4.8, 2.2, 0.5, 0.9, 'crate', 0x5b6a7a); deco(-6.5, 0.5, 5.15, 2.2, 0.4, 0.2, 0x4f5d6c);
+  addBox(-8.8, 0, 1.6, 0.9, 0.5, 2, 'crate', 0x5b6a7a); deco(-9.15, 0.5, 1.6, 0.2, 0.4, 2, 0x4f5d6c);
+  addBox(-6.3, 0, 3.0, 1.1, 0.42, 0.6, 'crate', 0x6a4e34);
+  addBox(-4.5, 0, 0.38, 1.6, 0.5, 0.45, 'crate', 0x3a3430); deco(-4.5, 0.5, 0.33, 1.3, 0.75, 0.06, 0x101114);
+  addBox(-9.68, 0, 5.8, 0.35, 1.9, 1.4, 'crate', 0x6a4e34); for (let k = 0; k < 4; k++) deco(-9.5, 0.3 + k * 0.42, 5.8, 0.05, 0.28, 1.2, [0x8a3a2a, 0x2a4a6a, 0x5a6a3a, 0x7a6a4a][k]);
+  townFlat(-6.3, 3.0, 3.2, 2.4, 'pave', 3.2, 0.008, 0x6e3c34);
+  // dining room (south-east): table and four chairs, a sideboard
+  addBox(4.5, 0, 4, 1.8, 0.76, 1, 'crate', 0x7a5a3a);
+  for (const [cx, cz, s] of [[3.9, 3.05, -1], [5.1, 3.05, -1], [3.9, 4.95, 1], [5.1, 4.95, 1]]) { addBox(cx, 0, cz, 0.44, 0.46, 0.44, 'crate', 0x6a4e34); deco(cx, 0.46, cz + s * 0.2, 0.44, 0.5, 0.05, 0x6a4e34); }
+  addBox(8.5, 0, 0.36, 1.8, 0.85, 0.45, 'crate', 0x5a3e2a);
+  // kitchen (north-east, bomb site A): counters along the back wall (the stove and the sink in them), the fridge, an island,
+  // cupboards on the wall clear of the windows
+  addBox(2.5, 0, -6.4, 4, 0.92, 0.62, 'crate', 0xd8d2c4); deco(2.5, 0.92, -6.4, 4.02, 0.04, 0.64, 0x3a3836);
+  deco(1.2, 0.96, -6.4, 0.6, 0.02, 0.5, 0x151515); deco(3.6, 0.93, -6.45, 0.5, 0.04, 0.35, 0x9aa0a6);
+  addBox(9.35, 0, -4.9, 0.62, 0.92, 2.6, 'crate', 0xd8d2c4); deco(9.35, 0.92, -4.9, 0.64, 0.04, 2.62, 0x3a3836);
+  addBox(4.5, 0, -2.9, 1.8, 0.92, 0.9, 'crate', 0xb8b2a4); deco(4.5, 0.92, -2.9, 1.82, 0.04, 0.92, 0x3a3836);
+  addBox(-2.5, 0, -6.45, 0.75, 1.85, 0.68, 'metal', 0xe8e8e4);
+  deco(1.15, 1.55, -6.68, 1.3, 0.7, 0.32, 0xcfc8b8); deco(3.85, 1.55, -6.68, 1.3, 0.7, 0.32, 0xcfc8b8);
+  // stair hall (north-west): a coat stand and a shoe rack by the door through, a banister up the stairs
+  addBox(-4, 0, -0.45, 1.2, 0.45, 0.32, 'crate', 0x5a4632);
+  for (let k = 0; k < 5; k++) deco(-9.2 + k * 0.8, k * 0.8 * 0.67, -5.68, 0.05, 1.0, 0.05, 0x5a4632);
+  // upstairs. Main bedroom (north-east, bomb site B): the bed, bedside tables, the wardrobe, a dresser
+  addBox(6.5, f1, -5, 2.2, 0.5, 2, 'crate', 0x8a96a8); deco(6.5, f1 + 0.5, -5.85, 2.2, 0.55, 0.15, 0x5a4632); deco(6.0, f1 + 0.5, -5.55, 0.6, 0.12, 0.35, 0xeeeeea); deco(7.0, f1 + 0.5, -5.55, 0.6, 0.12, 0.35, 0xeeeeea);
+  addBox(4.95, f1, -6.4, 0.5, 0.55, 0.45, 'crate', 0x6a4e34); addBox(8.05, f1, -6.4, 0.5, 0.55, 0.45, 'crate', 0x6a4e34);
+  addBox(9.4, f1, -1.2, 0.6, 1.9, 1.4, 'crate', 0x6a4e34); addBox(2.2, f1, -6.6, 1.3, 0.9, 0.5, 'crate', 0x7a5a3a);
+  // the landing and study (north-west): a desk and chair, a bookcase
+  addBox(-2.3, f1, -4, 1.4, 0.75, 0.7, 'crate', 0x6a4e34); addBox(-2.3, f1, -3.3, 0.45, 0.46, 0.45, 'crate', 0x3a3a3a);
+  addBox(-0.28, f1, -3.0, 0.35, 1.9, 1.4, 'crate', 0x6a4e34);
+  // the second bedroom (south-west): bed, dresser
+  addBox(-7, f1, 4.6, 2, 0.5, 1.6, 'crate', 0xa8908a); deco(-7, f1 + 0.5, 5.32, 2, 0.5, 0.15, 0x5a4632); addBox(-3.2, f1, 6.6, 1.2, 0.85, 0.5, 'crate', 0x7a5a3a);
+  // the bathroom (south-east): a bath, a toilet, a basin
+  addBox(8.6, f1, 5.95, 1.6, 0.55, 0.8, 'crate', 0xf0f0ec); deco(8.6, f1 + 0.55, 5.95, 1.4, 0.02, 0.6, 0x9ab8c8);
+  addBox(9.55, f1, 1.6, 0.6, 0.45, 0.42, 'crate', 0xf0f0ec); deco(9.8, f1 + 0.45, 1.6, 0.18, 0.4, 0.4, 0xf0f0ec);
+  addBox(5.2, f1, 6.7, 0.6, 0.85, 0.4, 'crate', 0xf0f0ec);
+  addBox(2.5, f1, 3.2, 0.05, 2.6, 1.6, 'drywall', 0xe8e3d8);   // (a half wall between the bath and the office part)
+  addBox(3.6, f1, 1.2, 1.2, 0.75, 0.6, 'crate', 0x6a4e34);
+  // the lights: one in each room (the brightest ones really light; the rest just glow)
+  lamp(-6.5, f1 - 0.2, -2.6, true); lamp(4, f1 - 0.2, -3.6, true); lamp(-5.5, f1 - 0.2, 3.5, true); lamp(4.5, f1 - 0.2, 3.5, true);
+  lamp(5, f1 + H - 0.02, -3.5, true); lamp(-4.5, f1 + H - 0.02, 3.5, true); lamp(-4, f1 + H - 0.02, -2.5); lamp(6, f1 + H - 0.02, 3.5);
+  // a light by the front door, sills under the windows, a chimney
+  deco(-1.6, 2.15, z1 + 0.13, 0.14, 0.24, 0.1, 0, lampMat);
+  for (const w of TOWN.windows) if (w.t > 0.15) { const out = Math.abs(w.p.z) > 6 ? Math.sign(w.p.z) : 0, ox = out ? 0 : Math.sign(w.p.x); deco(w.p.x + ox * (t / 2 + 0.05), w.y0 - 0.06, w.p.z + out * (t / 2 + 0.05), out ? w.w + 0.16 : 0.12, 0.06, out ? 0.12 : w.w + 0.16, 0xe8e3d8); }
+  addBox(7, f1 + H + 0.2, -1.5, 0.9, 1.6, 0.9, 'concrete', 0x8a5040);
+  // ---- the two bombs, each on its site
+  TOWN.sites = [{ id: 'A', p: new V3(7.4, 0, -5.4), name: 'A · Kitchen' }, { id: 'B', p: new V3(2.6, f1, -4.6), name: 'B · Main bedroom' }];
+  for (const s of TOWN.sites) townBomb(s.p);
+  // ---- every window boarded up to begin with, and some walls already reinforced round the sites
+  for (let i = 0; i < TOWN.windows.length; i++) boardWindow(i);
+  for (const b of [[4.25, 0, -0.1, 1.4, f1, 0.05], [4.3, 0, -6.875, 1.4, f1, 0.05], [0.1, f1, -4.5, 0.05, H, 1.4], [2.5, f1, -0.1, 1.4, H, 0.05]]) reinforceBox(b);
+  // ---- the lot: fences round the back garden, a shed, a patio, a car in the drive, bins, trees, the street
   townFence('x', x0 - 6, x1 + 6, -16, 1.8); townFence('z', -16, 2, x0 - 6, 1.5); townFence('z', -16, 2, x1 + 6, 1.5);
   addBox(10.5, 0, -12.5, 3, 2.3, 2.4, 'crate', 0x7a6650);
+  townFlat(-2, -9.5, 6, 3.4, 'pave', 1.5, 0.006, 0xa8a49c); addBox(-2, 0, -9.8, 1.2, 0.72, 0.8, 'crate', 0x8a8a84);
+  addBox(11.2, 0, 1.2, 0.6, 1.1, 0.6, 'metal', 0x2e4a2e); addBox(11.2, 0, 2.0, 0.6, 1.1, 0.6, 'metal', 0x2a3a5a);
+  addBox(-1.2, 0, 16.2, 0.25, 1.15, 0.45, 'metal', 0x2a2a2a);
   townCar(7, 12.5, 'z', 0x34506e); townCar(-12, 22, 'x', 0x9a9a92); townCar(16, 21.6, 'x', 0x6e2e2e); townCar(-26, -4, 'z', 0x2e2e2e);
-  for (const [x, z, k] of [[-13, 11, 1], [13, 9, 0.9], [-14, -11, 1.1], [3, -12, 0.9], [20, -6, 1], [-34, 8, 1], [30, 10, 1]]) townTree(x, z, k);
-  for (const [x, z] of [[-17, 30], [12, 32], [-30, 26], [30, 30]]) addBox(x, 0, z, 2.6, 1.2, 1.2, 'concrete', 0x8a867e);   // planters across the street
-  // ---- spawns
-  TOWN.def = [new V3(-6, 0, 2.5), new V3(4, 0, 1.8), new V3(-6.5, 0, -3), new V3(1, 0, -4), new V3(-5, f1, 3), new V3(4.5, f1, 2.5), new V3(-4, f1, -3), new V3(4.5, f1, -2)];
-  TOWN.atk = [new V3(-8, 0, 34), new V3(-3, 0, 35), new V3(3, 0, 34), new V3(8, 0, 35), new V3(-36, 0, -10), new V3(-36, 0, -4), new V3(-36, 0, 2), new V3(-36, 0, -16)];
+  for (const [x, z, k] of [[-13, 11, 1], [13, 9, 0.9], [-13.5, -11, 1.1], [3, -13, 0.9], [20, -6, 1], [-34, 8, 1], [30, 10, 1]]) townTree(x, z, k);
+  // where the attackers start: behind a van and a low wall across the street, and behind a garage down the side road
+  addBox(-3.5, 0, 31, 5.2, 2.3, 2.1, 'metal', 0xe8e8e0); addBox(4.5, 0, 31, 4.5, 1.25, 0.4, 'concrete', 0x8a867e);
+  for (const [x, z] of [[-17, 30], [12, 32], [-30, 26], [30, 30]]) addBox(x, 0, z, 2.6, 1.2, 1.2, 'concrete', 0x8a867e);
+  addBox(-34, 0, -8, 4.5, 2.7, 7, 'crate', 0x9a8a78); addBox(-34, 2.7, -8, 5, 0.2, 7.5, 'crate', 0x4a4440);
+  // ---- spawns: the defenders inside, away from the doors and windows; the attackers behind their cover
+  TOWN.def = [new V3(-5.8, 0, -2.4), new V3(1.8, 0, -3.6), new V3(-4.6, 0, 2.0), new V3(2.2, 0, 1.8), new V3(-3.4, f1, -2.2), new V3(4.6, f1, -2.4), new V3(-4.4, f1, 2.4), new V3(4.6, f1, 3.2)];
+  TOWN.atk = [new V3(-5, 0, 33.4), new V3(-2, 0, 33.4), new V3(3, 0, 32.6), new V3(6, 0, 32.6), new V3(-37.6, 0, -10), new V3(-37.6, 0, -8), new V3(-37.6, 0, -6), new V3(-37.6, 0, -11.8)];
   spawns = TOWN.atk.concat(TOWN.def);
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { TOWN, buildTown };
+export { BOARD_COL, HOUSE, TOWN, buildTown, decoMat, lampMat };
 // ---- end module exports ----

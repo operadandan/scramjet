@@ -2,7 +2,8 @@
 import * as THREE from 'three';
 import { V3, camera, clamp, scene } from './00-setup.js';
 import { addBox, colliders, worldMeshes } from './01-world.js';
-import { TOWN } from './01b-town.js';
+import { BOARD_COL, TOWN } from './01b-town.js';
+import { vm } from './06-weapons.js';
 import { blip, noiseHit } from './10-audio.js';
 import { floorAt } from './14-wounds.js';
 import { P, S } from './17-dummies.js';
@@ -13,7 +14,7 @@ import { DEF_TEAM, net, teamName } from './19-network.js';
 // The room decides (19-network HostRoom.sgMsg): who carries the defuser, when it is planted, when it is disabled. This file is
 // what each player sees and does: hold F to plant or disable the defuser, board up a window, reinforce a wall, or revive a
 // downed teammate; a dropped defuser is picked up by walking over it. Everything held shows what F will do and how far along it is.
-const SG = { carrier: null, drop: null, plant: null, rfLeft: 2, act: null, takeT: 0, beepT: 0, markers: [], dropM: null, plantM: null };
+const SG = { carrier: null, drop: null, plant: null, rfLeft: 2, act: null, takeT: 0, beepT: 0, markers: [], dropM: null, plantM: null, found: new Set(), findT: 0 };
 const SG_REACH = 2.3;
 const _sgRay = new THREE.Raycaster(), _sgO = new V3(), _sgD = new V3(), _sgV = new V3();
 // the look of what F will make, before it is made: a see-through board or panel, or a ring round a body or a site
@@ -49,12 +50,14 @@ function siegeClear() {
 }
 function siegeReset() {
   siegeClear(); SG.rfLeft = 2;
-  for (const s of TOWN.sites) { const m = sgMarker(s.id, '#ffd166'); m.position.copy(s.p).setY(s.p.y + 1.4); SG.markers.push(m); }
+  SG.found = new Set();
+  for (const s of TOWN.sites) { const m = sgMarker(s.id, '#ffd166'); m.position.copy(s.p).setY(s.p.y + 1.4); m.userData.site = s.id; m.visible = false; SG.markers.push(m); }
 }
 // the round's state as the room sent it (joining: the boards and reinforcements already up, too)
 function siegeRound(m, joining) {
   if (joining || (m.ph === 'live' && !SG.markers.length)) siegeReset();
   SG.carrier = m.dfz || null;
+  if (Array.isArray(m.fd)) for (const id of m.fd) SG.found.add(id);
   siegeSetDrop(Array.isArray(m.dz) ? m.dz : null);
   if (m.pl && !SG.plant) siegePlanted(m.pl.site, Number(m.pl.left) || 0);
   if (!m.pl && SG.plant && m.ph !== 'post') { SG.plant = null; sgDisposeModel(SG.plantM); SG.plantM = null; }
@@ -80,6 +83,7 @@ function siegeRx(m) {
     case 'carrier': SG.carrier = m.id; siegeSetDrop(null); if (m.id === S.myId) flashMsg('YOU HAVE THE DEFUSER<small>Plant it at bomb site A or B</small>', 2500); break;
     case 'drop': SG.carrier = null; siegeSetDrop(Array.isArray(m.p) ? m.p : null); if (S.team[S.myId] === 'r') feed('<span style="color:#ffd166">The defuser was dropped</span>'); break;
     case 'plant': siegePlanted(m.site, Number(m.left) || 45000); feed(teamName(m.by) + ' <span style="color:#ffd166">planted the defuser at ' + esc(String(m.site)) + '</span>'); noiseHit(900, 0.1, 0.06); break;
+    case 'found': if (!SG.found.has(m.site)) { SG.found.add(m.site); if (S.team[S.myId] === 'r') feed(teamName(m.by) + ' <span style="color:#ffd166">found bomb site ' + esc(String(m.site)) + '</span>'); } break;
     case 'bd': boardWindow(m.i | 0); break;
     case 'rf': reinforceBox(m.b); break;
   }
@@ -87,7 +91,6 @@ function siegeRx(m) {
 
 // ---- boards and reinforcements
 // three planks across the opening, with slits between them to see (and shoot) through. Plywood: shot or blown apart like any
-const BOARD_COL = 0x9a7a52;
 function boardWindow(i) {
   const w = TOWN.windows[i]; if (!w || w.boarded) return; w.boarded = true; w.boards = [];
   const h = (w.y1 - w.y0 - 0.1) / 3;
@@ -153,7 +156,8 @@ function siegeCandidate() {
     // the defuser onto a site (whoever carries it), or off one (a defender)
     for (const s of TOWN.sites) {
       if (Math.abs(s.p.y - P.pos.y) > 1.2 || Math.hypot(s.p.x - P.pos.x, s.p.z - P.pos.z) > 2) continue;
-      if (SG.carrier === S.myId && !SG.plant) return { key: 'pl' + s.id, label: 'Plant the defuser at ' + s.id, time: 5, ring: s.p, go: () => net.send({ t: 'sg', a: 'plant', site: s.id }) };
+      if (SG.carrier === S.myId && !SG.plant) return P.defOut ? { key: 'pl' + s.id, label: 'Plant the defuser on bomb ' + s.id, time: 5, ring: s.p, go: () => net.send({ t: 'sg', a: 'plant', site: s.id }) }
+        : { key: 'pq' + s.id, label: 'Take out the defuser (5), then plant it', time: Infinity, ring: s.p, go: () => {} };
       if (my === DEF_TEAM && SG.plant && SG.plant.site === s.id) return { key: 'ds' + s.id, label: 'Disable the defuser', time: 6, ring: s.p, go: () => net.send({ t: 'sg', a: 'disable' }) };
     }
   }
@@ -166,7 +170,7 @@ function siegeCandidate() {
     const hu = o[u] + dir[u] * t, hy = o.y + dir.y * t;
     if (Math.abs(hu - w.p[u]) > w.w / 2 + 0.05 || hy < w.y0 - 0.05 || hy > w.y1 + 0.05) continue;
     const b = w.ax === 'x' ? [w.p.x, (w.y0 + w.y1) / 2, w.p.z, w.w + 0.14, w.y1 - w.y0, 0.05] : [w.p.x, (w.y0 + w.y1) / 2, w.p.z, 0.05, w.y1 - w.y0, w.w + 0.14];
-    return { key: 'bd' + i, label: 'Board up the window', time: 2.5, ghost: b, go: () => { boardWindow(i); net.send({ t: 'sg', a: 'bd', i }); } };
+    return { key: 'bd' + i, label: 'Board up the window', time: 2.5, go: () => { boardWindow(i); net.send({ t: 'sg', a: 'bd', i }); } };
   }
   // a wall of the house looked at: reinforce it
   if (SG.rfLeft > 0) {
@@ -175,7 +179,7 @@ function siegeCandidate() {
     const h = _sgRay.intersectObjects(SG.walls, false)[0]; _sgRay.firstHitOnly = false;
     if (h && h.object.userData.house !== undefined && h.object.userData.kind === 'drywall') {
       const b = reinfPanel(h.object, h.point);
-      if (b) return { key: 'rf' + b.join(','), label: 'Reinforce the wall (' + SG.rfLeft + ' left)', time: 3, ghost: [b[0], b[1] + b[4] / 2, b[2], b[3], b[4], b[5]], go: () => { reinforceBox(b); SG.rfLeft--; net.send({ t: 'sg', a: 'rf', b }); } };
+      if (b) return { key: 'rf' + b.join(','), label: 'Reinforce the wall (' + SG.rfLeft + ' left)', time: 3, go: () => { reinforceBox(b); SG.rfLeft--; net.send({ t: 'sg', a: 'rf', b }); } };
     }
   }
   return null;
@@ -189,7 +193,12 @@ function siegeHint() {
   const k = SG.act ? clamp(SG.act.t / SG.act.time, 0, 1) : 0;
   return '<b>F</b> Hold to ' + c.label.charAt(0).toLowerCase() + c.label.slice(1) + '<div class="hb"><i style="width:' + Math.round(k * 100) + '%"></i></div>';
 }
+// the defuser in your hands (slot 5)
+let sgVmDef = null;
 function siegeUpdate(dt) {
+  if (!sgVmDef) { sgVmDef = sgDefuserModel(); scene.remove(sgVmDef); sgVmDef.position.set(0.17, -0.25, -0.42); sgVmDef.rotation.set(0.5, -0.4, 0); sgVmDef.scale.setScalar(0.9); vm.add(sgVmDef); }
+  sgVmDef.visible = !!(S.mode === 'online' && P.alive && !P.downed && P.defOut && P.slot === 4 && SG.carrier === S.myId);
+  if (P.defOut && SG.carrier !== S.myId) P.defOut = false;
   if (S.mode !== 'online' || !S.R) { sgGhost.visible = sgRing.visible = false; return; }
   // (what F would do is looked for ten times a second, not every frame)
   SG.candT = (SG.candT || 0) - dt; if (SG.candT <= 0 || SG.act) { SG.candT = 0.1; sgCand = siegeCandidate(); }
@@ -202,6 +211,19 @@ function siegeUpdate(dt) {
   const c = SG.act || sgCand;
   sgGhost.visible = !!(c && c.ghost); if (sgGhost.visible) { const g = c.ghost; sgGhost.position.set(g[0], g[1], g[2]); sgGhost.scale.set(g[3], g[4], g[5]); }
   sgRing.visible = !!(c && c.ring); if (sgRing.visible) { sgRing.position.set(c.ring.x, (c.ring.y < 0.6 ? floorAt(c.ring.x, c.ring.y + 0.5, c.ring.z) : c.ring.y) + 0.03, c.ring.z); const k = 1 + Math.sin(performance.now() / 160) * 0.06; sgRing.scale.set(k, k, k); }
+  // the bomb sites: the defenders know where they are; the attackers have to find them (in sight, close enough to see what it
+  // is), and once one of them has, the rest of the team sees it marked too
+  const my = S.team[S.myId];
+  for (const m of SG.markers) m.visible = S.R.ph !== 'lobby' && (my === DEF_TEAM || SG.found.has(m.userData.site));
+  SG.findT -= dt;
+  if (my === 'r' && P.alive && S.R.ph === 'live' && SG.findT <= 0) {
+    SG.findT = 0.3; const o = camera.getWorldPosition(_sgO), dir = camera.getWorldDirection(_sgD);
+    for (const s of TOWN.sites) {
+      if (SG.found.has(s.id)) continue; const to = _sgV.copy(s.p).setY(s.p.y + 0.35).sub(o), d = to.length(); if (d > 9 || to.normalize().dot(dir) < 0.55) continue;
+      _sgRay.set(o, to); _sgRay.far = d; _sgRay.firstHitOnly = true; const h = _sgRay.intersectObjects(worldMeshes, false)[0]; _sgRay.firstHitOnly = false;
+      if (!h || h.distance > d - 0.5) { SG.found.add(s.id); net.send({ t: 'sg', a: 'found', site: s.id }); feed('<span style="color:#ffd166">You found bomb site ' + s.id + '</span>'); }
+    }
+  }
   // the defuser lying where its carrier fell: an attacker walking over it picks it up
   SG.takeT -= dt;
   if (SG.drop && P.alive && !P.downed && S.team[S.myId] === 'r' && SG.takeT <= 0 && SG.drop.distanceTo(P.pos) < 1.3) { SG.takeT = 1; net.send({ t: 'sg', a: 'take' }); }
@@ -214,5 +236,5 @@ function siegeUpdate(dt) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { SG, siegeBlast, siegeClear, siegeHint, siegeKeyDown, siegeKeyUp, siegeReset, siegeRound, siegeRx, siegeUpdate };
+export { SG, boardWindow, reinforceBox, sgDisposeMarker, sgMarker, siegeBlast, siegeClear, siegeHint, siegeKeyDown, siegeKeyUp, siegeReset, siegeRound, siegeRx, siegeUpdate };
 // ---- end module exports ----

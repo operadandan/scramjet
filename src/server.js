@@ -16,7 +16,8 @@ async function getDB(env) {
     await env.DB.batch([
       env.DB.prepare("CREATE TABLE IF NOT EXISTS rooms (code TEXT PRIMARY KEY, host TEXT NOT NULL, seen INTEGER NOT NULL)"),
       env.DB.prepare("CREATE TABLE IF NOT EXISTS sig (id INTEGER PRIMARY KEY AUTOINCREMENT, room TEXT NOT NULL, dst TEXT NOT NULL, src TEXT NOT NULL, data TEXT NOT NULL, ts INTEGER NOT NULL)"),
-      env.DB.prepare("CREATE INDEX IF NOT EXISTS sig_dst ON sig (room, dst, id)")
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS sig_dst ON sig (room, dst, id)"),
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS pubs (code TEXT PRIMARY KEY, seen INTEGER NOT NULL, open INTEGER NOT NULL, n INTEGER NOT NULL)")
     ]);
     dbReady = true;
   }
@@ -65,12 +66,24 @@ async function handleApi(request, env, url) {
     }
     case "/api/ping": {
       await db.prepare("UPDATE rooms SET seen = ? WHERE code = ? AND host = ?").bind(now, cleanCode(body.room), cleanId(body.id)).run();
+      // a public room (made by "queue up"): listed while it is on its baseplate with room to spare
+      if (body.pub) {
+        const own = await db.prepare("SELECT 1 FROM rooms WHERE code = ? AND host = ?").bind(cleanCode(body.room), cleanId(body.id)).first();
+        if (own) await db.prepare("INSERT OR REPLACE INTO pubs (code, seen, open, n) VALUES (?, ?, ?, ?)").bind(cleanCode(body.room), now, body.open ? 1 : 0, Math.max(0, Math.min(99, Number(body.n) || 0))).run();
+      }
       return json({ ok: true });
     }
     case "/api/unhost": {
       let b = body; if (!b.room) { try { b = JSON.parse(await request.text()); } catch (e) {} }
       await db.prepare("DELETE FROM rooms WHERE code = ? AND host = ?").bind(cleanCode(b.room), cleanId(b.id)).run();
+      await db.prepare("DELETE FROM pubs WHERE code = ? AND NOT EXISTS (SELECT 1 FROM rooms WHERE code = ? AND host != ?)").bind(cleanCode(b.room), cleanCode(b.room), cleanId(b.id)).run();
       return json({ ok: true });
+    }
+    // queue up: the fullest public room still between matches (on its baseplate) with room for one more, if there is one
+    case "/api/queue": {
+      await db.prepare("DELETE FROM pubs WHERE seen < ?").bind(now - 60000).run();
+      const row = await db.prepare("SELECT code FROM pubs WHERE open = 1 AND seen > ? AND n < ? ORDER BY n DESC LIMIT 1").bind(now - HOST_TTL, 8).first();
+      return json({ room: row ? row.code : null });
     }
     case "/api/room": {
       const row = await db.prepare("SELECT host, seen FROM rooms WHERE code = ?").bind(cleanCode(url.searchParams.get("room"))).first();
@@ -114,7 +127,8 @@ export default {
   }
 };
 
-export class GameRoom extends DurableObject {
+export const GD_RULES = { claymore: ['r', 1], beartrap: ['b', 3], wire: ['b', 2], shield: ['b', 1], alarm: ['b', 2] };
+class GameRoom extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.players = new Map();
@@ -135,7 +149,7 @@ export class GameRoom extends DurableObject {
     const p = { id: this.nextId++, ws: server, name: "", ready: false, hp: 100, alive: false, state: null, lastHit: 0, kills: 0, deaths: 0 };
     this.players.set(p.id, p);
     server.addEventListener("message", e => this.onMessage(p, e.data));
-    const drop = () => { if (this.players.has(p.id)) this.sgDrop(p); if (this.players.delete(p.id)) { this.broadcast({ t: "leave", id: p.id }); if (!this.players.size) { if (this.R.tm) clearTimeout(this.R.tm); this.rInit(); } else this.rCheck(); } };
+    const drop = () => { if (this.players.has(p.id)) this.sgDrop(p); delete this.R.votes[p.id]; if (this.players.delete(p.id)) { this.broadcast({ t: "leave", id: p.id }); if (!this.players.size) { if (this.R.tm) clearTimeout(this.R.tm); this.rInit(); } else this.rCheck(); } };
     server.addEventListener("close", drop);
     server.addEventListener("error", drop);
     return new Response(null, { status: 101, webSocket: client });
@@ -160,7 +174,7 @@ export class GameRoom extends DurableObject {
         this.send(p, { t: "welcome", id: p.id, players, r: this.rMsg() });
         this.broadcast({ t: "join", id: p.id, name: p.name, tm: p.team }, p);
         // mid-round: waits for the next one
-        if (this.R.ph === "warm" || this.R.ph === "pre") this.spawn(p);
+        if (this.R.ph === "lobby" || this.R.ph === "load") this.spawn(p);
         this.rCheck();
         break;
       }
@@ -187,9 +201,10 @@ export class GameRoom extends DurableObject {
       // doors: what a player did to one goes to everyone else; the doors as they are, from one player to one joining
       case "door": { if (p.ready && Number.isInteger(m.i) && m.i >= 0 && m.i < 64 && raw.length < 300) { m.id = p.id; this.broadcast(m, p); } break; }
       case "dsnap": { const tg = this.players.get(m.to); if (p.ready && tg && tg !== p && Array.isArray(m.s) && raw.length < 1900) this.send(tg, { t: "dsnap", s: m.s }); break; }
+      case "vote": if (p.ready && this.R.ph === "lobby" && m.map === "house") { this.R.votes[p.id] = "house"; this.broadcast(this.rMsg()); } break;
       case "sg": if (raw.length < 400) this.sgMsg(p, m); break;
       case "chat": if (p.ready && typeof m.s === "string" && m.s.trim() && (p.chatT || 0) < Date.now() - 500) { p.chatT = Date.now(); this.broadcast({ t: "chat", id: p.id, s: m.s.slice(0, 120) }, p); } break;
-      case "x": { if (p.ready && raw.length < 600 && ["c4p", "c4t", "nade", "boom", "chk"].includes(m.a)) this.broadcast({ t: "x", id: p.id, a: m.a, k: m.k === "c4" ? "c4" : "frag", i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0, w: m.w, c: Number(m.c) || 0, tg: Number.isFinite(m.tg) ? m.tg : undefined, tp: Number(m.tp) || 0, lp: m.lp, lq: m.lq, ob: m.ob ? 1 : 0, T: Array.isArray(m.T) ? m.T.slice(0, 48).map(Number) : undefined, C: Array.isArray(m.C) ? m.C.slice(0, 32).map(Number) : undefined, H: Array.isArray(m.H) ? m.H.slice(0, 24).map(Number) : undefined }, p); break; }
+      case "x": { if (p.ready && raw.length < 600 && ["c4p", "c4t", "nade", "boom", "chk", "gd", "gdx"].includes(m.a) && this.xGuard(p, m)) this.broadcast({ t: "x", id: p.id, a: m.a, k: ["c4", "frag", "smoke", "flash", "claymore", "beartrap", "wire", "shield", "alarm", "snap", "rustle"].includes(m.k) ? m.k : "frag", i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0, w: m.w, c: Number(m.c) || 0, tg: Number.isFinite(m.tg) ? m.tg : undefined, tp: Number(m.tp) || 0, lp: m.lp, lq: m.lq, ob: m.ob ? 1 : 0, T: Array.isArray(m.T) ? m.T.slice(0, 48).map(Number) : undefined, C: Array.isArray(m.C) ? m.C.slice(0, 32).map(Number) : undefined, H: Array.isArray(m.H) ? m.H.slice(0, 24).map(Number) : undefined }, p); break; }
       // a punch: forwarded to the one hit, whose client works out the bruise
       case "punch": { const tgt = this.players.get(m.id); if (p.ready && p.alive && tgt && tgt !== p && tgt.alive && Date.now() - (p.lastPunch || 0) > 220) { p.lastPunch = Date.now(); this.send(tgt, { t: "punched", by: p.id, f: String(m.f || "").slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)) }); } break; }
       case "hit": this.hit(p, m); break;
@@ -198,7 +213,28 @@ export class GameRoom extends DurableObject {
     }
   }
 
+  // gadgets: the room keeps track of what was placed, by whom, so a placement or a trigger can be checked (and stamped with the sender's side)
+  xGuard(p, m) {
+    const R = this.R, now = Date.now(), at = p.state && Array.isArray(p.state.p) ? p.state.p : null;
+    const fin = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite), near = (q, r) => !at || Math.hypot(at[0] - q[0], at[1] - q[1], at[2] - q[2]) < r;
+    if (!R.gd) R.gd = {};
+    if (m.a === 'gd') {
+      const rule = Object.hasOwn(GD_RULES, m.k) ? GD_RULES[m.k] : null; p.gdN = p.gdN || {};
+      if (!rule || R.ph !== 'live' || !p.alive || p.team !== rule[0] || (p.gdN[m.k] || 0) >= rule[1] || !fin(m.p) || !near(m.p, 4)) return false;
+      p.gdN[m.k] = (p.gdN[m.k] || 0) + 1; m.c = p.team === 'r' ? 1 : 2; R.gd[p.id + ':' + (Number(m.i) || 0)] = { team: p.team, k: m.k, p: m.p };
+      return true;
+    }
+    if (m.a === 'gdx' || (m.a === 'boom' && m.k === 'claymore')) {
+      const key = m.tg + ':' + (Number(m.i) || 0), g = Object.hasOwn(R.gd, key) ? R.gd[key] : null;
+      if (!g || R.ph !== 'live' || !p.alive || (p.gxT || 0) > now - 250) return false;
+      if (m.a === 'boom') { if (g.k !== 'claymore' || (p.team === g.team && p.id !== m.tg) || !near(g.p, 6)) return false; delete R.gd[key]; return true; }
+      if (p.team === g.team || !near(g.p, 4) || !['snap', 'rustle', 'alarm'].includes(m.k) || (m.k === 'snap' && (g.k !== 'beartrap' || g.sn)) || (m.k === 'rustle' && g.k !== 'wire') || (m.k === 'alarm' && (g.k !== 'alarm' || !fin(m.p)))) return false;
+      if (m.k === 'snap') g.sn = 1; p.gxT = now; return true;
+    }
+    return true;
+  }
   hit(p, m) {
+    if (this.R.ph === 'load' || (this.R.ph === 'live' && Date.now() < this.R.go)) return;
     // bullets do no fixed damage: the hit is forwarded to the victim, whose client runs the anatomy model
     if (!p.ready || !p.alive) return;
     const tgt = this.players.get(m.id);
@@ -220,8 +256,8 @@ export class GameRoom extends DurableObject {
     if (kc) this.players.get(by).kills++;
     this.broadcast({ t: "die", id: p.id, by, kc, part: ["head", "torso", "arm", "leg"].includes(m.part) ? m.part : "torso", head: !!m.head, gib: m.gib ? 1 : 0,
       d: Array.isArray(m.d) ? m.d.slice(0, 3).map(Number) : [0, 0, -1], dist: Math.max(0, Math.min(5000, Math.round(Number(m.dist) || 0))), cause: String(m.cause || "").slice(0, 10) });
-    // warm-up: back in 4 s; in a round: out until the next one
-    if (this.R.ph === "warm") setTimeout(() => { if (this.R.ph === "warm" && !p.alive) this.spawn(p); }, 4000); else this.rCheck();
+    // on the baseplate: back in 3 s; in a round: out until the next one
+    if (this.R.ph === "lobby") setTimeout(() => { if (this.R.ph === "lobby" && !p.alive && this.players.has(p.id)) this.spawn(p); }, 3000); else this.rCheck();
   }
 
   // downing someone counts as the kill, once per life
@@ -242,38 +278,59 @@ export class GameRoom extends DurableObject {
   // Red attacks, Blue defends the house. While either team is empty it is warm-up (respawn after 4 s). With someone on both
   // teams a round starts: everyone spawns on their side, the dead stay dead until the next round. Attackers win by killing
   // every defender, defenders by killing every attacker or by holding out until the clock runs out.
-  rInit() { if (this.R && this.R.pt) clearTimeout(this.R.pt); if (this.R && this.R.tm) clearTimeout(this.R.tm); this.R = { n: 0, ph: 'warm', end: 0, sc: { r: 0, b: 0 }, tm: null, pt: null, carrier: null, dz: null, plant: null, sgw: [] }; }
+  rInit() { if (this.R && this.R.pt) clearTimeout(this.R.pt); if (this.R && this.R.tm) clearTimeout(this.R.tm); this.R = { n: 0, ph: 'lobby', go: 0, votes: {}, map: 'house', end: 0, sc: { r: 0, b: 0 }, tm: null, pt: null, carrier: null, dz: null, plant: null, sgw: [], found: [] }; }
   rTeam() { let r = 0, b = 0; for (const x of this.players.values()) if (x.ready && x.team) x.team === 'r' ? r++ : b++; return r < b ? 'r' : b < r ? 'b' : (Math.random() < 0.5 ? 'r' : 'b'); }
   rCount(alive) { const c = { r: 0, b: 0 }; for (const x of this.players.values()) if (x.ready && x.team && (!alive || x.alive)) c[x.team]++; return c; }
   rTeams() { const o = {}; for (const x of this.players.values()) if (x.ready && x.team) o[x.id] = x.team; return o; }
-  rMsg(extra) { const R = this.R; return Object.assign({ t: 'round', n: R.n, ph: R.ph, left: Math.max(0, R.end - Date.now()), sc: R.sc, tm: this.rTeams(), dfz: R.carrier, dz: R.dz, pl: R.plant && { site: R.plant.site, left: Math.max(0, R.plant.end - Date.now()) }, sgw: R.sgw, env: typeof envSnap === 'function' ? envSnap() : undefined }, extra || {}); }
+  rMsg(extra) { const R = this.R; return Object.assign({ t: 'round', n: R.n, ph: R.ph, left: Math.max(0, R.end - Date.now()), go: Math.max(0, (R.go || 0) - Date.now()), sc: R.sc, mv: Object.values(R.votes || {}).length, map: R.map, tm: this.rTeams(), dfz: R.carrier, dz: R.dz, pl: R.plant && { site: R.plant.site, left: Math.max(0, R.plant.end - Date.now()) }, sgw: R.sgw, fd: R.found, env: typeof envSnap === 'function' ? envSnap() : undefined }, extra || {}); }
   rTimer(ms, f) { if (this.R.tm) clearTimeout(this.R.tm); this.R.tm = setTimeout(() => { this.R.tm = null; f(); }, ms); }
+  // ---- the match: a lobby on the baseplate (voting for the map) until there is someone on each team, then rounds to 5 wins.
+  // A round: 15 s to pick a loadout (everyone at their start, held there), then the round itself, the first 5 s still held.
   rCheck() {
-    const R = this.R, c = this.rCount(false);
-    // warm-up with two or more players all on one side: the newest crosses over, so a round can start
-    if (R.ph === 'warm' && c.r + c.b >= 2 && !(c.r && c.b)) { const from = c.r ? 'r' : 'b', mv = [...this.players.values()].filter(x => x.ready && x.team === from).pop(); mv.team = from === 'r' ? 'b' : 'r'; c.r = c.r ? c.r - 1 : 1; c.b = c.b ? c.b - 1 : 1; this.broadcast(this.rMsg()); }
-    if (R.ph === 'warm') { if (c.r && c.b) { R.ph = 'pre'; R.end = Date.now() + 5000; this.broadcast(this.rMsg()); this.rTimer(5000, () => this.rStart()); } return; }
-    if (R.ph === 'pre' && !(c.r && c.b)) { R.ph = 'warm'; R.end = 0; if (R.tm) clearTimeout(R.tm); R.tm = null; this.broadcast(this.rMsg()); for (const x of this.players.values()) if (x.ready && !x.alive) this.spawn(x); return; }
+    const R = this.R, c = this.rCount(false), now = Date.now();
+    if (R.ph === 'lobby') {
+      // everyone on one side: the newest crosses over, so a match can start
+      if (c.r + c.b >= 2 && !(c.r && c.b)) { const from = c.r ? 'r' : 'b', mv = [...this.players.values()].filter(x => x.ready && x.team === from).pop(); mv.team = from === 'r' ? 'b' : 'r'; c.r = c.r ? c.r - 1 : 1; c.b = c.b ? c.b - 1 : 1; this.broadcast(this.rMsg()); }
+      if (c.r && c.b && !R.end) { R.end = now + 20000; this.broadcast(this.rMsg()); this.rTimer(20000, () => this.rMatch()); }
+      else if (!(c.r && c.b) && R.end) { R.end = 0; if (R.tm) clearTimeout(R.tm); R.tm = null; this.broadcast(this.rMsg()); }
+      return;
+    }
+    if (!c.r && !c.b) return this.rLobby();
+    if (R.ph === 'load' && !(c.r && c.b)) { if (!(R.sc.r || R.sc.b)) return this.rLobby(); R.ph = 'live'; return this.rEnd(c.r ? 'r' : 'b', 'left'); }
     if (R.ph !== 'live') return;
-    if (!c.r && !c.b) { if (R.tm) clearTimeout(R.tm); R.tm = null; R.ph = 'warm'; R.end = 0; this.broadcast(this.rMsg()); return; }
     if (!c.r || !c.b) return this.rEnd(c.r ? 'r' : 'b', 'left');
     const a = this.rCount(true);
     // (with the defuser down, killing the attackers isn't enough: it still has to be disabled)
     if (!a.b) this.rEnd('r', 'elim'); else if (!a.r && !R.plant) this.rEnd('b', 'elim');
   }
+  // back to the baseplate: the match is over (or there aren't players enough for one)
+  rLobby() {
+    const R = this.R; if (R.pt) clearTimeout(R.pt); R.pt = null; if (R.tm) clearTimeout(R.tm); R.tm = null;
+    R.ph = 'lobby'; R.end = 0; R.go = 0; R.sc = { r: 0, b: 0 }; R.n = 0; R.plant = null; R.carrier = null; R.dz = null; R.sgw = []; R.found = []; R.votes = {}; R.gd = {};
+    this.broadcast(this.rMsg());
+    for (const x of this.players.values()) if (x.ready) this.spawn(x);
+    this.rCheck();
+  }
+  rMatch() { const R = this.R; R.sc = { r: 0, b: 0 }; R.n = 0; R.map = 'house'; R.votes = {}; this.rStart(); }
   rStart() {
     const R = this.R; let c = this.rCount(false);
     // evens the teams up first (the newest to join moves)
     while (Math.abs(c.r - c.b) > 1) { const from = c.r > c.b ? 'r' : 'b', mv = [...this.players.values()].filter(x => x.ready && x.team === from).pop(); mv.team = from === 'r' ? 'b' : 'r'; c = this.rCount(false); }
-    if (!c.r || !c.b) { R.ph = 'warm'; R.end = 0; this.broadcast(this.rMsg()); for (const x of this.players.values()) if (x.ready && !x.alive) this.spawn(x); return; }
-    R.n++; R.ph = 'live'; R.end = Date.now() + 180000;
+    if (!c.r || !c.b) return this.rLobby();
+    R.n++; R.ph = 'load'; R.end = Date.now() + 15000; R.go = 0;
     // a new round: one attacker, picked at random, carries the defuser; nothing boarded or reinforced yet
-    if (R.pt) clearTimeout(R.pt); R.pt = null; R.plant = null; R.dz = null; R.sgw = [];
-    for (const x of this.players.values()) x.rfN = 0;
+    if (R.pt) clearTimeout(R.pt); R.pt = null; R.plant = null; R.dz = null; R.sgw = []; R.found = [];
+    for (const x of this.players.values()) { x.rfN = 0; x.gdN = {}; } R.gd = {};
     { const at = [...this.players.values()].filter(x => x.ready && x.team === 'r'); R.carrier = at.length ? at[Math.floor(Math.random() * at.length)].id : null; }
     this.broadcast(this.rMsg());
     for (const x of this.players.values()) if (x.ready && x.team) this.spawn(x);
-    const n = R.n; this.rTimer(180000, () => { if (R.n === n && R.ph === 'live' && !R.plant) this.rEnd('b', 'time'); });
+    const n = R.n; this.rTimer(15000, () => { if (R.n === n && R.ph === 'load') this.rGo(); });
+  }
+  // the loadouts are in: the round starts (held still for the first 5 s)
+  rGo() {
+    const R = this.R, now = Date.now(); R.ph = 'live'; R.go = now + 5000; R.end = now + 5000 + 180000;
+    this.broadcast(this.rMsg()); this.rCheck();
+    const n = R.n; this.rTimer(185000, () => { if (R.n === n && R.ph === 'live' && !R.plant) this.rEnd('b', 'time'); });
   }
   // ---------------------------------------------------------------- the bomb, the defuser, boards and reinforcements (Siege)
   // One attacker carries the defuser. Planted on a bomb site (A or B) it runs 45 s; if it finishes the attackers win, if a
@@ -285,7 +342,7 @@ export class GameRoom extends DurableObject {
     // (where the room last saw them: a plant, a disable or a revive has to be done from right there)
     const near = (q, r) => !at || !q || Math.hypot(at[0] - q[0], at[1] - q[1], at[2] - q[2]) < r;
     const site = id => typeof TOWN !== 'undefined' && TOWN.sites ? (TOWN.sites.find(x => x.id === id) || {}).p : null, sp = v => v ? [v.x, v.y, v.z] : null;
-    if ((p.sgT || 0) > now - 150) return; p.sgT = now;
+    p.sgT = p.sgT || {}; if (m.a !== 'found' && (p.sgT[m.a] || 0) > now - 150) return; p.sgT[m.a] = now;
     switch (m.a) {
       case 'rv': { const tg = this.players.get(m.to), tq = tg && tg.state && Array.isArray(tg.state.p) ? tg.state.p : null; if (tg && tg !== p && tg.alive && tg.team === p.team && near(tq, 3.2)) this.send(tg, { t: 'sg', a: 'rv', by: p.id }); break; }
       case 'take': if (live && p.team === 'r' && R.dz && !R.carrier && near(R.dz, 2.5)) { R.carrier = p.id; R.dz = null; this.broadcast({ t: 'sg', a: 'carrier', id: p.id }); } break;
@@ -295,6 +352,7 @@ export class GameRoom extends DurableObject {
         const n = R.n; if (R.pt) clearTimeout(R.pt); R.pt = setTimeout(() => { R.pt = null; if (typeof net !== 'undefined' && net.host !== this) return; if (R.n === n && R.ph === 'live' && R.plant) this.rEnd('r', 'defuse'); }, 45000);
       } break;
       case 'disable': if (live && R.plant && p.team === 'b' && near(sp(site(R.plant.site)), 2.8)) this.rEnd('b', 'disabled'); break;
+      case 'found': if (live && p.team === 'r' && (m.site === 'A' || m.site === 'B') && !R.found.includes(m.site)) { R.found.push(m.site); this.broadcast({ t: 'sg', a: 'found', site: m.site, by: p.id }, p); } break;
       case 'bd': { const i = m.i | 0; if (p.team === 'b' && i >= 0 && i < 64 && !R.sgw.some(e => e[0] === 'bd' && e[1] === i) && R.sgw.length < 200) { R.sgw.push(['bd', i]); this.broadcast({ t: 'sg', a: 'bd', i }, p); } break; }
       case 'rf': { const b = m.b; if (p.team === 'b' && (p.rfN || 0) < 2 && Array.isArray(b) && b.length === 6 && b.every(v => Number.isFinite(v) && Math.abs(v) < 60) && b[3] > 0 && b[3] <= 1.45 && b[4] > 0 && b[4] <= 3.1 && b[5] > 0 && b[5] <= 1.45 && Math.min(b[3], b[5]) <= 0.07 && near([b[0], b[1], b[2]], 4) && R.sgw.length < 200) { p.rfN = (p.rfN || 0) + 1; const e = b.map(v => Math.round(v * 1000) / 1000); R.sgw.push(['rf', e]); this.broadcast({ t: 'sg', a: 'rf', b: e }, p); } break; }
     }
@@ -310,9 +368,12 @@ export class GameRoom extends DurableObject {
   }
   rEnd(win, why) {
     const R = this.R; if (R.ph !== 'live') return;
-    R.ph = 'post'; R.sc[win]++; R.end = Date.now() + 7000; if (R.pt) clearTimeout(R.pt); R.pt = null;
-    this.broadcast(this.rMsg({ win, why }));
-    this.rTimer(7000, () => this.rStart());
+    R.ph = 'post'; R.sc[win]++; R.end = Date.now() + 7000; R.go = 0; if (R.pt) clearTimeout(R.pt); R.pt = null;
+    const over = R.sc[win] >= 5;
+    this.broadcast(this.rMsg({ win, why, over: over ? 1 : 0 }));
+    // first to 5 wins the match: its result stays up, then everyone goes back to the baseplate
+    this.rTimer(over ? 12000 : 7000, () => over ? this.rLobby() : this.rStart());
   }
+
 
 }

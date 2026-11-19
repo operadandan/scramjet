@@ -55,10 +55,10 @@ const CMDS = {
     if (!Number.isFinite(h)) return conPrint('time: give an hour (0-24) or dawn/day/dusk/night', '#ff8a7a');
     ENV.tod = ((h % 24) + 24) % 24; envShare(); conPrint('Time set to ' + envClock() + '.');
   }],
-  timescale: ['timescale <x>  how fast the day goes (1 = 24 minutes a day, 0 stops the clock)', a => {
+  timescale: ['timescale <x>  how fast the day goes (1 = an hour a day, 0 stops the clock)', a => {
     if (!conCanEnv()) return conPrint('Only the host can change that.', '#ff8a7a');
     const x = parseFloat(a[0]); if (!Number.isFinite(x) || x < 0 || x > 60) return conPrint('timescale: 0 to 60', '#ff8a7a');
-    ENV.rate = x / 60; envShare(); conPrint('A day now takes ' + (x ? Math.round(24 / x) + ' minutes' : 'forever (the clock is stopped)') + '.');
+    ENV.rate = x / 150; envShare(); conPrint('A day now takes ' + (x ? Math.round(60 / x) + ' minutes' : 'forever (the clock is stopped)') + '.');
   }],
   weather: ['weather <clear | cloudy | rain | storm | fog>  change the weather', a => {
     if (!a[0]) return conPrint('The weather is ' + envCur() + '.');

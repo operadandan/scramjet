@@ -15,7 +15,8 @@ import { P, S } from './17-dummies.js';
 import { flashMsg, magEstimate, rackNeeded, selectEmpty, switchWeapon } from './18-player.js';
 import { net } from './19-network.js';
 import { c4Mine, r3 } from './19b-explosives.js';
-import { siegeHint } from './23-siege.js';
+import { SG, siegeHint } from './23-siege.js';
+import { GADGETS } from './27-gadgets.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- ground items, pickup (F), backpack
 const items = new Map(); let itemSeq = 1;
@@ -380,6 +381,9 @@ const TOOL_NAME = { medkit: 'IFAK medkit', plate: 'Armor plate' };
 // number keys and the wheel pick a slot (0-3) whether or not anything is in it
 // the key of what is already in hand puts it away (empty hands); pressed again it comes back out
 function pressSlot(n) {
+  // 5: the defuser (out in empty hands), for whoever carries it
+  if (n === 4) { if (S.mode === 'online' && SG.carrier === S.myId) { const was = P.defOut; selectEmpty(0); P.defOut = !was; } return; }
+  P.defOut = false;
   if (P.slot === n && P.slot !== 4) return selectEmpty(n);
   if (n < 2) return switchWeapon(n);
   const t = toolSlotIndex(n - 2); if (t >= 0) switchWeapon(t); else selectEmpty(n);
@@ -395,8 +399,10 @@ function updateToolbar() {
   tb.style.display = 'flex';
   const lo = P.activeLo, es = n => P.slot === 4 && P.emptySel === n, gr = i => lo[i] == null ? [i + 1, 'Empty', '', es(i)] : [i + 1, WEAPONS[lo[i]].name, attSummary(lo[i]), P.slot === i];
   const rows = [gr(0), gr(1),
-    (() => { const m = c4Mine().length, has = P.c4N > 0 || m; return [3, has ? 'C4 (M112)' : 'Empty', has ? 'x' + P.c4N + (m ? ', ' + m + ' set' : '') : '', has ? P.slot === 2 : es(2)]; })(),
-    [4, P.fragN > 0 ? 'M67 frag' : 'Empty', P.fragN > 0 ? 'x' + P.fragN : '', P.fragN > 0 || (P.nade && P.nade.ph !== 'idle') ? P.slot === 3 : es(3)]];
+    (() => { const c4 = !P.tool2 || P.tool2 === 'c4', m = c4 ? c4Mine().length : 0, has = P.c4N > 0 || m; return [3, has ? GADGETS[P.tool2 || 'c4'].name : 'Empty', has ? 'x' + P.c4N + (m ? ', ' + m + ' set' : '') : '', has ? P.slot === 2 : es(2)]; })(),
+    [4, P.fragN > 0 ? GADGETS[P.tool3 || 'frag'].name : 'Empty', P.fragN > 0 ? 'x' + P.fragN : '', P.fragN > 0 || (P.nade && P.nade.ph !== 'idle') ? P.slot === 3 : es(3)]];
+  // the defuser, for whoever carries it (5)
+  if (S.mode === 'online' && SG.carrier === S.myId) rows.push([5, 'Defuser', 'plant on a bomb (hold F)', !!P.defOut]);
   const key = JSON.stringify(rows);
   if (key === tbKey) return; tbKey = key;
   tb.innerHTML = rows.map(r => '<div class="tb' + (r[3] ? ' on' : '') + (r[1] === 'Empty' ? ' empty' : '') + '"><b>' + r[0] + '</b><div><span>' + (r[1] === 'Empty' && r[3] ? 'Fists' : r[1]) + '</span><small>' + r[2] + '</small></div></div>').join('');

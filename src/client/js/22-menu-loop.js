@@ -27,6 +27,9 @@ import { warmFx } from './22b-warm.js';
 import { SG, siegeClear, siegeUpdate } from './23-siege.js';
 import { updateEnv } from './24-env.js';
 import { updateConsole } from './25-console.js';
+import { updateLights } from './26-lights.js';
+import { gadgetGhostOff, updateGadgets, wireDrag } from './27-gadgets.js';
+import { freezeBegin, freezeEnd, matchHud, queueUp } from './28-match.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- scoreboard
 S.score = {};
@@ -83,7 +86,7 @@ async function startOnline(code, create) {
     return;
   }
   S.room = code; S.names = {}; S.score = {}; S.team = {}; S.R = null; S.welcomed = false; S.closeReason = ''; S.myName = playerName();
-  buildTown(); P.alive = false; P.rag = null;
+  buildTown(); S.world = 'town'; P.alive = false; P.rag = null;
   enterGame('online');
   $('deathmsg').style.display = 'block'; $('deathmsg').textContent = (create ? 'CREATING ROOM ' : 'CONNECTING TO ') + code;
   if (h.rooms) {
@@ -120,15 +123,16 @@ function leave() {
   while (bullets.length) removeBullet(bullets.length - 1);
   S.slow = false; S.ts = 1; S.target = null; S.testKills = 0; S.testDeaths = 0; P.downed = false; $('scope').style.display = 'none'; $('score').style.display = 'none'; S.filt = ''; renderer.domElement.style.filter = ''; $('slowmo').style.display = 'none';
   $('vig').style.display = $('vigads').style.display = 'none';
-  S.mode = null; P.alive = false; P.rag = null; localBody.root.visible = false; S.R = null; siegeClear(); $('rbanner').style.opacity = '0';
+  S.mode = null; P.alive = false; P.rag = null; localBody.root.visible = false; S.R = null; siegeClear(); $('teamleft').style.opacity = '0'; $('rbanner').style.opacity = '0';
   $('hud').style.display = 'none'; $('pause').style.display = 'none'; $('menu').style.display = 'flex';
   $('black').style.opacity = '0'; $('deathmsg').style.display = 'none'; $('dmgv').style.opacity = '0';
   if (document.pointerLockElement) document.exitPointerLock();
   buildTown(); setTimeout(warmShaders, 50);
 }
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-$('create').onclick = () => { let c = ''; for (let i = 0; i < 5; i++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]; startOnline(c, true); };
-$('join').onclick = () => { const c = $('code').value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (c.length < 4) { $('err').textContent = 'Enter a valid room code'; return; } startOnline(c, false); };
+$('queue').onclick = () => queueUp();
+$('create').onclick = () => { S.pub = false; let c = ''; for (let i = 0; i < 5; i++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]; startOnline(c, true); };
+$('join').onclick = () => { S.pub = false; const c = $('code').value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (c.length < 4) { $('err').textContent = 'Enter a valid room code'; return; } startOnline(c, false); };
 $('code').addEventListener('keydown', e => { if (e.key === 'Enter') $('join').click(); });
 $('test').onclick = () => startTest();
 $('resume').onclick = () => renderer.domElement.requestPointerLock();
@@ -245,7 +249,7 @@ function frame(now, hidden) {
   S.ts = damp(S.ts === undefined ? 1 : S.ts, S.slow && S.mode ? 0.08 : 1, 6, dt);
   const wdt = dt * S.ts;
   if (S.mode) {
-    updatePlayer(dt); updateWeapons(dt); updateExplosives(dt);
+    const pp0 = P.pos.clone(); freezeBegin(); updatePlayer(dt); updateWeapons(dt); freezeEnd(); updateExplosives(dt); updateGadgets(dt); if (P.slot !== 2 || !P.alive || P.downed) gadgetGhostOff(); wireDrag(pp0);
     for (const r of S.remotes.values()) r.update(dt);
     // far bodies are stepped less often (every 2nd frame past 40 m, every 3rd past 80 m) with the time they missed: nobody
     // can see a 20 Hz animation at that range, and the AI and animation of a range full of targets was a big part of each frame
@@ -259,7 +263,7 @@ function frame(now, hidden) {
   }
   updateBullets(wdt);
   for (const r of ragdolls) r.update(wdt);
-  updateFx(wdt); updateDebris(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); siegeUpdate(wdt); roundHud(); screenFx(wdt); updateConsole(dt); updateEnv(dt); updateLimbs(wdt); updateHeats(wdt);
+  updateFx(wdt); updateDebris(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); siegeUpdate(wdt); roundHud(); matchHud(); screenFx(wdt); updateConsole(dt); updateEnv(dt); updateLights(dt); updateLimbs(wdt); updateHeats(wdt);
   updateCamera(dt); if (S.mode && P.alive && !P.downed) tpCamera();
   if (S.mode) { updateViewmodel(dt); vmCamera.updateMatrixWorld(true); updateDevices(); } else updateDevices();
   updateTPBody(dt);
@@ -282,5 +286,5 @@ function frame(now, hidden) {
 schedule();
 
 // ---- module exports: build.mjs strips this block ----
-export { applyGfx, frame, leave, renderScore, scoreOf };
+export { CODE_CHARS, applyGfx, frame, leave, renderScore, scoreOf, setLoadout, startOnline };
 // ---- end module exports ----

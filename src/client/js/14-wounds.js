@@ -798,7 +798,18 @@ function worldPen(b, hit, dir, nIn) {
   let E = 0.5 * m * v * v;
   const bx = boxExit(ud.box, hit.point, dir), cos = Math.max(0.2, Math.abs(nIn.dot(dir)));
   const thick = pm[1] ? Math.min(bx.t, 2 * pm[1] / cos) : bx.t;
-  const loss = R * thick, kind = KIND_PEN[ud.kind], mesh = hit.object;
+  const kind = KIND_PEN[ud.kind], mesh = hit.object;
+  // real walls cost more than their sheets: a round yaws and breaks up after the first one (a share of what it has left goes
+  // each time), an outside wall has siding and sheathing besides, and now and then there is a stud in the way. And none goes
+  // through walls without end: a pistol round two or three, a rifle round four or five, the .50 about ten.
+  let loss = R * thick;
+  if (kind === 'drywall' || kind === 'plywood' || kind === 'wood') {
+    loss += E * (isPistol(w) ? 0.38 : w === 2 ? 0.12 : isShotgun(w) ? 0.45 : 0.26);
+    if (ud.ext) loss += 0.5 * m * 900 * 900 * 0.06 * cf + R * 0.04;
+    if (kind === 'drywall' && Math.random() < 0.12) loss += PEN_MAT.wood[0] * 0.09 * cf;
+  }
+  b.walls = (b.walls || 0) + 1;
+  if (b.walls > (isPistol(w) ? 3 : w === 2 ? 10 : isShotgun(w) ? 2 : 5)) loss = Infinity;
   const rIn = kind === 'concrete' ? Math.max(0.012, cal[0] * 3.4) : kind === 'metal' ? cal[0] * 1.3 : kind === 'drywall' ? cal[0] * 2.4 : cal[0] * 2;
   const rOut = kind === 'concrete' ? Math.max(0.03, cal[0] * 9) : kind === 'metal' ? cal[0] * 1.5 : kind === 'drywall' ? cal[0] * 5 : cal[0] * 4.2;
   const inner = pm[2], local = p => mesh.worldToLocal(p.clone()), dLoc = dir.clone().transformDirection(_hm.copy(mesh.matrixWorld).invert());
@@ -808,7 +819,7 @@ function worldPen(b, hit, dir, nIn) {
     wallDamage(mesh, hit.point, nIn, dir, E, w, 1, through);
     if (!through) return null;
     wallDamage(mesh, exitP, bx.n, dir, E - loss, w, 0, true);
-    const nv = Math.sqrt(2 * (E - loss) / m), dev = (kind === 'concrete' ? 0.03 : 0.01) * (isPistol(w) ? 2 : 1);
+    const nv = Math.sqrt(2 * (E - loss) / m), dev = (kind === 'concrete' ? 0.03 : 0.035) * (isPistol(w) ? 2 : 1) * Math.min(3, b.walls);   // (it comes out tumbling, further off line each wall)
     return { point: exitP, dir: dir.clone().add(new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(dev)).normalize(), v: nv };
   }
   if (E > loss + 12) {

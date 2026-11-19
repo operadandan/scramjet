@@ -8,6 +8,7 @@ import { ARM_DATA, ArmRig, FINGERS, GraspCloud, fingerTo, graspSolve, lerpCurls,
 import { GUN_MODEL, KMAT, _Yc, bakeColored, bakeTextured, brassMatVM, compact, copperMat, makeKit } from './07-gun-models.js';
 import { MOUNTS } from './09-attachments.js';
 import { P, S, keys, mouse } from './17-dummies.js';
+import { SL } from './26-lights.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- hands and arms for the viewmodel: gloved, jointed fingers
 const _fp = new V3(), _fdir = new V3();

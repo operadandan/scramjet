@@ -338,5 +338,5 @@ function updatePlate(dt) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { ATT, ATTS, ATT_DEFAULT, ATT_SLOTS, ATT_SLOT_NAME, MOUNTS, PLATE_W, VMK, VMP, applyAttachments, attOf, buildMedPouch, installPlate, saveAtt, updateDevices };
+export { ATT, ATTS, ATT_DEFAULT, ATT_SLOTS, ATT_SLOT_NAME, MOUNTS, PLATE_W, VMK, VMP, applyAttachments, attOf, buildMedPouch, installPlate, laserBeam, laserDot, saveAtt, updateDevices };
 // ---- end module exports ----
