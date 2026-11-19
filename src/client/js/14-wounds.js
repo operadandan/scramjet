@@ -16,6 +16,7 @@ import { coneDir, goreBlast } from './12b-gore.js';
 import { addPepper, addSoak, updateSoaks } from './14b-soak.js';
 import { DESTR_OF, gridOpenW, pick, wallClipMat, wallDamage } from './15-destruction.js';
 import { P, S } from './17-dummies.js';
+import { ez } from './19c-toolvm.js';
 import { drag } from './21-items-inventory.js';
 import { frame } from './22-menu-loop.js';
 // ---- end module links ----
@@ -250,12 +251,23 @@ function wallSplat(p, n, size, vdir, bottom) {
   }
   trimDecals();
 }
-const _dm = new THREE.Object3D();
+const _dm = new THREE.Object3D(), _dpS = new V3();
 function updateBlood(dt) {
   updateSoaks(dt);
   for (let i = drops.length - 1; i >= 0; i--) {
-    const d = drops[i]; d.life -= dt; d.v.y -= 9.8 * d.g * dt; d.v.multiplyScalar(1 - d.drag * dt);
+    const d = drops[i]; d.life -= dt; d.v.y -= 9.8 * d.g * dt; d.v.multiplyScalar(Math.exp(-d.drag * dt));
     const px = d.p.x, py = d.p.y, pz = d.p.z; d.p.addScaledVector(d.v, dt);
+    // a fast drop could step clean over a thin wall in one frame: if its path crosses a box, it stops where it went in
+    { const ex = d.p.x - px, ey = d.p.y - py, ez = d.p.z - pz; let tb = 2;
+      if (ex * ex + ey * ey + ez * ez > 0.0004) for (const c of colliders) {
+        let t0 = 0, t1 = 1;
+        for (const [o, e, lo, hi] of [[px, ex, c.min.x, c.max.x], [py, ey, c.min.y, c.max.y], [pz, ez, c.min.z, c.max.z]]) {
+          if (Math.abs(e) < 1e-9) { if (o < lo || o > hi) { t0 = 2; break; } continue; }
+          let a = (lo - o) / e, b = (hi - o) / e; if (a > b) { const t = a; a = b; b = t; } if (a > t0) t0 = a; if (b < t1) t1 = b; if (t0 > t1) break;
+        }
+        if (t0 <= t1 && t0 > 0 && t0 < tb) { _dpS.set(px + ex * (t0 + 1e-3), py + ey * (t0 + 1e-3), pz + ez * (t0 + 1e-3)); if (!(c.mesh && gridOpenW(c.mesh, _dpS))) tb = t0; }
+      }
+      if (tb <= 1) d.p.set(px + ex * (tb + 1e-3), py + ey * (tb + 1e-3), pz + ez * (tb + 1e-3)); }
     let hit = d.life <= 0;
     if (d.p.y <= 0.004) { dropSplat(_sP.set(d.p.x, 0, d.p.z).clone(), _sUp, d.r, d.v); feedPool(d.p.x, 0, d.p.z, d.ml || dropMl(d.r)); hit = true; }
     else for (const c of colliders) {
@@ -423,13 +435,12 @@ function holeify(mesh, max, inner) {
         // the skin under the clothes, and the bones and organs inside, show only round a hole (seen through it), never
         // anywhere else: a shoulder blade or a rib near the surface must not poke out through the back of the shirt
         (mesh.userData.under || mesh.userData.inner || mesh.userData.organ ? '\nif (hCut.w < 1e8 && dot(vHolePos, hCut.xyz) > hCut.w - 0.08) holeNear = 1.0;\nif (holeNear < 0.5) discard;' : ''))
-      .replace('#include <color_fragment>', '#include <color_fragment>\nif (!gl_FrontFacing' + (mesh.userData.tex ? ' && holeNear > 0.5' : '') + ') diffuseColor.rgb = hFl > 0.5 ? fleshCut(vHolePos) : hIn; else if (!gl_FrontFacing) {} else diffuseColor.rgb = mix(diffuseColor.rgb, hIn * 0.6, holeRim * 0.75);')
+      .replace('#include <color_fragment>', '#include <color_fragment>\nif (!gl_FrontFacing' + (mesh.userData.tex ? ' && holeNear > 0.5' : '') + ') diffuseColor.rgb = hFl > 0.5 ? fleshCut(vHolePos) : hIn; else if (!gl_FrontFacing) {} else diffuseColor.rgb = mix(diffuseColor.rgb, hIn * 0.6, ' + (mesh.userData.under ? 'clamp(0.45 + holeRim * 0.75, 0.0, 0.9)' : 'holeRim * 0.75') + ');')
       // the inside never reads as an empty shell: it is lit as if it faced you, a little self-lit, so the far side of a body
       // seen through a hole looks like the cut face of solid meat rather than a dark cavity
       .replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\nif (!gl_FrontFacing) normal = normalize(vViewPosition);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\nif (!gl_FrontFacing) totalEmissiveRadiance += diffuseColor.rgb * 0.03;');
   };
-  m.customProgramCacheKey = () => 'holes' + max + bodyKey(mesh);
 }
 // cut a cone hole into one mesh. p, d in the mesh's own coordinates; d unit; len along d
 function cutHole(mesh, p, d, len, r0, r1, inner) {
@@ -459,9 +470,10 @@ function holeInGroup(group, p, d, len, r0, r1, sk) {
     // organs and bones come into view with the hole, cut like the rest and drawn only round the opening
     if (c.userData.inner || c.userData.under || c.userData.organ) c.visible = true;
     c.updateMatrix(); _hm.copy(c.matrix).invert();
-    const a = p.clone().applyMatrix4(_hm), dd = d.clone().transformDirection(_hm);
+    // (a mesh scaled in its segment: the hole's length and radii in its own units too)
+    const a = p.clone().applyMatrix4(_hm), dd = d.clone().transformDirection(_hm), ks = 3 / (Math.abs(c.scale.x) + Math.abs(c.scale.y) + Math.abs(c.scale.z));
     if ((slot < 0 || c.userData.frame) && !c.userData.inner && !c.userData.under && !c.userData.organ && !(slot >= 0 && slotF)) { slotF = !!c.userData.frame; slot = (c.userData.holeN || 0) % (c.material.userData && c.material.userData.hA ? c.material.userData.hA.value.length : (c.userData.holeMax || 20)); }
-    cutHole(c, a, dd, len, r0, r1, c.userData.inner ? c.userData.hIn : c.userData.armor === 'pack' ? FABRIC_IN : FLESH_IN);
+    cutHole(c, a, dd, len * ks, r0 * ks, r1 * ks, c.userData.inner ? c.userData.hIn : c.userData.armor === 'pack' ? FABRIC_IN : FLESH_IN);
   }
   pruneLiquid(group);
   // the channel through skin and muscle at each opening, so the wound has walls instead of a paper-thin edge

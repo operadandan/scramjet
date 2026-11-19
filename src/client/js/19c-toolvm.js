@@ -252,5 +252,5 @@ function keepSlot() {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { TV, keepSlot, onPunched, seg, updateFists, vmTools };
+export { TV, ez, keepSlot, onPunched, seg, updateFists, vmTools };
 // ---- end module exports ----

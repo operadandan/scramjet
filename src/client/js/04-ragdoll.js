@@ -32,6 +32,7 @@ const ragdolls = [];
 const _a = new V3(), _b = new V3(), _c = new V3(), _m4 = new THREE.Matrix4(), _Y = new V3(0, 1, 0), _rq = new THREE.Quaternion(), _fa = new V3(), _fb = new V3(), _fc = new V3();
 const fiberMat = new THREE.MeshStandardMaterial({ color: 0x7a1010, roughness: 0.45, side: THREE.DoubleSide }), fiberMat2 = new THREE.MeshStandardMaterial({ color: 0x7a3a38, roughness: 0.6, side: THREE.DoubleSide });
 const _rf = new V3(), _ru = new V3(), _rs = new V3(), _rt = new V3(), _rd = new V3();
+const _rf2 = new V3();
 class Ragdoll {
   constructor(pts, pal, vel, hitIdx, dir, power, masks) {
     masks = masks || {}; this.anchors = [];
@@ -282,7 +283,7 @@ class Ragdoll {
     // knee: a hinge. The shin swings only behind the thigh, about the hips' side-to-side axis, and barely sideways
     const knee = (H, K, F) => {
       _rt.subVectors(p[K], p[H]).normalize(); _rd.subVectors(p[F], p[K]);
-      const ax = _rs.clone().addScaledVector(_rt, -_rs.dot(_rt)).normalize(), fw = _rf.clone().addScaledVector(_rt, -_rf.dot(_rt)).normalize();
+      const ax = _rs.clone().addScaledVector(_rt, -_rs.dot(_rt)).normalize(), fw = _rf2.crossVectors(ax, _rt).normalize();   // (from the thigh itself: still good with the thigh pointing forward)
       const L = _rd.length(), perp = _rd.clone().addScaledVector(_rt, -_rd.dot(_rt));
       const f = perp.dot(fw); if (f > 0.004) push(K, F, fw, -f);
       const sd = perp.dot(ax), lim = 0.12 * L; if (Math.abs(sd) > lim) push(K, F, ax, -(sd - Math.sign(sd) * lim));
@@ -314,7 +315,7 @@ class Ragdoll {
   }
   step(h) {
     // speed cap: 12 m/s just after a hit (a shove from a round can be violent), otherwise 6 m/s, which a falling body never needs to beat
-    const p = this.p, q = this.q, g = 9.8 * h * h, dmp = this.life < 1.2 ? 0.988 : 0.975, vmax = this.life < 0.25 || this.life - (this.kT || -9) < 0.2 ? 0.1 : 0.05;
+    const p = this.p, q = this.q, g = 9.8 * h * h, dmp = this.life < 1.2 ? 0.996 : 0.988, vmax = this.life < 0.25 || this.life - (this.kT || -9) < 0.2 ? 0.1 : 0.05;
     let mv = 0;
     for (let i = 0; i < p.length; i++) {
       const pi = p[i], qi = q[i];
@@ -324,7 +325,7 @@ class Ragdoll {
       qi.copy(pi); pi.set(pi.x + dx, pi.y + dy, pi.z + dz);
     }
     // lying still: go to sleep until something hits the body again
-    this.still = mv < 0.0016 && this.life > 0.8 ? (this.still || 0) + 1 : 0;
+    this.still = mv < 0.0009 && this.life > 0.8 ? (this.still || 0) + 1 : 0;
     if (this.still > 50) { this.asleep = true; for (let i = 0; i < p.length; i++) q[i].copy(p[i]); if (this.runsTodo) { this.sync(); this.group.updateMatrixWorld(true); for (const [g, lp, n, R, k] of this.runsTodo) if (g.parent) liquidBlood(g, lp, n, R, 0, k); this.runsTodo = null; } return; }
     for (let it = 0; it < 10; it++) {
       const tone = this.tone0 * Math.exp(-this.life / this.toneT), im = this.im;
@@ -427,9 +428,9 @@ class Ragdoll {
       if (a.spurt > 0) { a.spurt -= dt; a.beat = (a.beat || 0) - dt;
         if (a.beat <= 0) { a.beat = rnd(0.55, 0.85) * (1 + (8 - Math.min(8, a.spurt)) * 0.08); const k = Math.min(1, a.spurt / 6);
           if (w.y - fy < 0.25) feedPool(w.x + n.x * 0.05, fy, w.z + n.z * 0.05, 4 + 10 * k);   // (lying in its own pool: most of each beat goes straight into it)
-          for (let i = 0; i < Math.round((w.y - fy < 0.25 ? 3 : 6) + 8 * k); i++) spawnDrop(w, n.clone().setY(0).multiplyScalar(rnd(0.05, 0.25) * (0.4 + k)).add(new V3(rnd(-0.08, 0.08), rnd(0.35, 0.9) * (0.5 + k * 0.5), rnd(-0.08, 0.08))), rnd(0.002, 0.0045), 1, undefined, per * 2); } }
-      if (w.y - fy < 0.5) feedPool(w.x + n.x * 0.07, fy, w.z + n.z * 0.07, per);
-      else { a.drip = (a.drip || 0) + dt * Math.min(6, 0.5 + r * 0.05); while (a.drip > 1) { a.drip--; spawnDrop(w, new V3(rnd(-0.05, 0.05), -0.1, rnd(-0.05, 0.05)), rnd(0.005, 0.008), 1, 0.6, per * 4); } }
+          for (let i = 0; i < Math.round((w.y - fy < 0.25 ? 3 : 6) + 8 * k); i++) spawnDrop(w, n.clone().setY(0).multiplyScalar(rnd(0.05, 0.25) * (0.4 + k)).add(new V3(rnd(-0.08, 0.08), rnd(0.35, 0.9) * (0.5 + k * 0.5), rnd(-0.08, 0.08))), rnd(0.002, 0.0045), 1, undefined, r * 0.033 / this.anchors.length); } }
+      if (w.y - fy < 0.5) feedPool(w.x + n.x * 0.07, fy, w.z + n.z * 0.07, per * (this.life < 3 ? 4 : 1.8));   // (the first seconds on the ground it pours out)
+      else { a.drip = (a.drip || 0) + dt * Math.min(6, 0.5 + r * 0.05); while (a.drip > 1) { a.drip--; spawnDrop(w, new V3(rnd(-0.05, 0.05), -0.1, rnd(-0.05, 0.05)), rnd(0.005, 0.008), 1, 0.6, r * 0.067 / this.anchors.length); } }
     }
   }
   update(dt) {
@@ -440,7 +441,7 @@ class Ragdoll {
     // the body settles and then lies still (a new hit wakes it), so a first-person view from its head does not drift
     if ((this.life < 9 || acting) && !this.asleep) {
       this.acc += dt; let n = 0;
-      while (this.acc >= 1 / 120 && n < 5) { this.step(1 / 120); this.acc -= 1 / 120; n++; }
+      while (this.acc >= 1 / 120 && n < 8) { this.step(1 / 120); this.acc -= 1 / 120; n++; }
       if (this.acc > 1 / 120) this.acc = 0;
       this.sync();
     }
@@ -607,7 +608,7 @@ class LimbBody {
   dispose() { scene.remove(this.g); }
   step() {
     const h = 1 / 120, p = this.p, q = this.q;
-    for (let i = 0; i < 2; i++) { const P = p[i], Q = q[i]; _lA.subVectors(P, Q).multiplyScalar(0.995); Q.copy(P); P.add(_lA); P.y -= 9.8 * h * h; }
+    for (let i = 0; i < 2; i++) { const P = p[i], Q = q[i]; _lA.subVectors(P, Q).multiplyScalar(0.999); Q.copy(P); P.add(_lA); P.y -= 9.8 * h * h; }
     const gr = [false, false];
     for (let it = 0; it < 4; it++) {
       _lA.subVectors(p[1], p[0]); const d = _lA.length() || 1e-6, k = (d - this.len) / d * 0.5;
@@ -638,7 +639,7 @@ class LimbBody {
   }
   update(dt) {
     this.life += dt; if (this.rest) return;
-    this.acc = Math.min(this.acc + dt, 0.05);
+    this.acc = Math.min(this.acc + dt, 0.07);
     while (this.acc >= 1 / 120) { this.step(); this.acc -= 1 / 120; }
     this.dt = dt; this.place();
   }

@@ -118,7 +118,7 @@ function updateSoaks(dt) {
     if (!root.parent) { SOAK_ROOTS.delete(root); continue; }
     const L = root.userData.chunk.soaks || []; let live = false;
     for (const s of L) {
-      s.t += dt; s.r = s.tgt - (s.tgt - 0.025) * Math.exp(-s.t / 9); if (s.t < 120) live = true;
+      s.t += dt; s.r = s.tgt - (s.tgt - 0.025) * Math.exp(-s.t / 4.5); if (s.t < 120) live = true;
       // creep downhill (in this part's frame, for the way the part is lying now), never far from the wound
       const g = soakGroupOf(root, s.w, s.c); if (!g) continue;
       g.getWorldQuaternion(_skq).invert(); _skd.set(0, -1, 0).applyQuaternion(_skq);

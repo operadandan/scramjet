@@ -198,7 +198,8 @@ class Anatomy {
       const boneNow = hits.some(([st]) => st.type === 'bone' && this.s[st.id].broken);
       // only a shotgun or a heavy round (the .50) has the mass to take a limb off: rifle and pistol rounds break the bone and
       // shred the tissue, but the limb stays on however many times it is hit
-      if (canDismember(w) && ((wasGone && anyBroken) || (E0 > 6500 && boneNow && (limb[1] === 2 || this.flesh[region] < 45)))) {
+      // (grenade steel riddles a limb but doesn't take it off one fragment at a time: the blast itself, close, does)
+      if (canDismember(w) && !this.frag && ((wasGone && anyBroken) || (E0 > 6500 && boneNow && (limb[1] === 2 || this.flesh[region] < 45)))) {
         const t = /hand|foot/.test(region) ? 0.93 : clamp(-e.y / (LSEG[frame] || 0.3), 0.1, 0.9);
         this.sever(limb[0], limb[1], t); out.severed = limb[0];
       }
@@ -238,7 +239,8 @@ class Anatomy {
       const bones = (STRUCTS_BY_FRAME[z.frame] || []).filter(st => st.type === 'bone' || st.type === 'artery');
       for (const st of bones) if (pathDist(c, c.clone().addScaledVector(d, 0.09), st)[0] < st.r + 0.03 + spread) this.damage(this.s[st.id], st, 34 * k, region);
       this.flesh[region] = Math.max(0, this.flesh[region] - 35 * k);
-      if (z.n >= 4 && spread < 0.07 && !z.done) { z.done = 1; const t = /hand|foot/.test(region) ? 0.93 : clamp(-c.y / (LSEG[z.frame] || 0.3), 0.1, 0.9); this.sever(limb[0], limb[1], t); res.sever = limb[0]; }
+      if ((this.frag ? z.n >= 8 && spread < 0.045 : z.n >= 4 && spread < 0.07) && !z.done) { z.done = 1;   // (grenade steel shreds a limb; only a dense close burst takes it off)
+        const t = /hand|foot/.test(region) ? 0.93 : clamp(-c.y / (LSEG[z.frame] || 0.3), 0.1, 0.9); this.sever(limb[0], limb[1], t); res.sever = limb[0]; }
     } else {
       for (const st of STRUCTS_BY_FRAME[z.frame] || []) if (!st.shell && pathDist(c, c.clone().addScaledVector(d, 0.11), st)[0] < st.r + 0.02 + spread) this.damage(this.s[st.id], st, 26 * k, region);
       this.flesh[region] = Math.max(0, this.flesh[region] - 18 * k);

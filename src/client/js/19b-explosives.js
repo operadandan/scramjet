@@ -323,8 +323,11 @@ function ragPush(r, p, sp) {
   r.asleep = false;
 }
 // limbs nearest the blast come off
+// (a blast low down takes the legs first, one at chest height or above the arms first)
+let BLAST_Y = 1;
 function blastLimbs(an, near, maxN) {
-  const L = ['armL', 'armR', 'legL', 'legR'].filter(l => !an.lost[l]).sort(() => Math.random() - 0.5).slice(0, maxN);
+  const pr = l => (l[0] === 'l' ? (BLAST_Y < 0.7 ? 0 : BLAST_Y > 1.2 ? 1 : 0.5) : (BLAST_Y < 0.7 ? 1 : BLAST_Y > 1.2 ? 0 : 0.5)) + Math.random() * 0.6;
+  const L = ['armL', 'armR', 'legL', 'legR'].filter(l => !an.lost[l]).sort((a, b) => pr(a) - pr(b)).slice(0, maxN);
   for (const l of L) an.sever(l, Math.random() < 0.5 ? 1 : 2, rnd(0.2, 0.8));
   return L.length;
 }
@@ -385,6 +388,7 @@ function blastChunks(root, p, cW, kind, an, dir, skin) {
   }
   return ch;
 }
+const _blo = new V3();
 function blastBodies(p, kind, owner, isOwner, onBody) {
   const E = EXPL[kind], cW = Math.cbrt(E.W), shot = { hits: new Map(), frag: true };
   // fragments: the grenade's steel body; for C4, what the blast tears off whatever it sat on (concrete, wood, or bone when it was on a person)
@@ -392,7 +396,7 @@ function blastBodies(p, kind, owner, isOwner, onBody) {
   // the local player, on every client: nobody else can know where you stand
   if (P.alive) {
     const tgt = P.downed && P.rag ? null : localBody.hitMeshes.filter(m => m.visible);
-    const c = P.pos.clone().setY(P.downed ? 0.3 : P.pos.y + (P.prone > 0.5 ? 0.25 : 0.95)), d = Math.max(0.1, c.distanceTo(p)), cover = !los(p, c);
+    const c = P.pos.clone().setY(P.downed ? 0.3 : P.pos.y + (P.prone > 0.5 ? 0.25 : 0.95)), d = Math.max(0.1, Math.min(c.distanceTo(p), _blo.copy(P.pos).setY(P.pos.y + 0.35).distanceTo(p))), cover = !los(p, c); BLAST_Y = p.y - P.pos.y;
     const z = d / cW * (cover ? 1.7 : 1), an = P.anat, dir = c.clone().sub(p).setY(Math.max(0.1, c.y - p.y)).normalize();
     an.lastBy = owner; an.lastDir.copy(dir); an.lastDist = d;
     let res = null;
@@ -419,7 +423,8 @@ function blastBodies(p, kind, owner, isOwner, onBody) {
   // the AI bodies and bodies on the ground: worked out once, by whoever set it off
   for (const dm of dummies) {
     if (dm.dead && !dm.rag) continue;
-    const c = (dm.rag ? dm.rag.p[1] : dm.hum.root.position.clone().setY(0.95)).clone(), d = Math.max(0.1, c.distanceTo(p)); if (d > 60) continue;
+    const c = (dm.rag ? dm.rag.p[1] : dm.hum.root.position.clone().setY(0.95)).clone(), lo = dm.rag ? null : _blo.copy(dm.hum.root.position).setY(dm.hum.root.position.y + 0.35);
+    const d = Math.max(0.1, Math.min(c.distanceTo(p), lo ? lo.distanceTo(p) : 1e9)); if (d > 60) continue; BLAST_Y = p.y - (dm.rag ? 0 : dm.hum.root.position.y);
     const z = d / cW * (los(p, c) ? 1 : 1.7), an = dm.anat, dir = c.clone().sub(p).setY(0.3).normalize();
     const ms = dm.rag ? ragMeshes(dm.rag) : (dm.hum.root.updateMatrixWorld(true), dm.hum.hitMeshes.filter(m => m.visible));
     const nh = fragsAt(p, ms, nF, 0, owner, (h, fd, v, L) => fragHit(h, fd, v, L, shot, p), vs);
