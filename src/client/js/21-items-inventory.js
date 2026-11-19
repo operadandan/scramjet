@@ -9,9 +9,10 @@ import { bakeColored } from './07-gun-models.js';
 import { TP_KIT, gunItemMesh } from './08-hands.js';
 import { ATT, ATTS, ATT_DEFAULT, ATT_SLOTS, ATT_SLOT_NAME, applyAttachments, attOf, buildMedPouch, installPlate, saveAtt } from './09-attachments.js';
 import { blip, noiseHit } from './10-audio.js';
+import { doorHint } from './15b-doors.js';
 import { props } from './16-ballistics.js';
 import { P, S } from './17-dummies.js';
-import { flashMsg, magEstimate, selectEmpty, switchWeapon } from './18-player.js';
+import { flashMsg, magEstimate, rackNeeded, selectEmpty, switchWeapon } from './18-player.js';
 import { net } from './19-network.js';
 import { c4Mine, r3 } from './19b-explosives.js';
 // ---- end module links ----
@@ -345,7 +346,12 @@ function updatePickup() {
     }
   }
   S.pick = best; const el = $('pickup');
-  if (!best) { el.style.display = 'none'; return; }
+  if (!best) {
+    // nothing to pick up: what F does to a door looked at, if anything
+    const t = !rackNeeded() && typeof doorHint === 'function' ? doorHint() : '';
+    if (t) { el.style.display = 'block'; if (el.innerHTML !== t) el.innerHTML = t; } else el.style.display = 'none';
+    return;
+  }
   hlMesh.geometry = best.m.geometry; best.m.updateMatrixWorld(); hlMesh.matrix.copy(best.m.matrixWorld); hlMesh.matrixWorld.copy(best.m.matrixWorld); hlMesh.visible = true;
   const it = best.it; el.style.display = 'block';
   el.innerHTML = '<b>F</b> Pick up ' + itemName(it) + (it.kind === 'gun' ? '<small>' + (attSummary2(it.att) || 'no attachments') + '</small>' : '');

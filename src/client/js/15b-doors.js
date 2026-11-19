@@ -70,15 +70,19 @@ function addDoor(x, z, rot, kind, hingeSide, lock) {
     const st = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.035, 8), d.knobMat); st.rotation.x = Math.PI / 2; st.position.z = s * (K.t / 2 + 0.017);
     for (const m of [k, st]) { m.castShadow = true; m.userData.surf = 'metal'; m.userData.kind = 'metal'; m.userData.doorPart = { d, type: 'knob' }; kg.add(m); worldMeshes.push(m); } }
   d.knob = kg;
-  // three hinges, seen on the face of the door: a knuckle standing proud on the hinge edge, with one leaf of the hinge on
-  // the jamb and one on the door (that one turns with the door)
+  // three hinges, seen on both faces of the door: a knuckle standing proud at the hinge edge on each face, with one leaf
+  // of the hinge on the jamb and one on the door (that one turns with the door)
+  const zf = K.t / 2 + 0.006;
   for (const [n, hy] of [[0, 0.25], [1, DOOR_H / 2], [2, DOOR_H - 0.25]]) {
-    const h = new THREE.Group(); h.position.set(d.hs * DOOR_W / 2, hy, K.t / 2 + 0.006); g.add(h);
-    const kn = new THREE.Mesh(new THREE.CylinderGeometry(0.0075, 0.0075, 0.09, 10), hingeMat);
-    const pj = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.085, 0.002), hingeMat); pj.position.set(d.hs * 0.016, 0, -0.005);
-    const pd = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.085, 0.002), hingeMat);
-    for (const m of [kn, pj, pd]) { m.castShadow = true; m.userData.surf = 'metal'; m.userData.kind = 'metal'; m.userData.doorPart = { d, type: 'hinge', n }; h.add(m); worldMeshes.push(m); }
-    h.userData.n = n; h.userData.pd = pd; d.hinges.push(h);
+    const h = new THREE.Group(); h.position.set(d.hs * DOOR_W / 2, hy, 0); g.add(h); h.userData.n = n; h.userData.pd = [];
+    for (const s of [-1, 1]) {
+      const kn = new THREE.Mesh(new THREE.CylinderGeometry(0.0075, 0.0075, 0.09, 10), hingeMat); kn.position.z = s * zf;
+      const pj = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.085, 0.002), hingeMat); pj.position.set(d.hs * 0.016, 0, s * (zf - 0.005));
+      const pd = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.085, 0.002), hingeMat); pd.userData.base = new V3(-d.hs * 0.016, 0, s * (zf - 0.005));
+      for (const m of [kn, pj, pd]) { m.castShadow = true; m.userData.surf = 'metal'; m.userData.kind = 'metal'; m.userData.doorPart = { d, type: 'hinge', n }; h.add(m); worldMeshes.push(m); }
+      h.userData.pd.push(pd);
+    }
+    d.hinges.push(h);
   }
   doors.push(d); doorBoxes(d);
   return d;
@@ -95,7 +99,7 @@ function doorBoxes(d) {
     }
   }
   // the hinge leaves on the door turn with it
-  if (!d.fallen) for (const h of d.hinges) { const pd = h.userData.pd; pd.position.set(-d.hs * 0.016 * Math.cos(d.a), 0, -0.005 + d.hs * 0.016 * Math.sin(d.a)); pd.rotation.y = d.a; }
+  if (!d.fallen) for (const h of d.hinges) for (const pd of h.userData.pd) { pd.position.copy(pd.userData.base).applyAxisAngle(_Y, d.a); pd.rotation.y = d.a; }
 }
 
 // what the player is looking at, within reach: { d, knob } (the leaf, the knob, or the doorway itself: an open door is
@@ -130,6 +134,16 @@ function doorAwayS(d, s) { return -s * d.hs * DOOR_OPEN; }
 function doorAway(d, p) { return doorAwayS(d, doorSide(d, p)); }
 function doorLocked(d, p) { return d.lock && d.knob && d.knob.parent && doorSide(d, p) !== d.lock; }
 
+// what F will do to the door looked at, for the prompt under the crosshair
+let doorAim = null;
+function doorHint() {
+  const A = doorAim; if (!A || A.d.fallen || S.inv) return '';
+  const d = A.d, side = doorSide(d, P.pos);
+  if (A.knob && d.knob && Math.abs(d.a) < 0.05 && side === d.ls) return '<b>F</b> ' + (d.lock ? 'Unlock' : 'Lock') + ' door';
+  if (Math.abs(d.a) > 0.12) return '<b>F</b> Close door<small>hold to ease it shut</small>';
+  if (doorLocked(d, P.pos)) return '<b>F</b> Locked<small>locked from the other side</small>';
+  return '<b>F</b> Open door<small>hold to ease it open</small>';
+}
 // F pressed / released while looking at a door
 let doorF = null;
 function doorKeyDown() { doorLetGo(); const A = doorAimed(); if (!A) return false; doorF = { d: A.d, knob: A.knob, t: 0, p: P.pos.clone() }; return true; }
@@ -156,7 +170,7 @@ function updateDoors(dt) {
   for (const c of CHARGES) { if (c.doorChk) { if (c.g.parent && c.g.parent.userData.door) chargePos(c); continue; } c.doorChk = true;
     for (const d of doors) { const L = d.leaf, lp = L.worldToLocal(c.p.clone()), gp = L.geometry.parameters; if (Math.abs(lp.x) < gp.width / 2 + 0.02 && Math.abs(lp.y) < gp.height / 2 + 0.02 && Math.abs(lp.z) < gp.depth / 2 + 0.06) { L.attach(c.g); break; } } }
   // the door (or the knob) looked at is lit up a little, so it is clear what F will work
-  const A = doorAimed();
+  const A = doorAim = doorAimed();
   for (const d of doors) {
     const on = A && A.d === d ? 1 : 0; d.hl += (on - d.hl) * Math.min(1, dt * 14);
     const m = d.leaf.material, k = on && !A.knob ? d.hl : 0, kk = on && A.knob ? d.hl : 0;
@@ -395,5 +409,5 @@ function doorApplySnap(list) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { DOOR_FW, DOOR_H, DOOR_W, addDoor, clearDoors, doorApplySnap, doorAt, doorBlast, doorKeyDown, doorKeyUp, doorLeft, doorPartHit, doorRx, doorSnap, updateDoors };
+export { DOOR_FW, DOOR_H, DOOR_W, addDoor, clearDoors, doorApplySnap, doorAt, doorBlast, doorHint, doorKeyDown, doorKeyUp, doorLeft, doorPartHit, doorRx, doorSnap, updateDoors };
 // ---- end module exports ----
