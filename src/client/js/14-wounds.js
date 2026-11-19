@@ -435,7 +435,8 @@ function holeify(mesh, max, inner) {
         // the skin under the clothes, and the bones and organs inside, show only round a hole (seen through it), never
         // anywhere else: a shoulder blade or a rib near the surface must not poke out through the back of the shirt
         (mesh.userData.under || mesh.userData.inner || mesh.userData.organ ? '\nif (hCut.w < 1e8 && dot(vHolePos, hCut.xyz) > hCut.w - 0.08) holeNear = 1.0;\nif (holeNear < 0.5) discard;' : ''))
-      .replace('#include <color_fragment>', '#include <color_fragment>\nif (!gl_FrontFacing' + (mesh.userData.tex ? ' && holeNear > 0.5' : '') + ') diffuseColor.rgb = hFl > 0.5 ? fleshCut(vHolePos) : hIn; else if (!gl_FrontFacing) {} else diffuseColor.rgb = mix(diffuseColor.rgb, hIn * 0.6, ' + (mesh.userData.under ? 'clamp(0.45 + holeRim * 0.75, 0.0, 0.9)' : 'holeRim * 0.75') + ');')
+      .replace('#include <color_fragment>', '#include <color_fragment>\nif (!gl_FrontFacing' + (mesh.userData.tex ? ' && holeNear > 0.5' : '') + ') diffuseColor.rgb = (hFl > 0.5 ? fleshCut(vHolePos) : hIn) * ' + (mesh.userData.tex ? '1.0' : 'mix(0.3, 1.0, holeNear)') + '; else if (!gl_FrontFacing) {} else diffuseColor.rgb = mix(diffuseColor.rgb, hIn * 0.6, ' + (mesh.userData.under ? 'clamp(0.45 + holeRim * 0.75, 0.0, 0.9)' : 'holeRim * 0.75') + ');')
+      // (the inside face away from any hole, seen in at a collar or a sleeve, is only a dark shadow of meat, not bright red)
       // the inside never reads as an empty shell: it is lit as if it faced you, a little self-lit, so the far side of a body
       // seen through a hole looks like the cut face of solid meat rather than a dark cavity
       .replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\nif (!gl_FrontFacing) normal = normalize(vViewPosition);')

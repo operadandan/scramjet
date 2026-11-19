@@ -306,12 +306,15 @@ class Ragdoll {
       _rt.subVectors(p[E], p[S]); const L = _rt.length(); _rt.multiplyScalar(1 / L);
       const inn = -_rt.dot(_rs) * side, fwd = _rt.dot(_rf);
       if (inn > 0.35 && fwd < 0.35) push(S, E, _rs, (inn - 0.35) * L * side);
-      if (fwd < -0.75) push(S, E, _rf, (-0.75 - fwd) * L);
+      if (fwd < -0.6) push(S, E, _rf, (-0.6 - fwd) * L);
+      // nor far up past the head: an arm flung overhead pulled the shirt over the shoulder into a cone
+      const up = _rt.dot(_ru); if (up > 0.62) push(S, E, _ru, -(up - 0.62) * L);
     };
     knee(9, 10, 11); knee(12, 13, 14); hip(9, 10, -1); hip(12, 13, 1); elbow(3, 4, 5); elbow(6, 7, 8); shoulder(3, 4, -1); shoulder(6, 7, 1);
     // neck: the head stays above the shoulders' side of the torso axis and tips at most about 70 degrees any way
     _rt.subVectors(p[0], p[1]); const hl = _rt.length(), hu = _rt.dot(_ru) / (hl || 1);
-    if (hu < 0.34 && !this.neckTorn) { const k = Math.min(0.012, (0.34 - hu) * hl); p[0].addScaledVector(_ru, k * 0.6); p[1].addScaledVector(_ru, -k * 0.4); }
+    if (hu < 0.5 && !this.neckTorn) { const k = Math.min(0.016, (0.5 - hu) * hl);   // (the chin comes down to the chest, never into it)
+      p[0].addScaledVector(_ru, k * 0.6); p[1].addScaledVector(_ru, -k * 0.4); }
   }
   step(h) {
     // speed cap: 12 m/s just after a hit (a shove from a round can be violent), otherwise 6 m/s, which a falling body never needs to beat

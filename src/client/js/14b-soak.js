@@ -93,9 +93,11 @@ function addSoak(root, frame, group, p, tgt, t0) {
 function addPepper(root, frame, group, p) {
   if (!root) return; chunkUniforms(root); const st = root.userData.chunk, f = soakFrame(root, frame, group, p); if (!f) return;
   const L = st.peps = st.peps || []; if (L.length >= PEP_N) L.shift();
-  L.push({ w: f[0], q: f[1].clone(), r: rnd(0.0018, 0.0032) });
-  // where several strikes land close together the clothes soak round them
-  if (L.filter(s => s.w === f[0] && s.q.distanceTo(f[1]) < 0.06).length === 3) addSoak(root, frame, group, p, 0.06);
+  L.push({ w: f[0], q: f[1].clone(), r: rnd(0.0025, 0.0045) });
+  // each strike bleeds into the clothes round it; where several land close together they soak into one big patch
+  const near = L.filter(s => s.w === f[0] && s.q.distanceTo(f[1]) < 0.07).length;
+  if (near >= 2) addSoak(root, frame, group, p, Math.min(0.11, 0.04 + near * 0.012));
+  else if (Math.random() < 0.6) addSoak(root, frame, group, p, rnd(0.025, 0.04));
   else SOAK_ROOTS.add(root), soakSync(root);
 }
 function soakCopy(from, to) {

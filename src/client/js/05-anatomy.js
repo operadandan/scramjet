@@ -196,10 +196,10 @@ class Anatomy {
     if (limb) {
       const bones = (STRUCTS_BY_FRAME[frame] || []).filter(st => st.type === 'bone'), anyBroken = bones.some(st => this.s[st.id].broken);
       const boneNow = hits.some(([st]) => st.type === 'bone' && this.s[st.id].broken);
-      // only a shotgun or a heavy round (the .50) has the mass to take a limb off: rifle and pistol rounds break the bone and
+      // only a shotgun or a heavy round (the .50) has the mass to take a limb off (a .50 through the bone of an arm, upper or lower, always does): rifle and pistol rounds break the bone and
       // shred the tissue, but the limb stays on however many times it is hit
       // (grenade steel riddles a limb but doesn't take it off one fragment at a time: the blast itself, close, does)
-      if (canDismember(w) && !this.frag && ((wasGone && anyBroken) || (E0 > 6500 && boneNow && (limb[1] === 2 || this.flesh[region] < 45)))) {
+      if (canDismember(w) && !this.frag && ((wasGone && anyBroken) || (E0 > 6500 && boneNow && (limb[1] === 2 || limb[0][0] === 'a' || this.flesh[region] < 45)))) {
         const t = /hand|foot/.test(region) ? 0.93 : clamp(-e.y / (LSEG[frame] || 0.3), 0.1, 0.9);
         this.sever(limb[0], limb[1], t); out.severed = limb[0];
       }

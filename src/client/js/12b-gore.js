@@ -131,7 +131,8 @@ function goreThrow(m, v, w, samp, pad, r) {
   goreTrim();
 }
 // over the limit the oldest crumbs go first; a piece of a body is kept as long as there is anything else to drop
-function goreTrim() { while (gore.length > GORE_MAX) { let i = gore.findIndex(g => g.kind !== 'chunk'); if (i < 0) i = 0; dropGore(gore.splice(i, 1)[0]); } }
+// (the warm-up's rehearsal pieces, far off under the map, go before anything real)
+function goreTrim() { while (gore.length > GORE_MAX) { let i = gore.findIndex(g => g.m.position.z < -3000); if (i < 0) i = gore.findIndex(g => g.kind !== 'chunk'); if (i < 0) i = 0; dropGore(gore.splice(i, 1)[0]); } }
 function dropGore(g) { scene.remove(g.m); for (const x of g.m.userData.own || []) x.dispose(); }
 // up to 40 of a piece's corners, to find its lowest point as it turns (kept on the geometry, shared by every piece using it)
 function gSamp(geo) {
