@@ -133,7 +133,8 @@ select{width:100%;padding:9px 10px;margin:4px 0 8px;background:#0b0e12;border:1p
 #score{position:fixed;left:50%;top:14%;transform:translateX(-50%);min-width:420px;background:rgba(10,12,15,.88);border:1px solid #2c343d;border-radius:8px;padding:14px 18px;z-index:12;display:none;pointer-events:none}
 #score h3{margin:0 0 10px;letter-spacing:4px;font-size:14px;color:#aab3bc}
 #score table{width:100%;border-collapse:collapse;font-size:14px}#score th{text-align:left;font-size:10px;letter-spacing:2px;color:#7d8894;padding:4px 6px}
-#score td{padding:6px;border-top:1px solid rgba(255,255,255,.06)}#score tr.me td{color:#ffd166}#score td.n{text-align:right;font-variant-numeric:tabular-nums}
+#score td{padding:6px;border-top:1px solid rgba(255,255,255,.06)}#pickup .hb{width:160px;height:4px;margin:6px auto 0;background:rgba(255,255,255,.18);border-radius:2px;overflow:hidden}#pickup .hb i{display:block;height:100%;background:#ffd166}
+#score .teams{display:flex;gap:18px}#score .teams>div{flex:1;min-width:300px}#score h4{margin:0 0 4px;font-size:12px;letter-spacing:3px}#score td.dead{color:#7d8894}#score tr.me td{color:#ffd166}#score td.n{text-align:right;font-variant-numeric:tabular-nums}
 #black{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:10}
 #deathmsg{position:fixed;left:0;right:0;top:40%;text-align:center;font-size:22px;letter-spacing:3px;z-index:11;pointer-events:none;text-shadow:0 2px 6px #000;display:none}
 .optr{display:flex;align-items:center;gap:8px}.optr input[type=range]{flex:1;accent-color:#e8432d}
@@ -246,7 +247,7 @@ select{width:100%;padding:9px 10px;margin:4px 0 8px;background:#0b0e12;border:1p
 <div id="attm"></div>
 <div id="suppv"></div><div id="dragghost"></div><div id="tip"></div><div id="killn"></div><div id="tpdot"></div><div id="downfx"></div><div id="downblink"></div>
 <div id="downmsg">You are downed, press [SPACE] to give up.<small id="downwhy"></small></div>
-<div id="score"><h3 id="scoretitle">SCOREBOARD</h3><table><thead><tr><th>PLAYER</th><th>STATUS</th><th class="n">K</th><th class="n">D</th></tr></thead><tbody id="scorebody"></tbody></table></div>
+<div id="score"><h3 id="scoretitle">SCOREBOARD</h3><div id="scorebody"></div></div>
 <div id="dmgv"></div>
 <div id="black"></div>
 <div id="deathmsg"></div>

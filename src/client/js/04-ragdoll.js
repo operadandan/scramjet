@@ -687,5 +687,5 @@ function detachSkin(g) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { RAG_LIMBS, RAG_MASS, Ragdoll, _Y, _a, _b, _rt, freeRag, limbBodies, ragdolls, setHelmet, spawnRagdoll, syncLost, updateLimbs };
+export { RAG_LIMBS, RAG_MASS, Ragdoll, _Y, _a, _b, _c, _rt, freeRag, limbBodies, ragdolls, setHelmet, spawnRagdoll, syncLost, updateLimbs };
 // ---- end module exports ----

@@ -154,5 +154,5 @@ function renderScope() {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { $, ENABLE_TEST_MODE, GFX, GFX_PRESETS, V3, angLerp, camera, clamp, damp, lerp, makeScopeLens, muzzleLight, ramp, renderScope, renderer, rnd, scene, scopeRT, smooth, sun, sunDir, vmCamera, vmMuzzleLight, vmScene, vmSun };
+export { $, ENABLE_TEST_MODE, GFX, GFX_PRESETS, V3, angLerp, camera, clamp, damp, lerp, makeScopeLens, muzzleLight, ramp, renderScope, renderer, rnd, scene, scopeRT, sky, smooth, sun, sunDir, vmCamera, vmMuzzleLight, vmScene, vmSun };
 // ---- end module exports ----

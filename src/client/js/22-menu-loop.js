@@ -22,7 +22,11 @@ import { api, joinPeer, net, netSend, onNet, roundHud, startHosting } from './19
 import { clearExplosives, updateExplosives } from './19b-explosives.js';
 import { setPixelation, updateCamera, updateHUD, updateViewmodel } from './20-camera-hud-input.js';
 import { clearItems, hlMesh, openAttMenu, updateInv, updatePickup, updateToolbar } from './21-items-inventory.js';
+import { screenFx } from './21b-screenfx.js';
 import { warmFx } from './22b-warm.js';
+import { SG, siegeClear, siegeUpdate } from './23-siege.js';
+import { updateEnv } from './24-env.js';
+import { updateConsole } from './25-console.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- scoreboard
 S.score = {};
@@ -30,15 +34,20 @@ function scoreOf(id) { return S.score[id] || (S.score[id] = { k: 0, d: 0 }); }
 function renderScore() {
   const rows = [];
   if (S.mode === 'online') {
-    rows.push({ me: true, name: S.myName || 'You', st: !P.alive ? 'Dead' : P.downed ? 'Downed' : 'Alive', ...scoreOf(S.myId) });
-    for (const r of S.remotes.values()) rows.push({ name: r.name, st: !r.alive ? 'Dead' : r.rag ? 'Downed' : 'Alive', ...scoreOf(r.id) });
+    rows.push({ me: true, id: S.myId, dfz: typeof SG !== 'undefined' && SG.carrier === S.myId, name: S.myName || 'You', st: !P.alive ? 'Dead' : P.downed ? 'Downed' : 'Alive', ...scoreOf(S.myId) });
+    for (const r of S.remotes.values()) rows.push({ id: r.id, dfz: typeof SG !== 'undefined' && SG.carrier === r.id && S.team[r.id] === S.team[S.myId], name: r.name, st: !r.alive ? 'Dead' : r.rag ? 'Downed' : 'Alive', ...scoreOf(r.id) });
     $('scoretitle').textContent = 'ROOM ' + S.room + (net.mode === 'host' ? '  (you are hosting)' : '');
   } else {
     rows.push({ me: true, name: S.myName || playerName(), st: !P.alive ? 'Dead' : P.downed ? 'Downed' : 'Alive', k: S.testKills || 0, d: S.testDeaths || 0 });
     $('scoretitle').textContent = 'TESTING MODE';
   }
   rows.sort((a, b) => b.k - a.k || a.d - b.d);
-  $('scorebody').innerHTML = rows.map(r => '<tr' + (r.me ? ' class="me"' : '') + '><td>' + esc(r.name) + '</td><td>' + r.st + '</td><td class="n">' + r.k + '</td><td class="n">' + r.d + '</td></tr>').join('');
+  const table = L => '<table><thead><tr><th>PLAYER</th><th>STATUS</th><th class="n">K</th><th class="n">D</th></tr></thead><tbody>' + L.map(r => '<tr' + (r.me ? ' class="me"' : '') + '><td>' + esc(r.name) + (r.dfz ? ' <span style="color:#ffd166">[DEFUSER]</span>' : '') + '</td><td' + (r.st === 'Dead' ? ' class="dead"' : '') + '>' + r.st + '</td><td class="n">' + r.k + '</td><td class="n">' + r.d + '</td></tr>').join('') + '</tbody></table>';
+  // online: the attackers (red) on the left, the defenders (blue) on the right, each with their round wins
+  if (S.mode === 'online') {
+    const sc = (S.R && S.R.sc) || { r: 0, b: 0 }, of = t => rows.filter(r => S.team[r.id] === t);
+    $('scorebody').innerHTML = '<div class="teams"><div><h4 style="color:#ff6a5a">RED · ATTACK · ' + sc.r + '</h4>' + table(of('r')) + '</div><div><h4 style="color:#6aa0ff">BLUE · DEFEND · ' + sc.b + '</h4>' + table(of('b')) + '</div></div>' + (rows.some(r => !S.team[r.id]) ? table(rows.filter(r => !S.team[r.id])) : '');
+  } else $('scorebody').innerHTML = table(rows);
 }
 // loadout
 function syncLoadoutUI() { for (const [p, s2] of [['lo_p2', 'lo_s2']]) { $(p).value = String(P.loadout[0]); $(s2).value = String(P.loadout[1]); } }
@@ -111,7 +120,7 @@ function leave() {
   while (bullets.length) removeBullet(bullets.length - 1);
   S.slow = false; S.ts = 1; S.target = null; S.testKills = 0; S.testDeaths = 0; P.downed = false; $('scope').style.display = 'none'; $('score').style.display = 'none'; S.filt = ''; renderer.domElement.style.filter = ''; $('slowmo').style.display = 'none';
   $('vig').style.display = $('vigads').style.display = 'none';
-  S.mode = null; P.alive = false; P.rag = null; localBody.root.visible = false; S.R = null; $('rbanner').style.opacity = '0';
+  S.mode = null; P.alive = false; P.rag = null; localBody.root.visible = false; S.R = null; siegeClear(); $('rbanner').style.opacity = '0';
   $('hud').style.display = 'none'; $('pause').style.display = 'none'; $('menu').style.display = 'flex';
   $('black').style.opacity = '0'; $('deathmsg').style.display = 'none'; $('dmgv').style.opacity = '0';
   if (document.pointerLockElement) document.exitPointerLock();
@@ -250,7 +259,7 @@ function frame(now, hidden) {
   }
   updateBullets(wdt);
   for (const r of ragdolls) r.update(wdt);
-  updateFx(wdt); updateDebris(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); roundHud(); updateLimbs(wdt); updateHeats(wdt);
+  updateFx(wdt); updateDebris(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); siegeUpdate(wdt); roundHud(); screenFx(wdt); updateConsole(dt); updateEnv(dt); updateLimbs(wdt); updateHeats(wdt);
   updateCamera(dt); if (S.mode && P.alive && !P.downed) tpCamera();
   if (S.mode) { updateViewmodel(dt); vmCamera.updateMatrixWorld(true); updateDevices(); } else updateDevices();
   updateTPBody(dt);
@@ -273,5 +282,5 @@ function frame(now, hidden) {
 schedule();
 
 // ---- module exports: build.mjs strips this block ----
-export { frame, leave, renderScore, scoreOf };
+export { applyGfx, frame, leave, renderScore, scoreOf };
 // ---- end module exports ----

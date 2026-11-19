@@ -1,7 +1,7 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { $, GFX, V3, camera, clamp, damp, lerp, ramp, renderer, rnd, sunDir, vmCamera, vmSun } from './00-setup.js';
-import { _Y, _a } from './04-ragdoll.js';
+import { _Y, _a, _b, _c } from './04-ragdoll.js';
 import { DEATH_TEXT, makeBodyPanel } from './05-anatomy.js';
 import { WEAPONS, vm } from './06-weapons.js';
 import { lerpCurls } from './06c-arm-rig.js';
@@ -17,7 +17,10 @@ import { net } from './19-network.js';
 import { c4Mine } from './19b-explosives.js';
 import { TV, vmTools } from './19c-toolvm.js';
 import { closeInv, curSlot, dragRotate, dropHeld, openInv, pickUp, pressSlot } from './21-items-inventory.js';
+import { SFX, specNext } from './21b-screenfx.js';
 import { renderScore } from './22-menu-loop.js';
+import { siegeKeyDown, siegeKeyUp } from './23-siege.js';
+import { CON, conClose } from './25-console.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- camera / viewmodel
 const camTarget = new V3(), _camQ = new THREE.Quaternion(), _camE = new THREE.Quaternion(), _camEu = new THREE.Euler();
@@ -26,6 +29,16 @@ function updateCamera(dt) {
     const t = performance.now() / 1000 * 0.05;
     camera.position.set(Math.cos(t) * 42, 17, Math.sin(t) * 42); camera.lookAt(0, 1.5, 0);
     camera.fov = 70; camera.updateProjectionMatrix();
+    return;
+  }
+  // dead in a round: over the shoulder of a teammate still fighting
+  if (!P.alive && SFX.spec && S.remotes.get(SFX.spec)) {
+    const r = S.remotes.get(SFX.spec), y = r.yaw, pi = (r.st && r.st.pi) || 0, fw = _a.set(-Math.sin(y), 0, -Math.cos(y));
+    camTarget.copy(r.pos).add(_b.set(0, 1.85, 0)).addScaledVector(fw, -1.9).add(_c.set(Math.cos(y), 0, -Math.sin(y)).multiplyScalar(0.45));
+    camera.position.lerp(camTarget, 1 - Math.exp(-8 * dt));
+    _camQ.setFromEuler(_camEu.set(pi * 0.8 - 0.12, y, 0, 'YXZ')); camera.quaternion.slerp(_camQ, 1 - Math.exp(-8 * dt));
+    camera.fov = 75; camera.updateProjectionMatrix();
+    if (P.rag && P.rag.headG) P.rag.headG.visible = true;
     return;
   }
   if (!P.alive || P.downed) {
@@ -264,7 +277,7 @@ function updateHUD() {
   if (dn && tn - (S.beatT || 0) > 1.05) { S.beatT = tn; blip(58, 0.14, 0.5, 'sine'); setTimeout(() => blip(50, 0.16, 0.35, 'sine'), 230); }
   $('downblink').style.opacity = dn ? String(Math.min(0.92, Math.pow(Math.max(0, Math.sin(tn * 0.55)), 6) * (0.55 + loss * 0.5))) : '0';
   const filt = (sup > 0.15 && !dn ? 'blur(' + (Math.round(sup * 3) / 2) + 'px) saturate(' + (1 - sup * 0.5).toFixed(1) + ') ' : '') + (dn ? 'grayscale(0.6) sepia(0.35) hue-rotate(-25deg) contrast(1.15) brightness(0.8) blur(' + (1 + Math.round((1 + Math.sin(tn * 1.3)) * 2) / 2) + 'px) ' : '') + (loss > 0.05 ? 'grayscale(' + (loss * 0.85).toFixed(2) + ') brightness(' + (1 - loss * 0.4).toFixed(2) + ') ' : '') + (an.concussion > 0 ? 'blur(' + (an.concussion * 1.5).toFixed(1) + 'px) ' : '') + (S.slow ? 'saturate(0.55) contrast(1.08)' : '');
-  if (filt !== S.filt) { S.filt = filt; renderer.domElement.style.filter = filt; }
+  if (P.alive && filt !== S.filt) { S.filt = filt; renderer.domElement.style.filter = filt; }   // (dead: 21b-screenfx has the view)
   $('stb').style.width = P.stamina + '%'; $('stb').style.background = P.staminaLock ? '#ff9a4a' : '#7fc4ff';
   if (S.mode === 'online') $('info').textContent = 'ROOM ' + S.room + '   |   ' + (S.remotes.size + 1) + ' PLAYERS' + (!net.ready() ? '   |   CONNECTING' : '') + (net.mode === 'host' ? '   |   HOSTING' : '');
   else $('info').textContent = 'TESTING MODE (temporary)';
@@ -285,7 +298,7 @@ addEventListener('keydown', e => {
   if (e.code === 'AltLeft' && !e.repeat) { e.preventDefault(); S.tp = !S.tp; blip(500, 0.03, 0.03); }
   // F works the action when the gun needs it (or when there is nothing to pick up), otherwise picks things up
   // F on a door works the door (a tap swings it, holding eases it open); otherwise the gun's action or picking up
-  if (e.code === 'KeyF' && !e.repeat) { if (rackNeeded()) workAction(); else if (S.pick) pickUp(); else if (S.mode && P.alive && !P.downed && doorKeyDown()) { } else if (canRack()) workAction(); else pickUp(); }
+  if (e.code === 'KeyF' && !e.repeat) { if (rackNeeded()) workAction(); else if (siegeKeyDown(true)) { } else if (S.pick) pickUp(); else if (siegeKeyDown()) { } else if (S.mode && P.alive && !P.downed && doorKeyDown()) { } else if (canRack()) workAction(); else pickUp(); }
   if (e.code === 'KeyB') dropHeld();
   if (S.mode === 'test' && e.code === 'KeyN') suppress(0.8, 900);
   if (e.code === 'KeyT') { P.deviceOn = !P.deviceOn; noiseHit(3000, 0.02, 0.04); }
@@ -301,11 +314,12 @@ addEventListener('keydown', e => {
   if (S.mode === 'test' && e.code === 'KeyK') testDeath(true);
   if (S.mode === 'test' && e.code === 'KeyJ') testDeath(false);
 });
-addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Tab') $('score').style.display = 'none'; if (e.code === 'KeyF') doorKeyUp(); });
+addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Tab') $('score').style.display = 'none'; if (e.code === 'KeyF') { doorKeyUp(); siegeKeyUp(); } });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouse.left = false; });
 renderer.domElement.addEventListener('mousedown', e => {
   if (!S.mode) return;
   if (!S.locked) { renderer.domElement.requestPointerLock(); return; }
+  if (!P.alive) { specNext(); return; }
   audio();
   if (e.button === 0) mouse.left = true;
   if (e.button === 2) toggleAds();
@@ -324,7 +338,8 @@ addEventListener('mousemove', e => {
 addEventListener('wheel', e => { if (S.mode && S.locked) pressSlot((curSlot() + (e.deltaY > 0 ? 1 : 3)) % 4); });
 document.addEventListener('pointerlockchange', () => {
   S.locked = document.pointerLockElement === renderer.domElement;
-  $('pause').style.display = (!S.locked && S.mode && !S.inv) ? 'flex' : 'none';
+  if (S.locked && CON.open) conClose(true);
+  $('pause').style.display = (!S.locked && S.mode && !S.inv && !CON.open) ? 'flex' : 'none';
   if (!S.locked) { mouse.left = false; for (const k in keys) keys[k] = false; }
 });
 // pixelation: the scene is drawn at a lower resolution and scaled up with hard edges. 0 is off, 100 is very blocky

@@ -3,13 +3,11 @@ import * as THREE from 'three';
 import { V3 } from './00-setup.js';
 import { addBox, addGround, canvasTex, clearWorld, spawns, worldGroup, worldMeshes } from './01-world.js';
 import { DOOR_FW, DOOR_H, DOOR_W, addDoor } from './15b-doors.js';
+import { items } from './21-items-inventory.js';
 // ---- end module links ----
-// ---------------------------------------------------------------- the multiplayer map: a suburban street
-// One street of single-storey houses (wood-framed siding walls a round goes through, a brick one now and then), front lawns,
-// driveways, fences between the back gardens, parked cars and trees. The defenders' house is the big one at the north end of
-// the cross street; the attackers come in from the far (south) end of town.
-// x runs east, z south. The main street runs east-west at z = 0, the cross street north-south at x = 0.
-const TOWN = { def: [], atk: [], half: 58 };
+// ---------------------------------------------------------------- map building helpers (the multiplayer map is at the end)
+// (the helpers below were written for a whole street of houses: walls with openings, flats, cars, trees, fences)
+const TOWN = { def: [], atk: [], half: 46, windows: [], sites: [] };
 const TOWN_TEX = {
   grass: canvasTex((g, s) => { g.fillStyle = '#4f6b34'; g.fillRect(0, 0, s, s); for (let i = 0; i < 9000; i++) { const v = Math.random(); g.fillStyle = v < 0.5 ? 'rgba(30,50,15,0.35)' : 'rgba(120,150,70,0.3)'; g.fillRect(Math.random() * s, Math.random() * s, 1.5, Math.random() * 4 + 1); } }),
   asphalt: canvasTex((g, s) => { g.fillStyle = '#3a3b3d'; g.fillRect(0, 0, s, s); for (let i = 0; i < 9000; i++) { const v = Math.random(); g.fillStyle = v < 0.5 ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.12)'; g.fillRect(Math.random() * s, Math.random() * s, 1.6, 1.6); } }),
@@ -24,9 +22,9 @@ function townFlat(x, z, w, d, tex, rep, y, color) {
 }
 // a wall from a to b along x (ax 'x', at z = c) or along z (ax 'z', at x = c), H tall, t thick, with openings
 // [from, to, bottom, top] measured along the wall: what is left round them is built as boxes
-function townWall(ax, a, b, c, H, t, kind, color, holes) {
-  holes = (holes || []).slice().sort((p, q) => p[0] - q[0]);
-  const box = (u0, u1, y0, y1) => { if (u1 - u0 < 0.02 || y1 - y0 < 0.02) return; const u = (u0 + u1) / 2, L = u1 - u0; if (ax === 'x') addBox(u, y0, c, L, y1 - y0, t, kind, color); else addBox(c, y0, u, t, y1 - y0, L, kind, color); };
+function townWall(ax, a, b, c, H, t, kind, color, holes, base) {
+  holes = (holes || []).slice().sort((p, q) => p[0] - q[0]); base = base || 0;
+  const box = (u0, u1, y0, y1) => { if (u1 - u0 < 0.02 || y1 - y0 < 0.02) return; const u = (u0 + u1) / 2, L = u1 - u0; if (ax === 'x') addBox(u, base + y0, c, L, y1 - y0, t, kind, color); else addBox(c, base + y0, u, t, y1 - y0, L, kind, color); };
   let u = a;
   for (const [h0, h1, y0, y1] of holes) { box(u, h0, 0, H); box(h0, h1, 0, y0); box(h0, h1, y1, H); u = h1; }
   box(u, b, 0, H);
@@ -69,69 +67,90 @@ function townTree(x, z, s) {
   }
 }
 const townFence = (ax, a, b, c, h) => townWall(ax, a, b, c, h || 1.5, 0.06, 'plywood', 0x8f7556);
+// ---------------------------------------------------------------- the multiplayer map: one house, Siege style
+// A two-storey timber-frame house (siding walls a round goes through and a charge blows open) on its own lot: a front porch
+// whose roof can be climbed onto from the skip beside it, a back garden with a shed, the street out front. The defenders
+// start inside and have two bomb sites to hold (A: the kitchen downstairs, B: the main bedroom upstairs); the attackers start
+// out on the street and down the side road. Every window can be boarded up and every full-height wall panel reinforced.
+// x runs east, z south; the house stands from x -10 to 10, z -7 to 7, the front (south) facing the street.
+const HOUSE = { x0: -10, x1: 10, z0: -7, z1: 7, f1: 3.0, H: 2.8, t: 0.2 };
 function buildTown() {
   clearWorld();
-  // the ground: grass, with the streets, pavements, drives and paths laid over it
+  TOWN.windows = []; TOWN.sites = []; TOWN.def = []; TOWN.atk = [];
   addGround(180, 'ground'); { const g = worldMeshes[worldMeshes.length - 1], t = TOWN_TEX.grass.clone(); t.needsUpdate = true; t.repeat.set(60, 60); g.material.map.dispose(); g.material.map = t; }
-  const H = TOWN.half;
-  townFlat(0, 0, 2 * H, 8, 'asphalt', 6, 0.003); townFlat(0, -13, 8, 26, 'asphalt', 6, 0.0032); townFlat(0, 26, 8, 52, 'asphalt', 6, 0.0032);
-  for (const s of [-1, 1]) { townFlat(0, s * 5.2, 2 * H, 2.4, 'pave', 1.2, 0.005); townFlat(s * 5.2, -13, 2.4, 26, 'pave', 1.2, 0.0052); townFlat(s * 5.2, 26, 2.4, 52, 'pave', 1.2, 0.0052); }
-  // the edge of town: tall hedges all round
-  for (const s of [-1, 1]) { addBox(0, 0, s * H, 2 * H + 2, 3.2, 1.6, 'concrete', 0x3c5a2c); addBox(s * H, 0, 0, 1.6, 3.2, 2 * H, 'concrete', 0x3c5a2c); }
-  // ---- the defenders' house, at the top of the cross street: a long brick ranch house, front door on the street side
-  // (south), back door and a side door, rooms off a hall
-  { const x0 = -9, x1 = 9, z0 = -40, z1 = -28;
-    townHouse(x0, z0, x1, z1, { brick: true, color: 0x9a5a48, roof: 0x3b3735, floor: 0xa98d6c, walls: {
-      s: [['w', -7], ['w', -4], ['d', 0, 'metal', 1, 0], ['w', 4], ['w', 7]],
-      n: [['w', -6.5], ['d', -2, 'plywood', -1, 0], ['w', 2.5], ['w', 6.5]],
-      w: [['w', -36], ['w', -31.5]],
-      e: [['d', -36.5, 'plywood', 1, 0], ['w', -30.5]] },
-      // a hall across the middle (z = -34) with doors into the rooms, the living room (south-west), kitchen (south-east),
-      // two bedrooms (north)
-      inner: [['x', x0, x1, -34, [-5, 5, 0]], ['z', -34, z1, -2, [-31]], ['z', z0, -34, 3, [-37]]],
-      innerDoors: [[-5, -34, 0, 'plywood', 1], [5, -34, 0, 'plywood', -1]] });
-    // cover inside: a couch, a table, a kitchen counter, beds
-    addBox(-6.5, 0, -30.2, 2.2, 0.8, 0.9, 'crate', 0x5b6a7a); addBox(-5.5, 0, -32.3, 1.4, 0.75, 0.9, 'crate', 0x7a5a3a);
-    addBox(6, 0, -28.9, 5, 0.95, 0.65, 'crate', 0xd8d2c4); addBox(5.5, 0, -31.5, 1.6, 0.78, 1, 'crate', 0x7a5a3a);
-    addBox(-6.5, 0, -38.6, 2, 0.55, 1.6, 'crate', 0x8a96a8); addBox(6.2, 0, -38.6, 2, 0.55, 1.6, 'crate', 0xa8908a); addBox(-0.5, 0, -39.4, 1.2, 1.9, 0.5, 'crate', 0x6a4e34);
-    // the garden: front lawn with a path, a low fence round the back
-    townFlat(0, -25.5, 1.4, 5, 'pave', 1.2, 0.005);
-    townFence('x', -16, -9.5, -40.2, 1.5); townFence('x', 9.5, 16, -40.2, 1.5); townFence('x', -16, 16, -47, 1.8); townFence('z', -47, -40.2, -16, 1.8); townFence('z', -47, -40.2, 16, 1.8);
-    townCar(5.5, -24, 'z', 0x6a7a8c); townTree(-12, -24); townTree(12.5, -45);
-    TOWN.def = [new V3(-6, 0, -36.5), new V3(6, 0, -36.5), new V3(-6.5, 0, -31.3), new V3(6.5, 0, -32.5), new V3(0, 0, -33.2), new V3(-2, 0, -38.5)];
-  }
-  // ---- the street: houses facing the main street on both sides, and along the cross street
-  const homes = [
-    // [x0, z0, x1, z1, front side, colour, brick]
-    [-28, -20, -16, -10, 's', 0xc9d4dc], [16, -20, 28, -10, 's', 0xe2d6a8], [-46, -20, -34, -10, 's', 0xd6c3b0, true], [34, -20, 46, -10, 's', 0xb8c9b2],
-    [-28, 10, -16, 20, 'n', 0xe6e0d2], [16, 10, 28, 20, 'n', 0xa9b8c8], [-46, 10, -34, 20, 'n', 0xb07a5e, true], [34, 10, 46, 20, 'n', 0xe0c8c8],
-    [-20, 26, -10, 36, 'e', 0xd8d8c8], [10, 26, 20, 36, 'w', 0xc8d0a8]
-  ];
-  for (const [x0, z0, x1, z1, f, col, brick] of homes) {
-    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, walls = { n: [['w', cx - 3], ['w', cx + 3]], s: [['w', cx - 3], ['w', cx + 3]], w: [['w', cz]], e: [['w', cz]] };
-    // the front door on the street side, a back door opposite
-    if (f === 's' || f === 'n') { walls[f] = [['w', cx - 3.5], ['d', cx, 'plywood', 1, 0], ['w', cx + 3.5]]; walls[f === 's' ? 'n' : 's'] = [['d', cx - 2.5, 'plywood', -1, 0], ['w', cx + 2.5]]; }
-    else { walls[f] = [['w', cz - 2.8], ['d', cz, 'plywood', 1, 0], ['w', cz + 2.8]]; walls[f === 'e' ? 'w' : 'e'] = [['d', cz + 2, 'plywood', 1, 0]]; }
-    const ri = f === 's' || f === 'n' ? [['z', z0, z1, cx + 1.5, [cz + (f === 's' ? 2.4 : -2.4)]]] : [['x', x0, x1, cz - 1, [cx]]];
-    townHouse(x0, z0, x1, z1, { color: col, brick, walls, inner: ri, roof: brick ? 0x3f3a36 : 0x575049 });
-    // a drive and a car in it, a path to the door, a tree on the lawn
-    if (f === 's' || f === 'n') {
-      const zs = f === 's' ? z1 : z0, zr = f === 's' ? 4 : -4, dx = x1 - 2;
-      townFlat(dx, zs + (f === 's' ? 2.1 : -2.1), 3, 4.2, 'pave', 1.5, 0.005); townFlat(cx, zs + (f === 's' ? 2.1 : -2.1), 1.2, 4.2, 'pave', 1.2, 0.0055);
-      if ((x0 + z0) % 3 !== 0) townCar(dx, zs + (f === 's' ? 2.4 : -2.4), 'z', [0x8c2a2a, 0x2a4a6c, 0xb8b8b0, 0x262626, 0x5a6a3a][Math.abs(x0) % 5]);
-      townTree(x0 + 2, zs + zr * 0.7);
-      // back garden fences
-      const zb = f === 's' ? z0 : z1, zf = f === 's' ? z0 - 6 : z1 + 6;
-      townFence('x', x0 - 3, x1 + 3, zf); townFence('z', Math.min(zb, zf), Math.max(zb, zf), x0 - 3); townFence('z', Math.min(zb, zf), Math.max(zb, zf), x1 + 3);
-    } else townTree(f === 'e' ? x1 + 3 : x0 - 3, cz + 4);
-  }
-  // cars along the street, a few trees on the verges, bins and a mailbox or two
-  townCar(-10, 2.4, 'x', 0x34506e); townCar(24, -2.4, 'x', 0x9a9a92); townCar(-38, -2.4, 'x', 0x6e2e2e); townCar(2.4, 14, 'z', 0x2e2e2e); townCar(-2.4, -14, 'z', 0x7a6a3a);
-  for (const [x, z] of [[-8, 7.5], [8, -7.5], [-30, 7.5], [30, -7.5], [44, 7.5], [-44, -7.5], [7.5, 40], [-7.5, 22]]) townTree(x, z, 0.9);
-  for (const [x, z] of [[-14, 6.6], [14, -6.6], [-32, -6.6], [32, 6.6]]) { addBox(x, 0, z, 0.6, 1.05, 0.6, 'metal', 0x2e4a2e); }
-  // where the attackers come in: the south end of the cross street, behind a bus shelter and a van
-  addBox(-5, 0, 47, 3.5, 2.4, 0.08, 'metal', 0x6a7a80); townCar(4, 46, 'x', 0xe8e8e0); addBox(4, 1.5, 46, 3.6, 0.8, 1.7, 'metal', 0xe8e8e0);
-  TOWN.atk = [new V3(-8, 0, 52), new V3(-3, 0, 53), new V3(2, 0, 52), new V3(7, 0, 53), new V3(-12, 0, 50), new V3(12, 0, 50)];
+  const E = 46;
+  // the street out front, the side road to the west, pavements, the drive and the path
+  townFlat(0, 22, 2 * E, 8, 'asphalt', 6, 0.003); townFlat(-26, -12, 8, 60, 'asphalt', 6, 0.0032);
+  townFlat(0, 16.8, 2 * E, 2.4, 'pave', 1.2, 0.005); townFlat(-20.8, -12, 2.4, 60, 'pave', 1.2, 0.0052);
+  townFlat(-3, 12, 1.4, 9.5, 'pave', 1.2, 0.0055); townFlat(7, 11.5, 3.4, 9, 'pave', 1.5, 0.005);
+  // the edge of the playing area: tall hedges all round
+  for (const s of [-1, 1]) { addBox(0, 0, s * E, 2 * E + 2, 3.2, 1.6, 'concrete', 0x3c5a2c); addBox(s * E, 0, 0, 1.6, 3.2, 2 * E, 'concrete', 0x3c5a2c); }
+  const { x0, x1, z0, z1, f1, H, t } = HOUSE, col = 0xd9d4c4, col2 = 0xc9cfc8;
+  const win = [], tag = (n0, floor, ext) => { for (let i = n0; i < worldMeshes.length; i++) { const m = worldMeshes[i]; m.userData.house = floor; m.userData.ext = ext; } };
+  // a wall of the house, recording its windows (for the boards) as it goes
+  const wall = (ax, a, b, c, floor, ext, items, inner) => {
+    const base = floor ? f1 : 0, holes = [];
+    for (const [k, u, w] of items || []) {
+      if (k === 'd') holes.push(doorHole(u));
+      else { holes.push(winHole(u, w)); const p = ax === 'x' ? new V3(u, base + 1.5, c) : new V3(c, base + 1.5, u); TOWN.windows.push({ p, ax, w: w || 1.2, y0: base + 0.95, y1: base + 2.05, t: inner ? 0.12 : t, boarded: false }); }
+    }
+    const n0 = worldMeshes.length; townWall(ax, a, b, c, floor ? H : f1, inner ? 0.12 : t, 'drywall', inner ? 0xe8e3d8 : floor ? col2 : col, holes, base); tag(n0, floor, ext);
+  };
+  // ---- ground floor
+  wall('x', x0 - t / 2, x1 + t / 2, z1, 0, 1, [['w', -7.5], ['d', -3], ['w', 1], ['w', 4.5], ['w', 8]]);
+  wall('x', x0 - t / 2, x1 + t / 2, z0, 0, 1, [['w', -1.5], ['w', 2.5], ['d', 6]]);
+  wall('z', z0 + t / 2, z1 - t / 2, x0, 0, 1, [['w', -2.5], ['w', 3.5]]);
+  wall('z', z0 + t / 2, z1 - t / 2, x1, 0, 1, [['d', -2], ['w', 3.5]]);
+  // inside: a wall across the middle (kitchen and stair hall behind, living and dining rooms in front)
+  wall('x', x0 + t / 2, x1 - t / 2, 0, 0, 0, [['d', -7], ['d', 1.5], ['d', 7]], true);
+  wall('z', z0 + t / 2, -0.06, -3, 0, 0, [['d', -2.5]], true);
+  wall('z', 0.06, z1 - t / 2, -1, 0, 0, [['d', 3.5]], true);
+  // the outside doors are locked from outside (they open, and lock, from inside only); the inside ones are not
+  addDoor(-3, z1, 0, 'metal', 1, -1); addDoor(6, z0, 0, 'plywood', -1, 1); addDoor(x1, -2, Math.PI / 2, 'plywood', 1, -1);
+  addDoor(-7, 0, 0, 'plywood', 1, 0); addDoor(1.5, 0, 0, 'plywood', -1, 0); addDoor(7, 0, 0, 'plywood', 1, 0); addDoor(-3, -2.5, Math.PI / 2, 'plywood', 1, 0); addDoor(-1, 3.5, Math.PI / 2, 'plywood', -1, 0);
+  townFlat(0, 0, x1 - x0, z1 - z0, 'pave', 1.2, 0.004, 0xa98d6c);
+  // the stairs, up along the north wall of the stair hall: 16 steps of 19 cm
+  const sz0 = z0 + t / 2 + 0.02, sz1 = sz0 + 1.15, sN = 16, rise = f1 / sN, run = 0.28, sx0 = -9.6;
+  for (let i = 0; i < sN; i++) addBox(sx0 + i * run + run / 2, 0, (sz0 + sz1) / 2, run, (i + 1) * rise, sz1 - sz0, 'crate', 0x7a5a3a);
+  const sTop = sx0 + sN * run;   // the top step ends here; the landing begins
+  // ---- the upper floor: its floor (with the stair well left open), then its walls
+  addBox(0, f1 - 0.2, (sz1 + z1) / 2, x1 - x0 + t, 0.2, z1 - sz1 + t / 2, 'crate', 0x8a7458);
+  addBox((sTop + x1) / 2, f1 - 0.2, (z0 + sz1) / 2, x1 - sTop + t / 2, 0.2, sz1 - z0 + t / 2, 'crate', 0x8a7458);
+  townFlat(0, (sz1 + z1) / 2 - 0.0, x1 - x0, z1 - sz1, 'pave', 1.2, f1 + 0.004, 0x9a8466);
+  // a rail along the open side of the stair well
+  addBox((sx0 + 0.9 + sTop) / 2, f1, sz1 + 0.03, sTop - sx0 - 0.9, 1, 0.05, 'crate', 0x5a4632);
+  wall('x', x0 - t / 2, x1 + t / 2, z1, 1, 1, [['w', -7], ['w', -2], ['w', 3], ['w', 7.5]]);
+  wall('x', x0 - t / 2, x1 + t / 2, z0, 1, 1, [['w', -1], ['w', 3.5], ['w', 7.5]]);
+  wall('z', z0 + t / 2, z1 - t / 2, x0, 1, 1, [['w', -3], ['w', 3]]);
+  wall('z', z0 + t / 2, z1 - t / 2, x1, 1, 1, [['w', -4], ['w', 3]]);
+  wall('x', x0 + t / 2, x1 - t / 2, 0, 1, 0, [['d', -6], ['d', 5]], true);
+  wall('z', z0 + t / 2, -0.06, 0, 1, 0, [['d', -1.4]], true);
+  wall('z', 0.06, z1 - t / 2, 1, 1, 0, [['d', 1.4]], true);
+  addDoor(-6, 0, 0, 'plywood', 1, 0, f1); addDoor(5, 0, 0, 'plywood', -1, 0, f1); addDoor(0, -1.4, Math.PI / 2, 'plywood', 1, 0, f1); addDoor(1, 1.4, Math.PI / 2, 'plywood', -1, 0, f1);
+  // the roof: a slab and the pitch in steps
+  addBox(0, f1 + H, 0, x1 - x0 + 1, 0.2, z1 - z0 + 1, 'crate', 0x4a4440);
+  for (let i = 1; i <= 2; i++) addBox(0, f1 + H + 0.2 + (i - 1) * 0.4, 0, x1 - x0 + 1, 0.4, (z1 - z0 + 1) * (1 - i * 0.36), 'crate', 0x4a4440);
+  // ---- the front porch: a roof on two posts over the front door, and a skip beside it to climb up from
+  addBox(-3, f1 - 0.2, z1 + 1.4, 5, 0.2, 2.6, 'crate', 0x4a4440); for (const px of [-5.3, -0.7]) addBox(px, 0, z1 + 2.55, 0.18, f1 - 0.2, 0.18, 'crate', 0xe8e3d8);
+  addBox(-3, 0, z1 + 0.9, 3, 0.15, 1.6, 'concrete', 0x9b978f);
+  addBox(-6.6, 0, z1 + 1.9, 2, 1.45, 1.4, 'metal', 0x2e5a3a); addBox(-5.5, 0, z1 + 1.4, 0.1, f1, 2.6, 'crate', 0xe8e3d8);   // (and the porch's side wall, to get a hand on)   // (stand on it, then up onto the porch roof, then in at the window above)
+  // ---- furniture: cover inside (and something to plant beside on each site)
+  addBox(-6.5, 0, 4.8, 2.2, 0.85, 0.9, 'crate', 0x5b6a7a); addBox(-8.8, 0, 1.4, 0.9, 0.8, 2, 'crate', 0x5b6a7a);   // couches
+  addBox(4.5, 0, 4, 1.8, 0.78, 1, 'crate', 0x7a5a3a);   // dining table
+  addBox(2.5, 0, -6.4, 4, 0.95, 0.65, 'crate', 0xd8d2c4); addBox(9.35, 0, -4.9, 0.65, 0.95, 2.6, 'crate', 0xd8d2c4); addBox(4.5, 0, -3, 1.8, 0.95, 0.9, 'crate', 0xb8b2a4);   // kitchen counters and island
+  addBox(6.5, f1, -5, 2.2, 0.55, 2, 'crate', 0x8a96a8); addBox(9.4, f1, -1.2, 0.6, 1.9, 1.4, 'crate', 0x6a4e34);   // main bedroom
+  addBox(-7, f1, 4.6, 2, 0.55, 1.6, 'crate', 0xa8908a); addBox(-2.3, f1, -4, 1.4, 0.75, 0.7, 'crate', 0x6a4e34); addBox(6, f1, 5.8, 2.2, 0.85, 0.9, 'crate', 0x7a6a5a);
+  // ---- the two bomb sites
+  TOWN.sites = [{ id: 'A', p: new V3(6.5, 0, -3), name: 'A · Kitchen' }, { id: 'B', p: new V3(4.4, f1, -4.2), name: 'B · Main bedroom' }];
+  // ---- the lot: fences round the back garden, a shed, a car in the drive, trees, the street
+  townFence('x', x0 - 6, x1 + 6, -16, 1.8); townFence('z', -16, 2, x0 - 6, 1.5); townFence('z', -16, 2, x1 + 6, 1.5);
+  addBox(10.5, 0, -12.5, 3, 2.3, 2.4, 'crate', 0x7a6650);
+  townCar(7, 12.5, 'z', 0x34506e); townCar(-12, 22, 'x', 0x9a9a92); townCar(16, 21.6, 'x', 0x6e2e2e); townCar(-26, -4, 'z', 0x2e2e2e);
+  for (const [x, z, k] of [[-13, 11, 1], [13, 9, 0.9], [-14, -11, 1.1], [3, -12, 0.9], [20, -6, 1], [-34, 8, 1], [30, 10, 1]]) townTree(x, z, k);
+  for (const [x, z] of [[-17, 30], [12, 32], [-30, 26], [30, 30]]) addBox(x, 0, z, 2.6, 1.2, 1.2, 'concrete', 0x8a867e);   // planters across the street
+  // ---- spawns
+  TOWN.def = [new V3(-6, 0, 2.5), new V3(4, 0, 1.8), new V3(-6.5, 0, -3), new V3(1, 0, -4), new V3(-5, f1, 3), new V3(4.5, f1, 2.5), new V3(-4, f1, -3), new V3(4.5, f1, -2)];
+  TOWN.atk = [new V3(-8, 0, 34), new V3(-3, 0, 35), new V3(3, 0, 34), new V3(8, 0, 35), new V3(-36, 0, -10), new V3(-36, 0, -4), new V3(-36, 0, 2), new V3(-36, 0, -16)];
   spawns = TOWN.atk.concat(TOWN.def);
 }
 

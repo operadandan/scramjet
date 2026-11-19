@@ -40,15 +40,15 @@ const r3d = x => Math.round(x * 1000) / 1000;
 
 // x, z: the middle of the doorway on the floor; rot: which way the wall runs (0: along x, PI/2: along z); hingeSide: -1
 // left, 1 right; lock: 0 unlocked, or 1 / -1, the side (along the door's normal) it can be opened and locked from
-function addDoor(x, z, rot, kind, hingeSide, lock) {
-  const K = DOOR_KIND[kind], g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rot; worldGroup.add(g); g.updateMatrixWorld(true);
+function addDoor(x, z, rot, kind, hingeSide, lock, y0) {
+  const K = DOOR_KIND[kind], g = new THREE.Group(); g.position.set(x, y0 || 0, z); g.rotation.y = rot; worldGroup.add(g); g.updateMatrixWorld(true);
   const d = { i: doors.length, kind, K, g, hs: hingeSide || 1, lock: lock || 0, lock0: lock || 0, a: 0, w: 0, tgt: 0, hold: false, knob: null, hinges: [], fallen: false, fall: null, fly: null, segs: [], frame: [], jamb: null, dented: false, hl: 0, sendT: 0, rattle: 0, ls: lock || 1 };
   // the frame: two jambs and a head, as thin as the leaf plus a little (the hinge knuckles stand proud of it); wood that
   // breaks like any wooden wall
   const fd = K.t + 0.012, sw = Math.abs(Math.cos(rot)) > 0.5, wl = new V3();
   for (const [lx, w, h, y, jamb] of [[-(DOOR_W / 2 + DOOR_FW / 2), DOOR_FW, DOOR_H + 0.1, 0, -1], [DOOR_W / 2 + DOOR_FW / 2, DOOR_FW, DOOR_H + 0.1, 0, 1], [0, DOOR_W + DOOR_FW * 2, 0.1, DOOR_H, 0]]) {
     wl.set(lx, 0, 0).applyAxisAngle(_Y, rot);
-    addBox(x + wl.x, y, z + wl.z, sw ? w : fd, h, sw ? fd : w, 'crate', K.frameColor);
+    addBox(x + wl.x, (y0 || 0) + y, z + wl.z, sw ? w : fd, h, sw ? fd : w, 'crate', K.frameColor);
     const m = worldMeshes[worldMeshes.length - 1]; m.userData.doorFrame = d; d.frame.push(m); if (jamb === d.hs) d.jamb = m;
   }
   // the leaf turns about its hinge edge: a pivot at that edge holds it

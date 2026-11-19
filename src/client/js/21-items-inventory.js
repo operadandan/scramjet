@@ -15,6 +15,7 @@ import { P, S } from './17-dummies.js';
 import { flashMsg, magEstimate, rackNeeded, selectEmpty, switchWeapon } from './18-player.js';
 import { net } from './19-network.js';
 import { c4Mine, r3 } from './19b-explosives.js';
+import { siegeHint } from './23-siege.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- ground items, pickup (F), backpack
 const items = new Map(); let itemSeq = 1;
@@ -348,7 +349,7 @@ function updatePickup() {
   S.pick = best; const el = $('pickup');
   if (!best) {
     // nothing to pick up: what F does to a door looked at, if anything
-    const t = !rackNeeded() && typeof doorHint === 'function' ? doorHint() : '';
+    const t = !rackNeeded() ? siegeHint() || doorHint() : '';
     if (t) { el.style.display = 'block'; if (el.innerHTML !== t) el.innerHTML = t; } else el.style.display = 'none';
     return;
   }
@@ -377,7 +378,9 @@ function pickUp() {
 // ---------------------------------------------------------------- toolbar + inventory (G)
 const TOOL_NAME = { medkit: 'IFAK medkit', plate: 'Armor plate' };
 // number keys and the wheel pick a slot (0-3) whether or not anything is in it
+// the key of what is already in hand puts it away (empty hands); pressed again it comes back out
 function pressSlot(n) {
+  if (P.slot === n && P.slot !== 4) return selectEmpty(n);
   if (n < 2) return switchWeapon(n);
   const t = toolSlotIndex(n - 2); if (t >= 0) switchWeapon(t); else selectEmpty(n);
 }
@@ -448,5 +451,5 @@ const ATT_DESC = {
 };
 
 // ---- module exports: build.mjs strips this block ----
-export { clearItems, closeInv, curSlot, drag, dragRotate, dropHeld, dropWeapon, hlMesh, openAttMenu, openInv, pickUp, pressSlot, removeItem, spawnItem, toolSlotIndex, updateInv, updatePickup, updateToolbar };
+export { clearItems, closeInv, curSlot, drag, dragRotate, dropHeld, dropWeapon, hlMesh, items, openAttMenu, openInv, pickUp, pressSlot, removeItem, spawnItem, toolSlotIndex, updateInv, updatePickup, updateToolbar };
 // ---- end module exports ----

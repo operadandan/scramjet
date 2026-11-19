@@ -12,7 +12,7 @@ import { blip, noiseHit, shotSound } from './10-audio.js';
 import { fx, tracer } from './11-fx.js';
 import { muzzleSmoke } from './12-blood.js';
 import { tpAim } from './13-third-person.js';
-import { clearWounds } from './14-wounds.js';
+import { clearWounds, floorAt } from './14-wounds.js';
 import { gridOpenW, gridPass } from './15-destruction.js';
 import { addProp, ejectShell, spawnBullet } from './16-ballistics.js';
 import { P, S, arteryRate, bleedDrips, deathMasks, fpBody, fpClip, keys, localBody, mouse, reactRun, reactStart } from './17-dummies.js';
@@ -20,6 +20,8 @@ import { net } from './19-network.js';
 import { updateC4, updateFrag } from './19b-explosives.js';
 import { keepSlot, updateFists } from './19c-toolvm.js';
 import { closeInv, dropWeapon } from './21-items-inventory.js';
+import { screenBlood } from './21b-screenfx.js';
+import { CON } from './25-console.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- physics helpers
 function blocked(pos, h, r) {
@@ -43,6 +45,7 @@ function enterDowned(extra) {
   P.rag.owner = { anat: an };
   $('downmsg').style.display = 'block';
   $('downwhy').textContent = an.koT > 0 ? 'Knocked out. You will come round in a few seconds.' : an.paralyzed ? 'Spinal cord injury. You will not get up.' : P.forceDown ? 'You went down and cannot get back up.' : 'You blacked out from the pain. You may come to if it eases.';
+  if (S.mode === 'online') $('downwhy').textContent += ' A teammate can revive you: they hold F over you.';
 }
 function wakeUp() {
   const r = P.rag; P.downed = false; P.reactDone = false;
@@ -72,8 +75,38 @@ function tryMantle() {
   }
   return false;
 }
+// vaulting through: a window sill, a low fence or a rail with no room to stand on top of it (a window has its top in the way)
+// and somewhere to land beyond. Hands on the sill, legs swung through, down the other side
+function tryVault() {
+  const fwd = new V3(-Math.sin(P.yaw), 0, -Math.cos(P.yaw));
+  for (let d = 0.2; d <= 0.75; d += 0.08) {
+    const p = P.pos.clone().addScaledVector(fwd, d); p.y += 0.25;
+    const c = blocked(p, 0.1, 0.05); if (!c) continue;
+    const top = c.max.y, up = top - P.pos.y; if (up < 0.45 || up > 1.35) return false;
+    // how thick it is: the far side, along the way
+    let far = -1; for (let e = d; e <= d + 0.9; e += 0.05) { const q = P.pos.clone().addScaledVector(fwd, e); q.y = top - 0.08; if (!blocked(q, 0.05, 0.05)) { far = e; break; } }
+    if (far < 0) return false;
+    // the gap above it has to be open (a window: a little over a metre)
+    for (let e = d - 0.1; e <= far + 0.2; e += 0.1) { const q = P.pos.clone().addScaledVector(fwd, e); q.y = top + 0.04; if (blocked(q, 0.8, 0.18)) return false; }
+    const L = P.pos.clone().addScaledVector(fwd, far + 0.5); const fy = floorAt(L.x, top, L.z); if (top - fy > 2.2 || fy > top) return false; L.y = fy;
+    if (blocked(L, 1.75, PR - 0.05)) return false;
+    const edge = P.pos.clone().addScaledVector(fwd, d + 0.02); edge.y = top;
+    P.mantle = { t: 0, dur: 0.55 + up * 0.25, a: P.pos.clone(), a2: P.pos.clone(), b: L, up, top, vault: true, edge: edge.toArray() }; P.adsOn = false; P.leanState = 0; P.inspecting = false; P.sprinting = false;
+    return true;
+  }
+  return false;
+}
 function updateMantle(dt) {
   const M = P.mantle; M.t += dt / M.dur; const t = Math.min(1, M.t);
+  if (M.vault) {
+    // over in one movement: up to the sill (a little above it, legs tucked), across, and down the far side
+    const e = x => x * x * (3 - 2 * x), h = clamp(t / 0.85, 0, 1);
+    P.pos.x = lerp(M.a.x, M.b.x, e(h)); P.pos.z = lerp(M.a.z, M.b.z, e(h));
+    const yUp = M.top + 0.06 - 0.55, yt = t < 0.45 ? lerp(M.a.y, Math.max(M.a.y, yUp), e(t / 0.45)) : lerp(Math.max(M.a.y, yUp), M.b.y, Math.pow((t - 0.45) / 0.55, 1.6));
+    P.pos.y = yt; P.crouch = Math.max(P.crouch, Math.sin(t * Math.PI) * 0.9); P.mantleK = Math.sin(t * Math.PI) * 0.8;
+    if (M.t >= 1) { P.pos.copy(M.b); P.mantle = null; P.onGround = true; P.vel.set(-Math.sin(P.yaw) * 1.2, 0, -Math.cos(P.yaw) * 1.2); P.jumpCD = 0.3; P.landKick = (P.landKick || 0) + 0.25 + clamp((M.top - M.b.y) / 2, 0, 0.6); }
+    return;
+  }
   // step in to the edge and get the hand on it (body still on its feet), push up, then swing over
   const step = clamp(t / 0.18, 0, 1), rise = clamp((t - 0.14) / 0.52, 0, 1), over = clamp((t - 0.45) / 0.55, 0, 1), e = x => x * x * (3 - 2 * x);
   const ax = lerp(M.a.x, M.a2.x, e(step)), az = lerp(M.a.z, M.a2.z, e(step));
@@ -95,6 +128,8 @@ function standHeight() { return 1.8 - 0.6 * P.crouch - 1.3 * P.prone; }
 function updatePlayer(dt) {
   if (!P.alive) { localBody.root.visible = false; fpBody.root.visible = false; return; }
   const an = P.anat;
+  // (god mode, testing only: whatever happened is undone at once)
+  if (CON.god && S.mode === 'test' && (an.blood < 5000 || an.pain > 0 || an.isDowned())) { an.treat(); an.blood = 5000; an.pain = 0; an.koT = 0; an.o2 = 1; an.dead = false; P.forceDown = false; }
   an.update(dt);
   if (an.dead) { localDeath(); return; }
   P.supp = Math.max(0, (P.supp || 0) - dt * 0.2);
@@ -113,6 +148,8 @@ function updatePlayer(dt) {
   // a down only counts as a kill for the shooter if it isn't just pain (spine or both legs gone); pain knockouts wait for the death
   if (P.downed && !P.downSent && S.mode === 'online' && an.lastBy && (an.paralyzed || an.bothLegs())) { P.downSent = true; net.send({ t: 'down', by: an.lastBy, lf: S.life }); }
   else if (P.downed && !an.isDowned() && !P.forceDown) wakeUp();
+  // down in a fight, nobody keeps you going: the blood goes much faster (half a minute or so if nobody comes to help)
+  if (P.downed && S.mode === 'online') an.blood -= (an.bleedRate() * 1.5 + 40) * dt;
   if (P.downed) { bleedDrips(P, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1)); localBody.root.visible = false; fpBody.root.visible = false; if (P.rag) P.pos.set(P.rag.p[2].x, 0, P.rag.p[2].z); P.vel.set(0, 0, 0); P.speed = 0; return; }
   let fx_ = 0, fz = 0;
   // rocked by a hit: a moment with no control
@@ -168,7 +205,7 @@ function updatePlayer(dt) {
   P.vel.y -= 22 * dt;
   P.jumpCD = Math.max(0, (P.jumpCD || 0) - dt); P.landK = Math.max(0, (P.landK || 0) - dt * 2.2);
   if (keys.Space && P.onGround && P.stance === 0 && !oneLeg && !P.jumpCD && !dazed) {
-    if (!tryMantle()) { P.vel.y = 4.6; P.onGround = false; P.jumpCD = 0.9; P.jumpKick = 1; }   // about half a metre of hop
+    if (!tryMantle() && !tryVault()) { P.vel.y = 4.6; P.onGround = false; P.jumpCD = 0.9; P.jumpKick = 1; }   // about half a metre of hop
   }
 
   const h = standHeight();
@@ -533,11 +570,11 @@ function localDeath() {
   const part = PART_OF_REGION(an.lastRegion), killer = an.lastBy ? (S.names[an.lastBy] || ('P' + an.lastBy)) : '';
   killSelf(head, an.lastDir.clone(), part, killer, DEATH_TEXT[an.cause]);
   const dm = P.deathM = deathMasks(an);
-  if (S.mode === 'online') net.send({ t: 'died', lf: S.life, by: an.lastBy || 0, part, head, d: an.lastDir.toArray(), dist: Math.round(an.lastDist || 0), cause: an.cause, gib: dm.gib ? 1 : 0, tear: dm.tear ? 1 : 0, bl: Math.round(dm.bleed), tw: +dm.twitch.toFixed(1) });
+  if (S.mode === 'online') net.send({ t: 'died', lf: S.life, dp: [P.pos.x, P.pos.y, P.pos.z].map(v => Math.round(v * 100) / 100), by: an.lastBy || 0, part, head, d: an.lastDir.toArray(), dist: Math.round(an.lastDist || 0), cause: an.cause, gib: dm.gib ? 1 : 0, tear: dm.tear ? 1 : 0, bl: Math.round(dm.bleed), tw: +dm.twitch.toFixed(1) });
   else { S.testDeaths = (S.testDeaths || 0) + 1; setTimeout(() => { if (S.mode === 'test') respawnLocal(spawns[0]); }, 4000); }
 }
 function onSelfHurt(res) {
-  hurtFlash();
+  hurtFlash(); screenBlood(res && res.severed ? 2.5 : 1, P.anat.lastDir);
   syncLost(localBody, P.anat.lostMask(), P.anat.lastDir, P.anat.cutArr()); fpBody.setLost(P.anat.lostMask(), P.anat.cutArr());
   if (res && res.severed) flashMsg(LIMB_NAME[res.severed].toUpperCase() + ' SEVERED', 2500);
   P.pitch = clamp(P.pitch + rnd(0.02, 0.06), PITCH_MIN, 1.5); P.yaw += rnd(-0.04, 0.04); P.kick += 0.6;
@@ -620,5 +657,5 @@ function testDeath(head) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { PITCH_MIN, PR, blocked, canRack, esc, feed, flashMsg, hurtFlash, localDeath, magEstimate, onSelfHurt, pointBlocked, pumpCurve, rackK, rackNeeded, ray, remoteShot, respawnLocal, selectEmpty, standHeight, startInspect, startReload, switchWeapon, testDeath, testSelfHit, updatePlayer, updateWeapons, workAction };
+export { PITCH_MIN, PR, blocked, canRack, esc, feed, flashMsg, hurtFlash, localDeath, magEstimate, onSelfHurt, pointBlocked, pumpCurve, rackK, rackNeeded, ray, remoteShot, respawnLocal, selectEmpty, standHeight, startInspect, startReload, switchWeapon, testDeath, testSelfHit, updatePlayer, updateWeapons, wakeUp, workAction };
 // ---- end module exports ----
