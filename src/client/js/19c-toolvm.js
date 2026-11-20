@@ -13,12 +13,13 @@ import { impactFx } from './11-fx.js';
 import { addWound } from './14-wounds.js';
 import { DESTR_OF, gridOpenW, wallDamage } from './15-destruction.js';
 import { P, S, dummies, localBody, mouse } from './17-dummies.js';
-import { PITCH_MIN, flashMsg, hurtFlash } from './18-player.js';
+import { PITCH_MIN, flashMsg, hurtFlash, selectEmpty } from './18-player.js';
 import { net } from './19-network.js';
 import { c4Mine, makeC4, makeFrag, makeRemote, r4x, ragMeshes } from './19b-explosives.js';
-import { pressSlot, toolSlotIndex } from './21-items-inventory.js';
+import { breachHas, pressSlot, toolSlotIndex } from './21-items-inventory.js';
 import { frame } from './22-menu-loop.js';
 import { boardBreak } from './23-siege.js';
+import { gdModel, sledgeK } from './27-gadgets.js';
 import { matchFrozen } from './28-match.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- tool viewmodels: grenade, C4 + remote, fists
@@ -33,6 +34,12 @@ const tvHolder = () => { const h = new THREE.Group(); TV.g.add(h); return h; };
 TV.nadeH = tvHolder(); TV.nade = makeFrag(); TV.nadeH.add(TV.nade.g);
 TV.c4H = tvHolder(); TV.c4 = makeC4(true); TV.c4H.add(TV.c4);
 TV.remH = tvHolder(); TV.rem = makeRemote(); TV.remH.add(TV.rem.g);
+// every other tool has its own model in the hand: the throwables in the grenade's grip, gadgets and the breach charge on the
+// C4's palm (scaled to how they are carried: folded, coiled), the sledgehammer two-handed on its own
+TV.alt = {}; for (const k of ['smoke', 'flash', 'teargas']) { const m = gdModel(k); m.visible = false; m.position.y = -0.005; TV.nadeH.add(m); TV.alt[k] = m; }
+TV.held = {}; for (const [k, sc, x, y, z, rx] of [['claymore', 0.9, 0, -0.04, 0, 0], ['beartrap', 0.42, 0, 0.0, 0, 0], ['wire', 0.16, 0, -0.02, 0, 0], ['shield', 0.13, 0, -0.04, 0, 0], ['alarm', 1, 0, -0.02, 0, 0], ['bcharge', 0.32, 0, -0.08, 0, -1.4]]) {
+  const m = gdModel(k); m.scale.setScalar(sc); m.position.set(x, y, z); m.rotation.x = rx; m.visible = false; m.traverse(o => { if (o.userData.laser) o.visible = false; }); TV.c4H.add(m); TV.held[k] = m; }
+TV.slH = tvHolder(); TV.sledge = gdModel('sledge'); TV.sledge.position.y = -0.28; TV.slH.add(TV.sledge);
 const tpose = (x, y, z, rx, ry, rz) => ({ p: new V3(x, y, z), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(rx || 0, ry || 0, rz || 0)) });
 const pmix = (a, b, k) => ({ p: a.p.clone().lerp(b.p, k), q: a.q.clone().slerp(b.q, k) });
 const ez = t => t * t * (3 - 2 * t), seg = (k, a, b) => ez(clamp((k - a) / (b - a), 0, 1)), outk = (k, a, b) => { const u = clamp((k - a) / (b - a), 0, 1); return 1 - (1 - u) * (1 - u); };
@@ -67,6 +74,9 @@ if (TV.ok) {
   // the C4 block on the right palm, fingers up its far side, thumb on top
   TV.gripC4 = solveGrip(R, TV.c4H, { pn: [0, -1, 0.1], fwd: [-0.3, -0.05, -1], mcp: [0.075, 0.036, -0.004], thumb: [0.055, -0.004, 0.044], squeeze: 0.1 });
   // the remote in the left hand like a phone, face to you, thumb over the cover
+  // the sledge: right hand high on the handle, left hand at the end of it
+  TV.gripSlR = solveGrip(R, TV.slH, { pn: [-1, 0, 0.1], fwd: [0.05, 0.1, -1], mcp: [0.02, -0.06, -0.012], squeeze: 0.15 });
+  TV.gripSlL = solveGrip(L, TV.slH, { pn: [1, 0, 0.1], fwd: [-0.05, 0.1, -1], mcp: [-0.02, -0.24, -0.012], squeeze: 0.15 });
   TV.gripRem = solveGrip(L, TV.remH, { pn: [1, 0, 0.1], fwd: [0.1, 0.3, -1], mcp: [-0.04, -0.012, -0.004], thumb: [0.0, 0.02, 0.026] });
   L.setHand(TV.gripRem.q, TV.gripRem.w);
   TV.remCover = thumbTo(L, new GraspCloud(), new V3(0.012, 0.012, 0.03));
@@ -108,12 +118,16 @@ const setH = (h, P_) => { h.position.copy(P_.p); h.quaternion.copy(P_.q); };
 const G_ = { idle: tpose(0.185, -0.165, -0.35, 0.1, -0.15, -0.05), pres: tpose(0.11, -0.15, -0.37, 0.15, -0.6, 0.1), over: tpose(0.24, -0.01, -0.1, -0.6, -0.5, 0.4), under: tpose(0.2, -0.4, -0.2, 0.7, -0.3, 0),
   relO: tpose(0.06, -0.07, -0.43, 0.5, 0, 0), relU: tpose(0.06, -0.15, -0.41, -0.4, 0, 0), folO: tpose(-0.02, -0.36, -0.3, 1.2, 0.3, 0), folU: tpose(0.04, -0.03, -0.4, -0.9, 0, 0), low: tpose(0.14, -0.5, -0.28, 0.6, -0.3, 0) };
 const B_ = { idle: tpose(0.07, -0.2, -0.37, 0.35, 0.3, 0.0), back: tpose(0.18, -0.03, -0.15, -0.3, 0.2, 0.4), rel: tpose(0.0, -0.09, -0.42, 0.4, 0.3, 0), fol: tpose(-0.04, -0.36, -0.3, 1, 0.5, 0), low: tpose(0.08, -0.5, -0.3, 0.8, 0.3, 0) };
+const SL_ = { idle: tpose(0.13, -0.21, -0.34, -1.15, 0.1, 0.3), up: tpose(0.24, -0.06, -0.16, 0.35, 0.2, 0.4), hit: tpose(0.03, -0.3, -0.42, -1.95, 0.05, 0.05) };
 const RM_ = { idle: tpose(-0.13, -0.2, -0.37, 0.25, 0.35, -0.1), up: tpose(-0.075, -0.125, -0.35, 0.12, 0.28, -0.05), tuck: tpose(-0.1, -0.29, -0.3, 0.4, 0.4, -0.1) };
 // ---- per frame
 function vmTools(dt) {
   VMW.forEach(v => { v.g.visible = false; }); TV.g.visible = true;
   const slot = P.slot, an = P.anat, lostL = !!an.lost.armL, lostR = !!an.lost.armR, F = TV.free;
-  TV.nadeH.visible = slot === 3; TV.c4H.visible = slot === 2; TV.remH.visible = slot === 2 && !lostL;
+  const hk = slot === 2 ? P.tool2 : slot === 5 ? P.toolB : '', isC4 = hk === 'c4';
+  TV.nadeH.visible = slot === 3; TV.c4H.visible = (slot === 2 || slot === 5) && hk !== 'sledge'; TV.remH.visible = isC4 && !lostL; TV.slH.visible = hk === 'sledge';
+  for (const k in TV.held) TV.held[k].visible = k === hk && (k === 'bcharge' ? P.bcN > 0 : P.gN > 0);
+  for (const k in TV.alt) TV.alt[k].visible = false;
   let rx = 0, ry = 0, rz = 0, pz = 0;
   if (slot === 3) {
     const N = P.nade || { ph: 'idle', t: 0, inHand: true }, t = N.t, over = N.btn === 0;
@@ -136,16 +150,28 @@ function vmTools(dt) {
       const sw = Math.sin(clamp(t / 0.38, 0, 1) * Math.PI); ry = (over ? 0.16 : 0.08) * sw; rx = over ? 0.1 * sw : -0.05 * sw; pz = -0.03 * sw;
     }
     setH(TV.nadeH, H);
-    TV.nade.g.visible = !!N.inHand && P.fragN > 0;
+    const nk = P.tool3 || 'frag'; TV.nade.g.visible = !!N.inHand && P.fragN > 0 && nk === 'frag';
+    if (TV.alt[nk]) { TV.alt[nk].visible = !!N.inHand && P.fragN > 0; TV.alt[nk].children.forEach((c, i) => { if (i >= c.parent.children.length - 2) c.visible = c.parent.children.length - 1 === i ? !N.pinOut : !N.spoonOff; }); }
     TV.nade.spoon.visible = !N.spoonOff;
     TV.nade.pin.visible = N.ph === 'idle' || (N.ph === 'pin' && t < 0.42) || (!N.pinOut && N.ph !== 'throw');
     TV.nade.pin.position.copy(pinOff || _ZV);
     if (TV.ok) {
-      const rh = TV.nade.g.visible || N.ph === 'throw' ? handOn(H, TV.gripNade) : F.Ridle;
-      driveArm(TV.R, rh, TV.nade.g.visible ? Rc : lerpCurls(Rc, C_OPEN, Math.max(open, N.ph === 'idle' ? 1 : 0)), TSH.R, lostR);
+      const held = TV.nade.g.visible || (TV.alt[nk] && TV.alt[nk].visible);
+      const rh = held || N.ph === 'throw' ? handOn(H, TV.gripNade) : F.Ridle;
+      driveArm(TV.R, rh, held ? Rc : lerpCurls(Rc, C_OPEN, Math.max(open, N.ph === 'idle' ? 1 : 0)), TSH.R, lostR);
       driveArm(TV.L, Lh, Lc, TSH.L, lostL);
     }
-  } else if (slot === 2) {
+  } else if (hk === 'sledge') {
+    // two-handed: carried low across the body, raised back over the shoulder, brought down and through
+    const k = sledgeK(), H = k < 0 ? pmix(SL_.idle, SL_.up, -k) : pmix(SL_.idle, SL_.hit, Math.min(1, k));
+    setH(TV.slH, H); ry = -0.08 * Math.max(0, k); rx = 0.05 * Math.max(0, k);
+    if (TV.ok) { driveArm(TV.R, handOn(H, TV.gripSlR), TV.gripSlR.c, TSH.R, lostR); driveArm(TV.L, handOn(H, TV.gripSlL), TV.gripSlL.c, TSH.L, lostL); }
+  } else if ((slot === 2 || slot === 5) && !isC4) {
+    // a gadget or the breach charge in the right hand, the left hand free
+    const H = P.switchT > 0 ? pmix(B_.low, B_.idle, ez(1 - P.switchT / 0.35)) : B_.idle; setH(TV.c4H, H);
+    TV.c4.visible = false;
+    if (TV.ok) { const has = TV.held[hk] && TV.held[hk].visible; driveArm(TV.R, has ? handOn(H, TV.gripC4) : F.Ridle, has ? TV.gripC4.c : C_RELAX, TSH.R, lostR); driveArm(TV.L, F.Lidle, C_RELAX, TSH.L, lostL); }
+  } else if (slot === 2 || slot === 5) {
     const C = P.c4 || { ph: 'idle', t: 0, inHand: true }, t = C.t;
     let H = B_.idle, Hr = RM_.idle, open = 0, thumb = 0;
     if (C.ph === 'idle') H = C.draw > 0 ? pmix(B_.low, B_.idle, ez(1 - C.draw / 0.45)) : B_.idle;
@@ -252,8 +278,8 @@ BRUISE_MAT.userData.shared = true;
 function punchMark(hum, group, pL, frame, pw) {
   if (!group) return;
   const m = new THREE.Mesh(BRUISE_GEO, BRUISE_MAT), c = group.worldToLocal(group.getWorldPosition(new V3()).clone()), n = pL.clone().sub(c).normalize();
-  m.position.copy(pL).addScaledVector(n, 0.003); m.lookAt(group.localToWorld(pL.clone().addScaledVector(n, 1))); m.quaternion.premultiply(group.getWorldQuaternion(new THREE.Quaternion()).invert());
-  m.scale.setScalar(0.018 + 0.02 * pw); m.userData.keep = true; m.userData.bruise = true; group.add(m);
+  m.position.copy(pL).addScaledVector(n, 0.003); group.add(m); group.updateMatrixWorld(true); m.lookAt(group.localToWorld(pL.clone().addScaledVector(n, 1)));
+  m.scale.setScalar(0.018 + 0.02 * pw); m.userData.keep = true; m.userData.bruise = true;
   hum.bruises = hum.bruises || []; hum.bruises.push(m); if (hum.bruises.length > 10) hum.bruises.shift().removeFromParent();
   if (frame === 'head' && Math.random() < 0.35 * pw) try { addWound(hum, frame, group, pL.clone(), n, 'rim', 0.012); } catch (er) {}
 }
@@ -266,6 +292,7 @@ function meleeBash() {
 }
 function updateBash(dt) {
   if (P.bashCd > 0) P.bashCd -= dt;
+  if (!P.alive || P.downed) { P.bashT = 0; return; }
   if (!(P.bashT > 0)) return;
   P.bashT -= dt;
   if (!P.bashHit && P.bashT < 0.26) { P.bashHit = true; bashLand(); }
@@ -321,6 +348,7 @@ function onPunched(m) {
 // keep a slot in hand at all times: an empty one is fists, and one that fills up while you hold it is taken up
 function keepSlot() {
   if (!P.alive) return;
+  if (P.slot === 5 && !breachHas()) { selectEmpty(0); return; }
   const empty = n => n < 2 ? P.activeLo[n] == null : toolSlotIndex(n - 2) < 0;
   if (P.slot === 4) {
     if (!(P.emptySel >= 0 && P.emptySel <= 3)) { const k = [0, 1, 2, 3].find(empty); P.emptySel = k === undefined ? 0 : k; }
@@ -329,5 +357,5 @@ function keepSlot() {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { TV, bashK, ez, keepSlot, meleeBash, onPunched, seg, updateBash, updateFists, vmTools };
+export { TV, bashBoard, bashK, ez, keepSlot, meleeBash, onPunched, punchMark, seg, updateBash, updateFists, vmTools };
 // ---- end module exports ----

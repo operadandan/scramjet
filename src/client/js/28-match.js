@@ -17,7 +17,7 @@ import { clearExplosives } from './19b-explosives.js';
 import { clearItems, hlMesh } from './21-items-inventory.js';
 import { CODE_CHARS, setLoadout, startOnline } from './22-menu-loop.js';
 import { siegeClear } from './23-siege.js';
-import { GADGETS, clearGadgets } from './27-gadgets.js';
+import { GADGETS, HEADGEAR, clearGadgets } from './27-gadgets.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- the match, as each player sees it
 // Between matches (and until there is someone on each team) everyone is on a bare baseplate with empty hands, voting for the
@@ -43,7 +43,7 @@ function goLobbyWorld() {
   buildLobby(); siegeClear(); S.world = 'lobby';
 }
 // on the baseplate: nothing in your hands
-function lobbyStrip() { P.activeLo = [null, null]; P.slot = 4; P.emptySel = 0; P.c4N = 0; P.fragN = 0; P.medUses = 0; P.defOut = false; }
+function lobbyStrip() { P.activeLo = [null, null]; P.slot = 4; P.emptySel = 0; P.c4N = 0; P.gN = 0; P.bcN = 0; P.toolB = null; P.fragN = 0; P.medUses = 0; P.defOut = false; }
 const matchFrozen = () => S.mode === 'online' && !!S.R && (S.R.ph === 'load' || (S.R.ph === 'live' && performance.now() < S.R.go));
 
 // ---- the map vote (one map for now)
@@ -60,46 +60,58 @@ const teamCount = t => (S.team[S.myId] === t ? 1 : 0) + [...S.remotes.keys()].fi
 function voteMap(map) { S.voted = map; net.send({ t: 'vote', map }); }
 window.voteMap = voteMap;
 
-// ---- the loadout: a primary, a sidearm, one gadget and one throwable from your side's lists
-const LO_KEY = 'breach_lo2';
-const LO = (() => { try { return Object.assign({ g2: { r: 'c4', b: 'beartrap' }, g3: { r: 'smoke', b: 'frag' } }, JSON.parse(localStorage.getItem(LO_KEY) || '{}')); } catch (e) { return { g2: { r: 'c4', b: 'beartrap' }, g3: { r: 'smoke', b: 'frag' } }; } })();
-function loSave() { try { localStorage.setItem(LO_KEY, JSON.stringify({ g2: LO.g2, g3: LO.g3 })); } catch (e) {} }
-// the gadget and throwable of your side, and how many of each you carry
+// ---- the loadout: primary, sidearm, a gadget, a throwable, headgear, and for attackers a breaching tool. In the testing
+// range everything is on the lists (both sides' gadgets, every breaching tool), opened with L.
+const LO_KEY = 'breach_lo3';
+const LO_DEF = { g2: { r: 'claymore', b: 'beartrap', t: 'shield' }, g3: { r: 'smoke', b: 'frag', t: 'frag' }, gb: { r: 'c4', t: 'c4' }, hg: { r: 'none', b: 'none', t: 'none' } };
+const LO = (() => { let o = {}; try { o = JSON.parse(localStorage.getItem(LO_KEY) || '{}') || {}; } catch (e) {} const r = {}; for (const k in LO_DEF) r[k] = Object.assign({}, LO_DEF[k], o[k] || {}); return r; })();
+function loSave() { try { localStorage.setItem(LO_KEY, JSON.stringify(LO)); } catch (e) {} }
+const loSide = () => S.mode === 'online' ? (S.team[S.myId] || 'r') : 't';
+const loOK = (k, slot, t) => GADGETS[k] && GADGETS[k].slot === slot && (t === 't' || GADGETS[k].team.includes(t));
+// the gadget, throwable, breaching tool and headgear of your side, and how many of each you carry
 function applyGadgets() {
-  const t = S.mode === 'online' ? S.team[S.myId] : null;
-  if (!t) { P.tool2 = 'c4'; P.tool3 = 'frag'; return; }
-  P.tool2 = GADGETS[LO.g2[t]] && GADGETS[LO.g2[t]].slot === 2 && GADGETS[LO.g2[t]].team.includes(t) ? LO.g2[t] : (t === 'r' ? 'c4' : 'beartrap');
-  P.tool3 = GADGETS[LO.g3[t]] && GADGETS[LO.g3[t]].slot === 3 && GADGETS[LO.g3[t]].team.includes(t) ? LO.g3[t] : 'frag';
-  P.c4N = GADGETS[P.tool2].n; P.fragN = GADGETS[P.tool3].n;
+  const t = loSide();
+  P.tool2 = loOK(LO.g2[t], 2, t) ? LO.g2[t] : LO_DEF.g2[t] || 'beartrap';
+  P.tool3 = loOK(LO.g3[t], 3, t) ? LO.g3[t] : 'frag';
+  P.toolB = t === 'b' ? null : loOK(LO.gb[t], 'b', t) ? LO.gb[t] : 'c4';
+  P.head = HEADGEAR[LO.hg[t]] ? LO.hg[t] : 'none'; P.nvgOn = false;
+  P.gN = GADGETS[P.tool2].n; P.fragN = GADGETS[P.tool3].n;
+  P.c4N = P.toolB === 'c4' ? GADGETS.c4.n : 0; P.bcN = P.toolB === 'bcharge' ? GADGETS.bcharge.n : 0;
 }
 function loadoutUI(open) {
   const el = $('loadout'); S.loOpen = !!open;
-  if (!open) { const was = el.style.display !== 'none'; el.style.display = 'none'; if (was && S.mode && !S.locked && !S.inv) $('pause').style.display = 'flex'; return; }
-  const t = S.team[S.myId] || 'r', opt = (cls, id, name, on, sub) => '<button class="' + cls + (on ? ' on' : '') + '" data-v="' + id + '"><b>' + name + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</button>';
-  const list = slot => Object.entries(GADGETS).filter(([k, g]) => g.slot === slot && g.team.includes(t));
-  el.innerHTML = '<h3>LOADOUT · ' + (t === 'r' ? '<span style="color:#ff6a5a">ATTACK</span>' : '<span style="color:#6aa0ff">DEFEND</span>') + '</h3><div id="lotime" class="ls"></div>' +
-    '<h4>PRIMARY</h4><div class="lrow">' + PRIMARIES.map(i => opt('lp', i, WEAPONS[i].name, P.loadout[0] === i)).join('') + '</div>' +
-    '<h4>SIDEARM</h4><div class="lrow">' + SECONDARIES.map(i => opt('ls2', i, WEAPONS[i].name, P.loadout[1] === i)).join('') + '</div>' +
+  if (!open) { const was = el.style.display === 'block'; el.style.display = 'none'; if (was && S.mode && !S.locked && !S.inv) $('pause').style.display = 'flex'; return; }
+  const t = loSide(), opt = (cls, id, name, on, sub) => '<button class="' + cls + (on ? ' on' : '') + '" data-v="' + id + '"><b>' + name + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</button>';
+  const list = slot => Object.entries(GADGETS).filter(([k]) => loOK(k, slot, t));
+  const side = t === 'r' ? '<span style="color:#ff6a5a">ATTACK</span>' : t === 'b' ? '<span style="color:#6aa0ff">DEFEND</span>' : '<span style="color:#ffd166">TESTING RANGE</span>';
+  el.innerHTML = '<h3>LOADOUT · ' + side + '</h3><div id="lotime" class="ls"></div>' +
+    '<h4>PRIMARY (1)</h4><div class="lrow">' + PRIMARIES.map(i => opt('lp', i, WEAPONS[i].name, P.loadout[0] === i)).join('') + '</div>' +
+    '<h4>SIDEARM (2)</h4><div class="lrow">' + SECONDARIES.map(i => opt('ls2', i, WEAPONS[i].name, P.loadout[1] === i)).join('') + '</div>' +
     '<h4>GADGET (3)</h4><div class="lrow">' + list(2).map(([k, g]) => opt('lg2', k, g.name, LO.g2[t] === k, g.desc + ' · x' + g.n)).join('') + '</div>' +
     '<h4>THROWABLE (4)</h4><div class="lrow">' + list(3).map(([k, g]) => opt('lg3', k, g.name, LO.g3[t] === k, g.desc + ' · x' + g.n)).join('') + '</div>' +
-    '<button id="loready">READY</button>';
+    (t !== 'b' ? '<h4>BREACHING (6)</h4><div class="lrow">' + list('b').map(([k, g]) => opt('lgb', k, g.name, LO.gb[t] === k, g.desc + (g.n ? ' · x' + g.n : ''))).join('') + '</div>' : '') +
+    '<h4>HEADGEAR</h4><div class="lrow">' + Object.entries(HEADGEAR).map(([k, g]) => opt('lhg', k, g.name, LO.hg[t] === k, g.desc)).join('') + '</div>' +
+    '<button id="loready">' + (t === 't' ? 'DONE' : 'READY') + '</button>';
   el.style.display = 'block';
   if (document.pointerLockElement) document.exitPointerLock();
+  const set = (key, v) => { LO[key][t] = v; loSave(); loApply(); loadoutUI(true); };
   el.querySelectorAll('.lp').forEach(b => b.onclick = () => { setLoadout(+b.dataset.v, P.loadout[1]); loApply(); loadoutUI(true); });
   el.querySelectorAll('.ls2').forEach(b => b.onclick = () => { setLoadout(P.loadout[0], +b.dataset.v); loApply(); loadoutUI(true); });
-  el.querySelectorAll('.lg2').forEach(b => b.onclick = () => { LO.g2[t] = b.dataset.v; loSave(); loApply(); loadoutUI(true); });
-  el.querySelectorAll('.lg3').forEach(b => b.onclick = () => { LO.g3[t] = b.dataset.v; loSave(); loApply(); loadoutUI(true); });
+  el.querySelectorAll('.lg2').forEach(b => b.onclick = () => set('g2', b.dataset.v));
+  el.querySelectorAll('.lg3').forEach(b => b.onclick = () => set('g3', b.dataset.v));
+  el.querySelectorAll('.lgb').forEach(b => b.onclick = () => set('gb', b.dataset.v));
+  el.querySelectorAll('.lhg').forEach(b => b.onclick = () => set('hg', b.dataset.v));
   $('loready').onclick = () => { loadoutUI(false); renderer.domElement.requestPointerLock(); };
 }
 // changed during the loadout phase: in your hands straight away
 function loApply() {
-  if (!P.alive || S.R.ph !== 'load') return;
+  if (!P.alive || (S.mode === 'online' && S.R.ph !== 'load')) return;
   P.activeLo = P.loadout.slice(); P.guns = freshGuns(P.activeLo); P.packGuns = []; P.loose = []; P.slot = 0; P.weapon = P.loadout[0]; P.switchT = 0.35; applyGadgets();
 }
 function matchHud() {
   lobbyUI();
   const R = S.R, cd = $('countdown');
-  if (S.loOpen) { const l = R && R.ph === 'load' ? Math.max(0, Math.ceil((R.end - performance.now()) / 1000)) : 0; const e = $('lotime'); if (e) e.textContent = 'Round starts in ' + l + ' s'; if (!R || R.ph !== 'load') loadoutUI(false); }
+  if (S.loOpen) { const l = R && R.ph === 'load' ? Math.max(0, Math.ceil((R.end - performance.now()) / 1000)) : 0; const e = $('lotime'); if (e) e.textContent = S.mode === 'online' ? 'Round starts in ' + l + ' s' : 'Changes apply now'; if (S.mode === 'online' && (!R || R.ph !== 'load')) loadoutUI(false); }
   // held still at the start: the last seconds counted down, big
   const left = R && R.ph === 'live' ? (R.go - performance.now()) / 1000 : 0;
   if (S.mode === 'online' && left > 0) { cd.style.display = 'block'; const t = String(Math.ceil(left)); if (cd.textContent !== t) { cd.textContent = t; blip(660, 0.06, 0.05); } }

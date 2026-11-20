@@ -127,7 +127,7 @@ export default {
   }
 };
 
-export const GD_RULES = { claymore: ['r', 1], beartrap: ['b', 3], wire: ['b', 2], shield: ['b', 1], alarm: ['b', 2] };
+export const GD_RULES = { bcharge: ['r', 3], claymore: ['r', 1], beartrap: ['b', 3], wire: ['b', 2], shield: ['b', 1], alarm: ['b', 2] };
 class GameRoom extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
@@ -179,7 +179,7 @@ class GameRoom extends DurableObject {
         break;
       }
       case "s": {
-        if (!p.ready || !p.alive || !Array.isArray(m.p) || m.p.length < 3 || !m.p.every(Number.isFinite)) return;
+        if (!p.ready || !p.alive || !Array.isArray(m.p) || m.p.length !== 3 || !m.p.every(Number.isFinite)) return;
         this.holdStill(p, m); m.id = p.id; p.state = m;
         this.broadcast(m, p);
         break;
@@ -204,9 +204,9 @@ class GameRoom extends DurableObject {
       case "vote": if (p.ready && this.R.ph === "lobby" && m.map === "house") { this.R.votes[p.id] = "house"; this.broadcast(this.rMsg()); } break;
       case "sg": if (raw.length < 400) this.sgMsg(p, m); break;
       case "chat": if (p.ready && typeof m.s === "string" && m.s.trim() && (p.chatT || 0) < Date.now() - 500) { p.chatT = Date.now(); this.broadcast({ t: "chat", id: p.id, s: m.s.slice(0, 120) }, p); } break;
-      case "x": { if (p.ready && raw.length < 600 && ["c4p", "c4t", "nade", "boom", "chk", "gd", "gdx"].includes(m.a) && !this.frozen() && this.xGuard(p, m)) this.broadcast({ t: "x", id: p.id, a: m.a, k: ["c4", "frag", "smoke", "flash", "claymore", "beartrap", "wire", "shield", "alarm", "snap", "rustle"].includes(m.k) ? m.k : "frag", i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0, w: m.w, c: Number(m.c) || 0, tg: Number.isFinite(m.tg) ? m.tg : undefined, tp: Number(m.tp) || 0, lp: m.lp, lq: m.lq, ob: m.ob ? 1 : 0, T: Array.isArray(m.T) ? m.T.slice(0, 48).map(Number) : undefined, C: Array.isArray(m.C) ? m.C.slice(0, 32).map(Number) : undefined, H: Array.isArray(m.H) ? m.H.slice(0, 24).map(Number) : undefined }, p); break; }
+      case "x": { if (p.ready && raw.length < 600 && ["c4p", "c4t", "nade", "boom", "chk", "gd", "gdx"].includes(m.a) && !this.frozen() && this.xGuard(p, m)) this.broadcast({ t: "x", id: p.id, a: m.a, k: ["c4", "frag", "smoke", "flash", "teargas", "bcharge", "claymore", "beartrap", "wire", "shield", "alarm", "snap", "rustle"].includes(m.k) ? m.k : "frag", i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0, w: m.w, c: Number(m.c) || 0, tg: Number.isFinite(m.tg) ? m.tg : undefined, tp: Number(m.tp) || 0, lp: m.lp, lq: m.lq, ob: m.ob ? 1 : 0, T: Array.isArray(m.T) ? m.T.slice(0, 48).map(Number) : undefined, C: Array.isArray(m.C) ? m.C.slice(0, 32).map(Number) : undefined, H: Array.isArray(m.H) ? m.H.slice(0, 24).map(Number) : undefined }, p); break; }
       // a punch: forwarded to the one hit, whose client works out the bruise
-      case "punch": { const tgt = this.players.get(m.id); if (p.ready && p.alive && tgt && tgt !== p && tgt.alive && Date.now() - (p.lastPunch || 0) > 220) { p.lastPunch = Date.now(); this.send(tgt, { t: "punched", by: p.id, f: String(m.f || "").slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)) }); } break; }
+      case "punch": { const tgt = this.players.get(m.id); if (p.ready && p.alive && !this.frozen() && tgt && tgt !== p && tgt.alive && Date.now() - (p.lastPunch || 0) > 220) { p.lastPunch = Date.now(); this.send(tgt, { t: "punched", by: p.id, f: String(m.f || "").slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)) }); } break; }
       case "hit": this.hit(p, m); break;
       case "died": this.died(p, m); break;
       case "down": this.down(p, m); break;
@@ -224,6 +224,12 @@ class GameRoom extends DurableObject {
       p.gdN[m.k] = (p.gdN[m.k] || 0) + 1; m.c = p.team === 'r' ? 1 : 2; R.gd[p.id + ':' + (Number(m.i) || 0)] = { team: p.team, k: m.k, p: m.p, f: Number(m.f) || 0, o: p.id, i: Number(m.i) || 0 };
       return true;
     }
+    if (m.a === 'boom' && Array.isArray(m.p) && m.p.length === 3 && m.p.every(Number.isFinite)) {
+      // a blast wrecks the gadgets round it, the same way every client works it out: the room forgets them too
+      const W = { c4: 0.76, frag: 0.24, claymore: 0.3, bcharge: 0.3 }[m.k] || 0;
+      if (W >= 0.1) for (const key in R.gd) { const g = R.gd[key]; if (g.k !== 'bcharge' && Math.hypot(g.p[0] - m.p[0], g.p[1] - m.p[1], g.p[2] - m.p[2]) < 1.1 * Math.cbrt(W) + 0.4) delete R.gd[key]; }
+    }
+    if (m.a === 'boom' && m.k === 'bcharge') { const key = m.tg + ':' + (Number(m.i) || 0), g = Object.hasOwn(R.gd, key) ? R.gd[key] : null; if (!g || g.k !== 'bcharge' || m.tg !== p.id) return false; delete R.gd[key]; return true; }
     if (m.a === 'gdx' || (m.a === 'boom' && m.k === 'claymore')) {
       const key = m.tg + ':' + (Number(m.i) || 0), g = Object.hasOwn(R.gd, key) ? R.gd[key] : null;
       if (!g || R.ph !== 'live' || !p.alive || (p.gxT || 0) > now - 250) return false;
@@ -237,7 +243,7 @@ class GameRoom extends DurableObject {
   frozen() { const R = this.R; return R.ph === 'load' || (R.ph === 'live' && Date.now() < R.go); }
   holdStill(p, m) {
     if (!this.frozen()) { p.frz = null; return; }
-    if (!p.frz) { p.frz = m.p.slice(0, 3); return; }
+    if (!p.frz) { if (m.lf === p.life) p.frz = m.p.slice(0, 3); return; }
     if (Math.hypot(m.p[0] - p.frz[0], m.p[2] - p.frz[2]) > 0.6) m.p = p.frz.slice();
   }
   hit(p, m) {
@@ -280,7 +286,7 @@ class GameRoom extends DurableObject {
 
   spawn(p) {
     if (!this.players.has(p.id)) return;
-    p.hp = 100; p.alive = true; p.fatal = false; p.state = null; p.credited = 0; p.life = (p.life || 0) + 1;
+    p.hp = 100; p.alive = true; p.fatal = false; p.frz = null; p.state = null; p.credited = 0; p.life = (p.life || 0) + 1;
     this.broadcast({ t: "spawn", id: p.id, lf: p.life, sp: Math.floor(Math.random() * SPAWN_COUNT), tm: p.team });
   }
   // ---------------------------------------------------------------- teams and rounds
@@ -291,7 +297,7 @@ class GameRoom extends DurableObject {
   rTeam() { let r = 0, b = 0; for (const x of this.players.values()) if (x.ready && x.team) x.team === 'r' ? r++ : b++; return r < b ? 'r' : b < r ? 'b' : (Math.random() < 0.5 ? 'r' : 'b'); }
   rCount(alive) { const c = { r: 0, b: 0 }; for (const x of this.players.values()) if (x.ready && x.team && (!alive || (x.alive && !x.fatal))) c[x.team]++; return c; }
   rTeams() { const o = {}; for (const x of this.players.values()) if (x.ready && x.team) o[x.id] = x.team; return o; }
-  rMsg(extra) { const R = this.R; return Object.assign({ t: 'round', n: R.n, ph: R.ph, left: Math.max(0, R.end - Date.now()), go: Math.max(0, (R.go || 0) - Date.now()), sc: R.sc, mv: Object.values(R.votes || {}).length, map: R.map, tm: this.rTeams(), dfz: R.carrier, dz: R.dz, pl: R.plant && { site: R.plant.site, left: Math.max(0, R.plant.end - Date.now()) }, sgw: R.sgw, gdw: Object.values(R.gd || {}).filter(g => !g.sn).map(g => [g.o, g.i, g.k, g.p, g.f, g.team]), fd: R.found, env: typeof envSnap === 'function' ? envSnap() : undefined }, extra || {}); }
+  rMsg(extra) { const R = this.R; return Object.assign({ t: 'round', n: R.n, ph: R.ph, left: Math.max(0, R.end - Date.now()), go: Math.max(0, (R.go || 0) - Date.now()), sc: R.sc, mv: Object.values(R.votes || {}).length, map: R.map, tm: this.rTeams(), dfz: R.carrier, dz: R.dz, pl: R.plant && { site: R.plant.site, left: Math.max(0, R.plant.end - Date.now()) }, sgw: R.sgw, gdw: Object.values(R.gd || {}).map(g => [g.o, g.i, g.k, g.p, g.f, g.team, g.sn ? 1 : 0]), fd: R.found, env: typeof envSnap === 'function' ? envSnap() : undefined }, extra || {}); }
   rTimer(ms, f) { if (this.R.tm) clearTimeout(this.R.tm); this.R.tm = setTimeout(() => { this.R.tm = null; f(); }, ms); }
   // ---- the match: a lobby on the baseplate (voting for the map) until there is someone on each team, then rounds to 5 wins.
   // A round: 15 s to pick a loadout (everyone at their start, held there), then the round itself, the first 5 s still held.
@@ -315,7 +321,7 @@ class GameRoom extends DurableObject {
   // back to the baseplate: the match is over (or there aren't players enough for one)
   rLobby() {
     const R = this.R; if (R.pt) clearTimeout(R.pt); R.pt = null; if (R.tm) clearTimeout(R.tm); R.tm = null;
-    R.ph = 'lobby'; R.end = 0; R.go = 0; R.sc = { r: 0, b: 0 }; R.n = 0; R.plant = null; R.carrier = null; R.dz = null; R.sgw = []; R.found = []; R.votes = {}; R.gd = {};
+    R.ph = 'lobby'; R.end = 0; R.go = 0; R.sc = { r: 0, b: 0 }; R.n = 0; R.plant = null; R.carrier = null; R.dz = null; R.sgw = []; R.bkSet = {}; R.found = []; R.votes = {}; R.gd = {};
     this.broadcast(this.rMsg());
     for (const x of this.players.values()) if (x.ready) this.spawn(x);
     this.rCheck();
@@ -328,7 +334,7 @@ class GameRoom extends DurableObject {
     if (!c.r || !c.b) return this.rLobby();
     R.n++; R.ph = 'load'; R.end = Date.now() + 15000; R.go = 0;
     // a new round: one attacker, picked at random, carries the defuser; nothing boarded or reinforced yet
-    if (R.pt) clearTimeout(R.pt); R.pt = null; R.plant = null; R.dz = null; R.sgw = []; R.found = [];
+    if (R.pt) clearTimeout(R.pt); R.pt = null; R.plant = null; R.dz = null; R.sgw = []; R.bkSet = {}; R.found = [];
     for (const x of this.players.values()) { x.rfN = 0; x.gdN = {}; } R.gd = {};
     { const at = [...this.players.values()].filter(x => x.ready && x.team === 'r'); R.carrier = at.length ? at[Math.floor(Math.random() * at.length)].id : null; }
     this.broadcast(this.rMsg());
@@ -362,9 +368,19 @@ class GameRoom extends DurableObject {
       } break;
       case 'disable': if (live && R.plant && p.team === 'b' && near(sp(site(R.plant.site)), 2.8)) this.rEnd('b', 'disabled'); break;
       case 'found': if (live && p.team === 'r' && (m.site === 'A' || m.site === 'B') && !R.found.includes(m.site)) { R.found.push(m.site); this.broadcast({ t: 'sg', a: 'found', site: m.site, by: p.id }, p); } break;
-      case 'bk': { const i = m.i | 0, k = m.k | 0; if (i >= 0 && i < 64 && k >= 0 && k < 3 && R.sgw.length < 300) { R.sgw.push(['bk', i, k]); this.broadcast({ t: 'sg', a: 'bk', i, k }, p); } break; }
+      case 'bk': {
+        // a board knocked off: only in a live round, near that window (where the room has the map), a few a second at most,
+        // each plank of each boarding once
+        const i = m.i | 0, k = m.k | 0, w = typeof TOWN !== 'undefined' && TOWN.windows ? TOWN.windows[i] : null;
+        p.bkT = (p.bkT || []).filter(t => t > now - 1000);
+        if (!live || this.frozen() || i < 0 || i >= 64 || k < 0 || k > 2 || p.bkT.length >= 6 || R.sgw.length >= 300) break;
+        if (w && w.p && !near([w.p.x, w.p.y, w.p.z], 3.5)) break;
+        const gen = R.sgw.filter(e => e[0] === 'bd' && e[1] === i).length, key = i + ':' + k + ':' + gen; R.bkSet = R.bkSet || {};
+        if (R.bkSet[key]) break; R.bkSet[key] = 1; p.bkT.push(now);
+        R.sgw.push(['bk', i, k]); this.broadcast({ t: 'sg', a: 'bk', i, k }, p); break;
+      }
       case 'bd': { const i = m.i | 0; if (p.team === 'b' && i >= 0 && i < 64 && R.sgw.length < 300) { R.sgw.push(['bd', i]); this.broadcast({ t: 'sg', a: 'bd', i }, p); } break; }
-      case 'rf': { const b = m.b; if (p.team === 'b' && (p.rfN || 0) < 2 && Array.isArray(b) && b.length === 6 && b.every(v => Number.isFinite(v) && Math.abs(v) < 60) && b[3] > 0 && b[3] <= 1.45 && b[4] > 0 && b[4] <= 3.1 && b[5] > 0 && b[5] <= 1.45 && Math.min(b[3], b[5]) <= 0.07 && near([b[0], b[1], b[2]], 4) && R.sgw.length < 200) { p.rfN = (p.rfN || 0) + 1; const e = b.map(v => Math.round(v * 1000) / 1000); R.sgw.push(['rf', e]); this.broadcast({ t: 'sg', a: 'rf', b: e }, p); } break; }
+      case 'rf': { const b = m.b; if (p.team === 'b' && (p.rfN || 0) < 2 && Array.isArray(b) && b.length === 6 && b.every(v => Number.isFinite(v) && Math.abs(v) < 60) && b[3] > 0 && b[3] <= 1.45 && b[4] > 0 && b[4] <= 3.1 && b[5] > 0 && b[5] <= 1.45 && Math.min(b[3], b[5]) <= 0.07 && near([b[0], b[1], b[2]], 4) && R.sgw.length < 300) { p.rfN = (p.rfN || 0) + 1; const e = b.map(v => Math.round(v * 1000) / 1000); R.sgw.push(['rf', e]); this.broadcast({ t: 'sg', a: 'rf', b: e }, p); } break; }
     }
   }
   // the defuser carrier is gone (dead, or left): it drops where they were

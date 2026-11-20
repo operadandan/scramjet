@@ -31,6 +31,7 @@ import { updateConsole } from './25-console.js';
 import { updateLights } from './26-lights.js';
 import { gadgetGhostOff, updateGadgets, wireDrag } from './27-gadgets.js';
 import { freezeBegin, freezeEnd, matchHud, queueUp } from './28-match.js';
+import { eyeAfterRender, updateEyes } from './29-eyes.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- scoreboard
 S.score = {};
@@ -264,7 +265,7 @@ function frame(now, hidden) {
   }
   updateBullets(wdt);
   for (const r of ragdolls) r.update(wdt);
-  updateFx(wdt); updateDebris(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); siegeUpdate(wdt); roundHud(); matchHud(); screenFx(wdt); updateConsole(dt); updateEnv(dt); updateLights(dt); updateLimbs(wdt); updateHeats(wdt);
+  updateFx(wdt); updateDebris(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); siegeUpdate(wdt); roundHud(); matchHud(); screenFx(wdt); updateEyes(wdt); updateConsole(dt); updateEnv(dt); updateLights(dt); updateLimbs(wdt); updateHeats(wdt);
   updateCamera(dt); if (S.mode && P.alive && !P.downed) tpCamera();
   if (S.mode) { updateViewmodel(dt); vmCamera.updateMatrixWorld(true); updateDevices(); } else updateDevices();
   updateTPBody(dt);
@@ -283,6 +284,7 @@ function frame(now, hidden) {
   renderer.render(scene, camera);
   if (S.mode && P.alive && !P.downed && !S.tp) { renderer.clearDepth(); renderer.render(vmScene, vmCamera); }
   if (rt) { renderer.setRenderTarget(null); renderer.render(RETRO.scene, RETRO.cam); }
+  eyeAfterRender();
 }
 schedule();
 

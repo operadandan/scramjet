@@ -363,7 +363,7 @@ function doorDent(d, p, k, side) {
 function doorShotgun(d, p, dir, E, shot) {
   if (!shot || d.fly) return;
   const m = shot.door || (shot.door = new Map()); let e = m.get(d);
-  if (!e) { e = { E: 0, p: new V3(), n: 0 }; m.set(d, e); setTimeout(() => doorShotFlush(d, e, dir), 0); }
+  if (!e || e.done) { e = { E: 0, p: new V3(), n: 0 }; m.set(d, e); setTimeout(() => { e.done = true; doorShotFlush(d, e, dir); }, 60); }
   e.E += E; e.p.add(p); e.n++;
 }
 function doorShotFlush(d, e, dir) {
@@ -373,7 +373,7 @@ function doorShotFlush(d, e, dir) {
   d.sgDmg = (d.sgDmg || 0) + k;
   if (d.kind === 'metal') {
     doorDent(d, p, k * 0.5, s); doorNet({ i: d.i, a: 'dn', p: p.toArray().map(r3d), k: r3d(k * 0.5), s }); noiseHit(900, 0.18, 0.2);
-    if (d.sgDmg >= 2.3 && !d.fallen) { for (const h of [...d.hinges]) hingeOff(d, h.userData.n, dir); if (!d.fallen) { doorNet({ i: d.i, a: 'dr', d: dir.toArray().map(r3d) }); doorDrop(d, dir); } }
+    if (d.sgDmg >= 2.3 && !d.fallen) { for (const h of [...d.hinges]) hingeOff(d, h.userData.n, dir); }
   } else if (d.sgDmg >= 1.7) {
     const out = dir.clone().setY(0).normalize();
     doorLaunch(d, out.multiplyScalar(3.5 + k * 2).add(new V3(0, 1.2, 0)), new V3(0, 1, 0).cross(out).multiplyScalar(2.5).add(new V3(0, 0.6 * d.hs, 0)));
@@ -401,7 +401,6 @@ function doorRx(m) {
       d.hold = !!m.h; d.holdBy = d.hold ? m.id : 0; if (d.hold) d.tgt = d.a; if ([-1, 0, 1].includes(m.lk) && (d.knob || !m.lk)) d.lock = m.lk;
     }
     else if (m.a === 'rt') d.rattle = 0.35;
-    else if (m.a === 'dr' && !d.fallen) doorDrop(d, dir);
     else if (m.a === 'dn' && d.kind === 'metal' && ok3(m.p) && Number.isFinite(m.k)) doorDent(d, new V3().fromArray(m.p), clamp(m.k, 0, 1), m.s === -1 ? -1 : 1);
     else if (m.a === 'fl' && !d.fly && ok3(m.v) && ok3(m.w) && ok3(m.p) && Array.isArray(m.q) && m.q.length === 4 && m.q.every(Number.isFinite)) {
       const L = d.leaf, v = new V3().fromArray(m.v).clampLength(0, 30), w = new V3().fromArray(m.w).clampLength(0, 20);
@@ -446,5 +445,5 @@ function doorApplySnap(list) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { DOOR_FW, DOOR_H, DOOR_W, addDoor, clearDoors, doorApplySnap, doorAt, doorBlast, doorHint, doorKeyDown, doorKeyUp, doorLeft, doorPartHit, doorRx, doorShotgun, doorSnap, updateDoors };
+export { DOOR_FW, DOOR_H, DOOR_W, addDoor, clearDoors, doorApplySnap, doorAt, doorBlast, doorDent, doorHint, doorKeyDown, doorKeyUp, doorLaunch, doorLeft, doorNet, doorPartHit, doorRx, doorShotgun, doorSnap, hingeOff, knobOff, updateDoors };
 // ---- end module exports ----

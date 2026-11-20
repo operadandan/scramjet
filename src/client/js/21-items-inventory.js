@@ -382,6 +382,8 @@ const TOOL_NAME = { medkit: 'IFAK medkit', plate: 'Armor plate' };
 // the key of what is already in hand puts it away (empty hands); pressed again it comes back out
 function pressSlot(n) {
   // 5: the defuser (out in empty hands), for whoever carries it
+  // 6: the breaching tool (attackers): C4, the sledgehammer or breach charges
+  if (n === 5) { P.defOut = false; if (!breachHas()) return; if (P.slot === 5) return selectEmpty(0); return switchWeapon(5); }
   if (n === 4) { if (S.mode === 'online' && SG.carrier === S.myId) { const was = P.defOut; selectEmpty(0); P.defOut = !was; } return; }
   P.defOut = false;
   if (P.slot === n && P.slot !== 4) return selectEmpty(n);
@@ -390,7 +392,8 @@ function pressSlot(n) {
 }
 const curSlot = () => P.slot === 4 ? Math.max(0, P.emptySel) : P.slot;
 // hotbar 3 is C4 (and its firing device while charges are out), hotbar 4 the M67
-function toolSlotIndex(i) { return i === 0 ? (P.c4N > 0 || c4Mine().length ? 2 : -1) : (P.fragN > 0 || (P.nade && P.nade.ph !== 'idle') ? 3 : -1); }
+function breachHas() { return !!P.toolB && (P.toolB === 'sledge' || (P.toolB === 'c4' ? P.c4N > 0 || c4Mine().length : P.bcN > 0)); }
+function toolSlotIndex(i) { return i === 0 ? (P.gN > 0 ? 2 : -1) : (P.fragN > 0 || (P.nade && P.nade.ph !== 'idle') ? 3 : -1); }
 function toolCount(t) { return t === 'medkit' ? P.medUses : t === 'plate' ? P.platesInv : 0; }
 let tbKey = '';
 function updateToolbar() {
@@ -399,10 +402,11 @@ function updateToolbar() {
   tb.style.display = 'flex';
   const lo = P.activeLo, es = n => P.slot === 4 && P.emptySel === n, gr = i => lo[i] == null ? [i + 1, 'Empty', '', es(i)] : [i + 1, WEAPONS[lo[i]].name, attSummary(lo[i]), P.slot === i];
   const rows = [gr(0), gr(1),
-    (() => { const c4 = !P.tool2 || P.tool2 === 'c4', m = c4 ? c4Mine().length : 0, has = P.c4N > 0 || m; return [3, has ? GADGETS[P.tool2 || 'c4'].name : 'Empty', has ? 'x' + P.c4N + (m ? ', ' + m + ' set' : '') : '', has ? P.slot === 2 : es(2)]; })(),
+    [3, P.gN > 0 && GADGETS[P.tool2] ? GADGETS[P.tool2].name : 'Empty', P.gN > 0 ? 'x' + P.gN : '', P.gN > 0 ? P.slot === 2 : es(2)],
     [4, P.fragN > 0 ? GADGETS[P.tool3 || 'frag'].name : 'Empty', P.fragN > 0 ? 'x' + P.fragN : '', P.fragN > 0 || (P.nade && P.nade.ph !== 'idle') ? P.slot === 3 : es(3)]];
   // the defuser, for whoever carries it (5)
   if (S.mode === 'online' && SG.carrier === S.myId) rows.push([5, 'Defuser', 'plant on a bomb (hold F)', !!P.defOut]);
+  if (P.toolB && GADGETS[P.toolB]) { const c4 = P.toolB === 'c4', m = c4 ? c4Mine().length : 0; rows.push([6, GADGETS[P.toolB].name, P.toolB === 'sledge' ? 'LMB swing' : c4 ? 'x' + P.c4N + (m ? ', ' + m + ' set' : '') : 'x' + P.bcN, P.slot === 5]); }
   const key = JSON.stringify(rows);
   if (key === tbKey) return; tbKey = key;
   tb.innerHTML = rows.map(r => '<div class="tb' + (r[3] ? ' on' : '') + (r[1] === 'Empty' ? ' empty' : '') + '"><b>' + r[0] + '</b><div><span>' + (r[1] === 'Empty' && r[3] ? 'Fists' : r[1]) + '</span><small>' + r[2] + '</small></div></div>').join('');
@@ -457,5 +461,5 @@ const ATT_DESC = {
 };
 
 // ---- module exports: build.mjs strips this block ----
-export { clearItems, closeInv, curSlot, drag, dragRotate, dropHeld, dropWeapon, hlMesh, items, openAttMenu, openInv, pickUp, pressSlot, removeItem, spawnItem, toolSlotIndex, updateInv, updatePickup, updateToolbar };
+export { breachHas, clearItems, closeInv, curSlot, drag, dragRotate, dropHeld, dropWeapon, hlMesh, items, openAttMenu, openInv, pickUp, pressSlot, removeItem, spawnItem, toolSlotIndex, updateInv, updatePickup, updateToolbar };
 // ---- end module exports ----

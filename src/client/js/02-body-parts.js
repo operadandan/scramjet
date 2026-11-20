@@ -121,7 +121,8 @@ function skinUpdate() {
   // a joint pulled apart (a blast throws a limb harder than the ragdoll's links can hold for a frame or two): the skin across
   // it lets go rather than stretching out into a long streak, and takes hold again once the joint is back together
   { const M = sk.U.segM.value, OK = sk.U.segOK.value, d = k => _skA.setFromMatrixPosition(M[k]).distanceTo(_skB.setFromMatrixPosition(M[SEG_PAR[k]]));
-    if (!sk.rest) { sk.rest = new Float32Array(12); for (let k = 1; k < 12; k++) sk.rest[k] = OK[k] && OK[SEG_PAR[k]] ? d(k) : -1; }
+    if (!sk.rest) { sk.rest = new Float32Array(12).fill(-1); }
+    for (let k = 1; k < 12; k++) if (sk.rest[k] < 0 && OK[k] && OK[SEG_PAR[k]]) sk.rest[k] = d(k);
     if (sk.own === undefined) { sk.own = 0; for (let q = this.parent; q && sk.own === 0; q = q.parent) for (let k = 0; k < 12; k++) if (sk.at[HUMAN_SEGS[k]] && sk.at[HUMAN_SEGS[k]][0] === q) { sk.own = k; break; } }
     const under = (k, c) => { for (let i = 0; i < 6; i++) { if (k === c) return true; if (!k) return false; k = SEG_PAR[k]; } return false; };
     for (let c = 1; c < 12; c++) if (OK[c] && OK[SEG_PAR[c]] && sk.rest[c] > 0 && d(c) > sk.rest[c] * 1.25 + 0.04) { if (under(sk.own, c)) OK[SEG_PAR[c]] = 0; else OK[c] = 0; } }

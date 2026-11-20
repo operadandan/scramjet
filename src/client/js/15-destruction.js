@@ -470,12 +470,12 @@ function stampWall(mesh, G, D, u0, v0, E, cal, w, side, through, dir, d0, dl) {
   let U = q.getComponent(G.a1), V = q.getComponent(G.a2);
   // a round that goes through at a slant: the hole runs along its path (stored where it crosses the middle of the wall)
   if (through && dl && d0 !== undefined) {
-    const dn = Math.abs(dl.getComponent(G.ax)) || 1e-3, s1 = clamp(dl.getComponent(G.a1) / dn, -3.9, 3.9), s2 = clamp(dl.getComponent(G.a2) / dn, -3.9, 3.9);
+    const ax0 = dl.getComponent(G.ax), dn = Math.abs(ax0) < 1e-3 ? (ax0 < 0 ? -1e-3 : 1e-3) : ax0, s1 = clamp(dl.getComponent(G.a1) / dn, -3.9, 3.9), s2 = clamp(dl.getComponent(G.a2) / dn, -3.9, 3.9);
     U -= s1 * d0; V -= s2 * d0;
     const rr = Math.max(0.03, cal * 8) + (Math.abs(s1) + Math.abs(s2)) * (G.half || 0.05) + 0.03;
     const i0 = Math.max(0, Math.floor((U - rr - G.min1) / G.cs1)), i1 = Math.min(G.n1 - 1, Math.ceil((U + rr - G.min1) / G.cs1)), j0 = Math.max(0, Math.floor((V - rr - G.min2) / G.cs2)), j1 = Math.min(G.n2 - 1, Math.ceil((V + rr - G.min2) / G.cs2));
     const e1 = Math.round(128 + s1 * 32), e2 = Math.round(128 + s2 * 32);
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * G.n1 + i; if (G.cell[k] === 2) continue; G.shr[k * 2] = e1; G.shr[k * 2 + 1] = e2; }
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * G.n1 + i; if (G.cell[k]) continue; G.shr[k * 2] = e1; G.shr[k * 2 + 1] = e2; }
     G.stex.needsUpdate = true;
   }
   const kJ = E / 1700, shot = isShotgun(w), big = cal > 0.012;

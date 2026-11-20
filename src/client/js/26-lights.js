@@ -36,10 +36,13 @@ function lightLevel(p) {
   if (roofed) for (const l of houseLights) if (l.intensity > 0) { const d = l.position.distanceTo(p); lvl += l.intensity / 7 * clamp(1 - d / 7, 0, 1) * 0.6; }
   return lvl;
 }
+// H turns the shoulder light on and off (it starts off; it goes off when you die)
+function toggleFlashlight() { SL.on = !SL.on; blip(SL.on ? 1500 : 1100, 0.015, 0.03, 'square'); }
 function updateLights(dt) {
+  if (!P.alive) SL.on = false;
   // ---- mine: on in the dark, off in the light (a little slack either side so it doesn't flicker at the edge)
   SL.chk -= dt;
-  if (SL.chk <= 0) { SL.chk = 0.4; SL.lvl = S.mode && P.alive ? lightLevel(P.pos) : 1; const want = SL.on ? SL.lvl < 0.3 : SL.lvl < 0.22; if (want !== SL.on) { SL.on = want; blip(want ? 1500 : 1100, 0.015, 0.02, 'square'); } }
+  if (SL.chk <= 0) { SL.chk = 0.4; SL.lvl = S.mode && P.alive ? lightLevel(P.pos) : 1;  }
   const mine = S.mode && P.alive && SL.on && !SFX.spec;
   shoulderLight.intensity = mine ? 22 : 0;
   if (mine) {
@@ -83,5 +86,5 @@ function updateLights(dt) {
 function lightState() { const W = VMW[P.weapon], dev = P.deviceOn && P.slot < 2 && W && W.side !== 'none' ? (W.side === 'laser' ? 1 : 2) : 0; return { fl: SL.on ? 1 : 0, dv: dev }; }
 
 // ---- module exports: build.mjs strips this block ----
-export { SL, lightState, updateLights };
+export { SL, lightState, toggleFlashlight, updateLights };
 // ---- end module exports ----

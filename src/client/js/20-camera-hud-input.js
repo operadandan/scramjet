@@ -21,7 +21,10 @@ import { SFX, specNext } from './21b-screenfx.js';
 import { renderScore } from './22-menu-loop.js';
 import { siegeKeyDown, siegeKeyUp } from './23-siege.js';
 import { CON, conClose } from './25-console.js';
+import { toggleFlashlight } from './26-lights.js';
 import { GADGETS } from './27-gadgets.js';
+import { loadoutUI } from './28-match.js';
+import { toggleNvg } from './29-eyes.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- camera / viewmodel
 const camTarget = new V3(), _camQ = new THREE.Quaternion(), _camE = new THREE.Quaternion(), _camEu = new THREE.Euler();
@@ -278,13 +281,13 @@ function updateHUD() {
   const an = P.anat, loss = clamp((5000 - an.blood) / 2500, 0, 1);
   const dn = P.alive && P.downed, tn = performance.now() / 1000;
   $('downfx').style.display = dn ? 'block' : 'none';
-  const sup = P.alive ? (P.supp || 0) : 0, mf = dn ? 380 : sup > 0.45 ? 2600 : 20000;
+  const sup = P.alive ? (P.supp || 0) : 0, mf = S.eyeOut ? 300 : dn ? 5000 : sup > 0.45 ? 2600 : 20000;
   $('suppv').style.opacity = String(Math.min(0.95, sup * 0.9));
   if (aMaster && mf !== S.muff) { S.muff = mf; aMaster.frequency.setTargetAtTime(mf, actx.currentTime, 0.25); }
   if (dn && tn - (S.beatT || 0) > 1.05) { S.beatT = tn; blip(58, 0.14, 0.5, 'sine'); setTimeout(() => blip(50, 0.16, 0.35, 'sine'), 230); }
   $('downblink').style.opacity = dn ? String(Math.min(0.92, Math.pow(Math.max(0, Math.sin(tn * 0.55)), 6) * (0.55 + loss * 0.5))) : '0';
   const filt = (sup > 0.15 && !dn ? 'blur(' + (Math.round(sup * 3) / 2) + 'px) saturate(' + (1 - sup * 0.5).toFixed(1) + ') ' : '') + (dn ? 'grayscale(0.6) sepia(0.35) hue-rotate(-25deg) contrast(1.15) brightness(0.8) blur(' + (1 + Math.round((1 + Math.sin(tn * 1.3)) * 2) / 2) + 'px) ' : '') + (loss > 0.05 ? 'grayscale(' + (loss * 0.85).toFixed(2) + ') brightness(' + (1 - loss * 0.4).toFixed(2) + ') ' : '') + (an.concussion > 0 ? 'blur(' + (an.concussion * 1.5).toFixed(1) + 'px) ' : '') + (S.slow ? 'saturate(0.55) contrast(1.08)' : '');
-  if (P.alive && filt !== S.filt) { S.filt = filt; renderer.domElement.style.filter = filt; }   // (dead: 21b-screenfx has the view)
+  { const ff = (filt + ' ' + (S.eyeFilt || '')).trim(); if (P.alive && ff !== S.filt) { S.filt = ff; renderer.domElement.style.filter = ff; } }   // (dead: 21b-screenfx has the view)
   $('stb').style.width = P.stamina + '%'; $('stb').style.background = P.staminaLock ? '#ff9a4a' : '#7fc4ff';
   if (S.mode === 'online') $('info').textContent = 'ROOM ' + S.room + '   |   ' + (S.remotes.size + 1) + ' PLAYERS' + (!net.ready() ? '   |   CONNECTING' : '') + (net.mode === 'host' ? '   |   HOSTING' : '');
   else $('info').textContent = 'TESTING MODE (temporary)';
@@ -308,17 +311,20 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyF' && !e.repeat) { if (rackNeeded()) workAction(); else if (siegeKeyDown(true)) { } else if (S.pick) pickUp(); else if (siegeKeyDown()) { } else if (S.mode && P.alive && !P.downed && doorKeyDown()) { } else if (canRack()) workAction(); else pickUp(); }
   if (e.code === 'KeyB') dropHeld();
   if (e.code === 'KeyV' && !e.repeat) meleeBash();
-  if (S.mode === 'test' && e.code === 'KeyN') suppress(0.8, 900);
+  if (S.mode === 'test' && e.code === 'KeyU') suppress(0.8, 900);
   if (e.code === 'KeyT') { P.deviceOn = !P.deviceOn; noiseHit(3000, 0.02, 0.04); }
   if (e.code === 'KeyZ') toggleAds();
   if (e.code === 'Backquote') { S.slow = !S.slow; $('slowmo').style.display = S.slow ? 'block' : 'none'; }
   if (e.code === 'KeyQ') P.leanState = P.leanState === -1 ? 0 : -1;
   if (e.code === 'KeyE') P.leanState = P.leanState === 1 ? 0 : 1;
-  { const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].indexOf(e.code); if (n >= 0) pressSlot(n); }
+  { const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'].indexOf(e.code); if (n >= 0) pressSlot(n); }
   if (e.code === 'Space' && P.alive && P.downed && !e.repeat) { P.anat.kill('gaveup'); localDeath(); }
   if (e.code === 'KeyC' && P.alive && !P.anat.bothLegs()) P.stance = P.stance === 1 ? 0 : 1;
   if (e.code === 'KeyX' && P.alive && !P.anat.bothLegs()) { P.stance = P.stance === 2 ? 0 : 2; if (P.stance === 2) P.leanState = 0; }
-  if (S.mode === 'test' && e.code === 'KeyH') testSelfHit();
+  if (S.mode === 'test' && e.code === 'KeyY') testSelfHit();
+  if (S.mode === 'test' && e.code === 'KeyL' && !e.repeat) loadoutUI(true);
+  if (e.code === 'KeyH' && !e.repeat && P.alive) toggleFlashlight();
+  if (e.code === 'KeyN' && !e.repeat && P.alive && P.head === 'nvg') toggleNvg();
   if (S.mode === 'test' && e.code === 'KeyK') testDeath(true);
   if (S.mode === 'test' && e.code === 'KeyJ') testDeath(false);
 });

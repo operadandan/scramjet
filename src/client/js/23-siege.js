@@ -5,6 +5,7 @@ import { addBox, colliders, worldMeshes } from './01-world.js';
 import { BOARD_COL, TOWN } from './01b-town.js';
 import { vm } from './06-weapons.js';
 import { blip, noiseHit } from './10-audio.js';
+import { decals, splatGeo } from './11-fx.js';
 import { floorAt } from './14-wounds.js';
 import { DESTR, dust, spawnDebris } from './15-destruction.js';
 import { P, S } from './17-dummies.js';
@@ -64,8 +65,8 @@ function siegeRound(m, joining) {
   if (m.pl && !SG.plant) siegePlanted(m.pl.site, Number(m.pl.left) || 0);
   if (!m.pl && SG.plant && m.ph !== 'post') { SG.plant = null; sgDisposeModel(SG.plantM); SG.plantM = null; }
   // gadgets already out when you join mid-round
-  if (joining && Array.isArray(m.gdw)) for (const g of m.gdw) if (Array.isArray(g) && Array.isArray(g[3]) && g[3].length === 3 && g[3].every(Number.isFinite)) gadgetAdd(g[0], g[1], String(g[2]), new V3().fromArray(g[3]), Number(g[4]) || 0, g[5] === 'r' ? 'r' : 'b');
-  if (joining && Array.isArray(m.sgw)) for (const e of m.sgw) if (Array.isArray(e)) e[0] === 'bd' ? boardWindow(e[1] | 0) : e[0] === 'bk' ? boardBreak(e[1] | 0, e[2] | 0, null) : e[0] === 'rf' && reinforceBox(e[1]);
+  if (joining && Array.isArray(m.gdw)) for (const g of m.gdw) if (Array.isArray(g) && Array.isArray(g[3]) && g[3].length === 3 && g[3].every(Number.isFinite)) { const o = gadgetAdd(g[0], g[1], String(g[2]), new V3().fromArray(g[3]), Number(g[4]) || 0, g[5] === 'r' ? 'r' : 'b'); if (o && g[6]) { o.sprung = true; if (o.g && o.g.userData.jaws) o.g.userData.jaws.forEach((j, i) => { j.rotation.x = (i ? 1 : -1) * 1.35; }); } }
+  if (joining && Array.isArray(m.sgw)) for (const e of m.sgw) if (Array.isArray(e)) e[0] === 'bd' ? boardWindow(e[1] | 0) : e[0] === 'bk' ? boardBreak(e[1] | 0, e[2] | 0, null, true) : e[0] === 'rf' && reinforceBox(e[1]);
 }
 function siegeSetDrop(p) {
   sgDisposeMarker(SG.dropM); SG.dropM = null; sgDisposeModel(SG.dropG); SG.dropG = null; SG.drop = null;
@@ -106,12 +107,17 @@ function boardWindow(i) {
   }
 }
 // one plank of a boarded window breaks off in pieces (bashed, or someone else's bash coming in over the network)
-function boardBreak(i, k, d) {
+function boardBreak(i, k, d, quiet) {
   const w = TOWN.windows[i]; if (!w || !w.boards || !w.boards[k]) return;
   const m = w.boards[k]; w.boards[k] = null;
   const bx = m.userData.box, gp = m.geometry.parameters, c = m.position.clone(), dir = d ? d.clone() : new V3(0, 0, 1);
   const wi = worldMeshes.indexOf(m); if (wi >= 0) worldMeshes.splice(wi, 1); const ci = colliders.indexOf(bx); if (ci >= 0) colliders.splice(ci, 1);
   m.removeFromParent(); if (m.material) { if (m.material.map) m.material.map.dispose(); m.material.dispose(); } m.geometry.dispose();
+  if (m.customDepthMaterial) m.customDepthMaterial.dispose(); const G = m.userData.grid; if (G) { if (G.tex) G.tex.dispose(); if (G.stex) G.stex.dispose(); }
+  // holes and marks shot into it go with it
+  for (let q = decals.length - 1; q >= 0; q--) { const dc = decals[q], p = dc.position; if (p.x > bx.min.x - 0.05 && p.x < bx.max.x + 0.05 && p.y > bx.min.y - 0.05 && p.y < bx.max.y + 0.05 && p.z > bx.min.z - 0.05 && p.z < bx.max.z + 0.05) { scene.remove(dc); decals.splice(q, 1); if (dc.geometry && dc.geometry !== splatGeo) dc.geometry.dispose(); } }
+  if (w.boards.every(b => !b)) { w.boarded = false; w.boards = []; }
+  if (quiet) return;
   const long = Math.max(gp.width, gp.depth), n = 3 + Math.floor(Math.random() * 2);
   for (let j = 0; j < n; j++) {
     const off = (j + 0.5) / n - 0.5, p = c.clone(); if (gp.width > gp.depth) p.x += off * long; else p.z += off * long;

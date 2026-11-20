@@ -23,7 +23,7 @@ import { closeInv, dropWeapon } from './21-items-inventory.js';
 import { SFX, screenBlood, sfxClear } from './21b-screenfx.js';
 import { frame } from './22-menu-loop.js';
 import { CON } from './25-console.js';
-import { gadgetGhostOff, updateGadget } from './27-gadgets.js';
+import { gadgetGhostOff, updateGadget, updateSledge } from './27-gadgets.js';
 import { applyGadgets } from './28-match.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- physics helpers
@@ -54,7 +54,7 @@ function enterDowned(extra) {
   P.rag = spawnRagdoll(localBody, P.vel.clone(), an.lastDir.clone(), PART_OF_REGION(an.lastRegion), false, Object.assign({ bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(), keep: true, w: playerWoundMasks(an) }, extra || {}));
   P.rag.owner = { anat: an };
   $('downmsg').style.display = 'block';
-  $('downwhy').textContent = an.koT > 0 ? 'Knocked out. You will come round in a few seconds.' : an.paralyzed ? 'Spinal cord injury. You will not get up.' : P.forceDown ? 'You went down and cannot get back up.' : 'You blacked out from the pain. You may come to if it eases.';
+  $('downwhy').textContent = an.koT > 0 ? 'Knocked out. You will come round in a few seconds.' : an.paralyzed ? 'Spinal cord injury. You will not get up.' : P.trapDown ? 'Caught in a bear trap: your leg is crushed and held.' : P.forceDown ? 'You went down and cannot get back up.' : 'You blacked out from the pain. You may come to if it eases.';
   downText();
 }
 function downText() {
@@ -167,7 +167,8 @@ function updatePlayer(dt) {
   // the injuries get worse while you lie there: once one is past saving, you are out of the round (the team is told)
   if (P.downed && !P.fatal && an.fatalWhy()) downText();
   if (P.downed && P.fatal && !P.fatalSent && S.mode === 'online') { P.fatalSent = true; net.send({ t: 'down', by: an.lastBy || 0, lf: S.life, ft: 1 }); }
-  else if (P.downed && !an.isDowned() && !P.forceDown) wakeUp();
+  // (past saving: you never come round, you only lie there till it ends)
+  if (P.downed && !P.fatal && !an.isDowned() && !P.forceDown) wakeUp();
   // down in a fight, nobody keeps you going: the blood goes much faster (half a minute or so if nobody comes to help)
   if (P.downed && S.mode === 'online') an.blood -= (an.bleedRate() * 1.5 + 40) * dt;
   if (P.downed) { bleedDrips(P, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1)); localBody.root.visible = false; fpBody.root.visible = false; if (P.rag) P.pos.set(P.rag.p[2].x, 0, P.rag.p[2].z); P.vel.set(0, 0, 0); P.speed = 0; return; }
@@ -438,7 +439,7 @@ function updateWeapons(dt) {
   rackHint();
   if (P.downed || !P.alive || (!G && P.slot < 2)) { P.ads = 0; muzzleLight.intensity = 0; vmMuzzleLight.intensity = 0; return; }
   if (P.slot >= 2) {
-    keepSlot(); if (P.slot !== 2) gadgetGhostOff(); if (P.slot === 2) (P.tool2 && P.tool2 !== 'c4' ? updateGadget(dt) : (typeof TV !== 'undefined' && TV.c4 && (TV.c4.visible = true), updateC4(dt))); else if (P.slot === 3) updateFrag(dt); else if (P.slot === 4) updateFists(dt);
+    keepSlot(); if (P.slot !== 2) gadgetGhostOff(); if (P.slot === 2) updateGadget(dt); else if (P.slot === 5) (P.toolB === 'sledge' ? updateSledge(dt) : P.toolB === 'bcharge' ? updateGadget(dt, 'bcharge') : (typeof TV !== 'undefined' && TV.c4 && (TV.c4.visible = true), updateC4(dt))); else if (P.slot === 3) updateFrag(dt); else if (P.slot === 4) updateFists(dt);
     P.ads = damp(P.ads, 0, 14, dt); P.sprintBlend = damp(P.sprintBlend, P.sprinting ? 1 : 0, 10, dt);
     P.kick = damp(P.kick, 0, 14, dt); P.recoilPitch = damp(P.recoilPitch, 0, 7, dt); P.recShake = damp(P.recShake || 0, 0, 12, dt);
     VMW.forEach(v => { v.flash.visible = false; }); muzzleLight.intensity = 0; vmMuzzleLight.intensity = 0;
@@ -544,7 +545,7 @@ function fire(w) {
   // a pump gun keeps its hull until the pump comes back
   if (w.pellets) { P.pumpStage = 0; P.pumpEject = { o: origin.clone(), right: right.clone(), up: up.clone(), f: gF.clone() }; V.boltK = 0; }
   else ejectShell(V.port.getWorldPosition(new V3()), right, up, gF, P.vel, w.shell);
-  recoilKick(w);
+  recoilKick(w, V);
   if (S.mode === 'online' && net.ready()) {
     const r4 = v => Math.round(v * 10000) / 10000;
     net.send({ t: 'shot', o: [r4(origin.x), r4(origin.y), r4(origin.z)], d: [r4(dir.x), r4(dir.y), r4(dir.z)], w: P.weapon, tr: tracer ? 1 : 0, sp: V.supp ? 1 : 0, sd: seed });
@@ -564,7 +565,7 @@ const RECOIL = {
   m870: { v: 0.115, h: 0.022, bias: 0.004, back: 0.62, shake: 0.03 },
   m107: { v: 0.14, h: 0.03, bias: 0.006, back: 0.55, shake: 0.05 }
 };
-function recoilKick(w) {
+function recoilKick(w, V) {
   const R = RECOIL[w.id] || { v: w.recoil, h: w.recoil * 0.4, bias: 0, back: 0.6, shake: 0.005 }, now = performance.now();
   // a burst: each round lands before the shooter has the gun settled, so it stacks (and the side-to-side wander grows)
   if (now - (P.recLast || 0) > 60000 / (w.rpm || 600) + 220) { P.recN = 0; P.recH = 0; }
@@ -674,7 +675,7 @@ function respawnLocal(sp) {
   clearWounds(localBody); clearWounds(fpBody); fpBody.setLost(0); setHelmet(localBody, true);
   { const a = localBody.anim; a.hurt = 0; a.clutchT = 0; a.clutchW = 0; a.clutchF = null; a.woundF = null; a.braceP = null; a.braceW = 0; a.stag = 0; a.stagW = 0; localBody.fl = null; }
   try { clearWounds(localBody); clearWounds(fpBody); } catch (er) {}
-  P.anat = new Anatomy(); P.downed = false; P.fatal = ''; P.fatalSent = false; localBody.setLost(0); P.stance = 0; P.prone = 0; P.slot = 0; P.weapon = P.loadout[0]; P.medUses = 3; P.c4N = 2; P.fragN = 3; P.tool2 = 'c4'; P.tool3 = 'frag'; if (S.mode === 'online') applyGadgets(); P.defOut = false; P.trapped = null; P.nade = null; P.c4 = null; P.emptySel = -1; P.healing = false; P.healT = 0; P.platesInv = 0; P.plating = false; P.plateTarget = null; P.invPlate = null; P.packGuns = []; P.loose = []; P.packPos = {}; P.supp = 0; P.downSent = false; P.lookX = P.lookY = 0; setHelmet(localBody, true);
+  P.anat = new Anatomy(); P.downed = false; P.fatal = ''; P.fatalSent = false; localBody.setLost(0); P.stance = 0; P.prone = 0; P.slot = 0; P.weapon = P.loadout[0]; P.medUses = 3; P.c4N = 2; P.fragN = 3; P.tool2 = 'c4'; P.tool3 = 'frag'; applyGadgets(); P.defOut = false; P.trapped = null; P.trapDown = false; P.sledge = null; P.nade = null; P.c4 = null; P.emptySel = -1; P.healing = false; P.healT = 0; P.platesInv = 0; P.plating = false; P.plateTarget = null; P.invPlate = null; P.packGuns = []; P.loose = []; P.packPos = {}; P.supp = 0; P.downSent = false; P.lookX = P.lookY = 0; setHelmet(localBody, true);
   P.alive = true; P.stamina = 100; P.staminaLock = false; P.mantle = null; P.mantleK = 0; P.jumpCD = 0; P.landK = 0; P.crouch = 0; P.lean = 0; P.leanState = 0; P.adsOn = false;
   P.activeLo = P.loadout.slice(); P.guns = freshGuns(P.activeLo); P.reloading = false; P.inspecting = false; P.rag = null; P.headDeath = false;
   $('black').style.transition = 'opacity .35s'; $('black').style.opacity = '0';

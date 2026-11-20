@@ -21,7 +21,7 @@ import { PITCH_MIN, flashMsg, onSelfHurt, selectEmpty } from './18-player.js';
 import { net } from './19-network.js';
 import { WARMING } from './22b-warm.js';
 import { siegeBlast } from './23-siege.js';
-import { GD, flashBang, gadgetBlast, gadgetRemove, gadgetRx, gdKey, smokeCloud } from './27-gadgets.js';
+import { GD, flashBang, gadgetBlast, gadgetRemove, gadgetRx, gdKey, gdModel, smokeCloud } from './27-gadgets.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- explosives: M112 C4 (slot 3) and the M67 fragmentation grenade (slot 4)
 // Charges are rated in kilograms of TNT. Blast effects scale with Hopkinson's scaled distance Z = d / W^(1/3) (m / kg^1/3):
@@ -31,7 +31,7 @@ import { GD, flashBang, gadgetBlast, gadgetRemove, gadgetRx, gdKey, smokeCloud }
 //   M67: 180 g of Composition B (RE 1.35) = 0.24 kg TNT inside a 2.5 mm steel body that breaks into a few thousand fragments.
 //   Fuze M213: the striker is held by the spoon; once the spoon flies the delay burns 4 to 5.5 s. Pulling the pin alone
 //   does nothing as long as the spoon is held. Lethal radius about 5 m, casualties out to about 15 m.
-const EXPL = { c4: { W: 0.76, frags: 0 }, frag: { W: 0.24, frags: 5500 }, claymore: { W: 0.3, frags: 3000 }, smoke: { W: 0, frags: 0 }, flash: { W: 0.02, frags: 0 } };
+const EXPL = { c4: { W: 0.76, frags: 0 }, frag: { W: 0.24, frags: 5500 }, claymore: { W: 0.3, frags: 3000 }, bcharge: { W: 0.3, frags: 0 }, smoke: { W: 0, frags: 0 }, teargas: { W: 0, frags: 0 }, flash: { W: 0.02, frags: 0 } };
 const NADE_R = 0.032, C4_REACH = 1.7;
 const CHARGES = [], NADES = [], BOOM_FX = [];
 let explSeq = 1;
@@ -481,6 +481,7 @@ function ragMeshes(r) { const out = []; r.group.traverse(o => { if (o.isMesh && 
 function explode(p, kind, owner, isOwner, n, onBody) {
   // smoke and flash don't blow anything up
   if (kind === 'smoke') return smokeCloud(p);
+  if (kind === 'teargas') return smokeCloud(p, true);
   if (kind === 'flash') return flashBang(p);
   const E = EXPL[kind] || EXPL.frag; n = n || new V3(0, 1, 0); gadgetBlast(p, E.W);
   if (kind === 'claymore') kind = 'frag';   // (a claymore is a big frag, as far as walls and bodies go)
@@ -523,9 +524,11 @@ const r3 = x => Math.round(x * 1000) / 1000;
 // are hit too, so a grenade can bounce off someone's legs.
 const NADE_M = 0.4, NADE_I = 0.4 * NADE_M * NADE_R * NADE_R, NADE_DRAG = 0.5 * 1.2 * 0.5 * Math.PI * NADE_R * NADE_R / NADE_M;
 const SURF_PHYS = { metal: [0.5, 0.25], concrete: [0.42, 0.55], drywall: [0.3, 0.6], plywood: [0.33, 0.5], crate: [0.33, 0.5], wood: [0.33, 0.5], ground: [0.32, 0.65], body: [0.12, 0.8] };
-const NADE_TINT = new Map();   // (smoke and flash bodies: one recoloured material per original, kept)
+// a thrown canister's own geometry goes with it (frags share theirs)
+function nadeGone(o) { scene.remove(o.g); if (o.g.userData.ownGeo) o.g.traverse(x => { if (x.geometry) x.geometry.dispose(); }); }
 function throwNade(owner, id, p, v, fuse, local, w, curl, kind) {
-  const n = makeFrag(); if (kind === 'smoke' || kind === 'flash') n.g.traverse(o => { if (o.isMesh && o.material && o.material.color && !o.userData.keepCol) { const key = kind + o.material.uuid; let mm = NADE_TINT.get(key); if (!mm) { mm = o.material.clone(); mm.color.set(kind === 'smoke' ? 0x6a6e6a : 0x3a4048); NADE_TINT.set(key, mm); } o.material = mm; } }); n.pin.visible = false; n.spoon.visible = false; n.g.position.copy(p); scene.add(n.g);
+  // each throwable is its own model in the air (a frag, or the smoke, tear gas or flash canister)
+  const n = kind === 'smoke' || kind === 'flash' || kind === 'teargas' ? { g: (() => { const m = gdModel(kind); m.userData.ownGeo = true; return m; })(), pin: new THREE.Object3D(), spoon: new THREE.Object3D() } : makeFrag(); n.pin.visible = false; n.spoon.visible = false; n.g.position.copy(p); scene.add(n.g);
   const o = { g: n.g, p: p.clone(), v: v.clone(), w: w ? w.clone() : new V3(rnd(-12, 12), rnd(-6, 6), rnd(-12, 12)), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(rnd(0, 6), rnd(0, 6), rnd(0, 6))), fuse, owner, id, local, t: 0, curl: curl === undefined ? rnd(-0.12, 0.12) : curl, ground: false };
   o.kind = Object.hasOwn(EXPL, kind) ? kind : 'frag';
   NADES.push(o); return o;
@@ -615,7 +618,7 @@ function updateNades(dt) {
     o.g.position.copy(o.p); o.g.quaternion.copy(o.q);
     if (o.fuse <= 0) {
       if (o.local) { if (S.mode === 'online') net.send({ t: 'x', a: 'boom', k: o.kind, i: o.id, p: o.p.toArray().map(r3) }); explode(o.p.clone(), o.kind, o.owner, true); }
-      if (o.local || o.fuse < -4) { scene.remove(o.g); NADES.splice(i, 1); }
+      if (o.local || o.fuse < -4) { nadeGone(o); NADES.splice(i, 1); }
     }
   }
   updateSpoons(dt);
@@ -805,7 +808,7 @@ function updateExplosives(dt) {
   updateNades(dt); updateBoomFx(dt);
   updateC4Fly(dt); updateCharges(dt);
   if (P.slot !== 3 && P.nade && P.nade.ph !== 'idle') nadeAbandon();
-  if (P.slot !== 2 && P.c4 && P.c4.ph !== 'idle') P.c4.ph = 'idle';
+  if (!(P.slot === 5 && P.toolB === 'c4') && P.c4 && P.c4.ph !== 'idle') P.c4.ph = 'idle';
   if (P.nade && P.nade.cook && P.slot !== 3) nadeAbandon();
   // on the test range the crates of explosives never run dry: a few seconds after the last one is used, more are there
   if (S.mode === 'test' && P.alive) {
@@ -836,16 +839,16 @@ function onExplosiveMsg(m) {
   else if (m.a === 'boom') {
     const kind = Object.hasOwn(EXPL, m.k) ? m.k : 'frag';
     // (a claymore is set off by whoever walks into it, but it is its owner's blast)
-    if (kind === 'claymore') { const o = GD.find(x => x.key === gdKey(m.tg, m.i)); if (o) gadgetRemove(o); explode(p, kind, Number.isFinite(m.tg) ? m.tg : m.id, false, ok(m.n) ? new V3().fromArray(m.n) : null, !!m.ob); return; }
+    if (kind === 'claymore' || kind === 'bcharge') { const o = GD.find(x => x.key === gdKey(m.tg, m.i)); if (o) gadgetRemove(o); explode(p, kind, Number.isFinite(m.tg) ? m.tg : m.id, false, ok(m.n) ? new V3().fromArray(m.n) : null, !!m.ob); return; }
     for (const c of CHARGES.slice()) if (c.owner === m.id && c.id === m.i) { removeCharge(c); if (c.g.parent) c.g.parent.remove(c.g); }
     for (let i = C4_FLY.length - 1; i >= 0; i--) if (C4_FLY[i].owner === m.id && C4_FLY[i].id === m.i) { scene.remove(C4_FLY[i].g); C4_FLY.splice(i, 1); }
-    for (let i = NADES.length - 1; i >= 0; i--) if (NADES[i].owner === m.id && NADES[i].id === m.i) { scene.remove(NADES[i].g); NADES.splice(i, 1); }
+    for (let i = NADES.length - 1; i >= 0; i--) if (NADES[i].owner === m.id && NADES[i].id === m.i) { nadeGone(NADES[i]); NADES.splice(i, 1); }
     explode(p, kind, m.id, false, ok(m.n) ? new V3().fromArray(m.n) : null, !!m.ob);
   }
 }
 function clearExplosives() {
   for (const c of CHARGES) if (c.g.parent) c.g.parent.remove(c.g); CHARGES.length = 0; for (const o of C4_FLY) scene.remove(o.g); C4_FLY.length = 0;
-  for (const o of NADES) scene.remove(o.g); NADES.length = 0; for (const o of SPOONS) scene.remove(o.g); SPOONS.length = 0;
+  for (const o of NADES) nadeGone(o); NADES.length = 0; for (const o of SPOONS) scene.remove(o.g); SPOONS.length = 0;
   for (const f of BOOM_FX) scene.remove(f.o); BOOM_FX.length = 0; boomLight.intensity = 0;
 }
 

@@ -810,7 +810,7 @@ function worldPen(b, hit, dir, nIn) {
   // goes through one ordinary wall and stops in the next, a thin sheet or two more maybe; the .50 goes through the house.
   const tum = 1 + (b.tumble || 0) * (w === 2 ? 0.35 : isShotgun(w) ? 2.2 : 3.6);
   let path = thick;
-  if (ud.ext) path = bx.t / cos;
+  if (ud.ext) path = bx.t;
   let loss = R * path * tum;
   if (ud.ext) loss += PEN_MAT.wood[0] * cf * Math.min(0.1, 0.035 / cos) * tum;
   if (kind === 'drywall' && Math.random() < 0.12) loss += PEN_MAT.wood[0] * cf * 0.09 / cos * tum;   // a stud
@@ -824,6 +824,7 @@ function worldPen(b, hit, dir, nIn) {
     wallDamage(mesh, hit.point, nIn, dir, E, w, 1, through);
     if (!through) return null;
     wallDamage(mesh, exitP, bx.n, dir, E - loss, w, 0, true);
+    b.tumble = (b.tumble || 0) + 1;
     const nv = Math.sqrt(2 * (E - loss) / m), dev = (kind === 'concrete' ? 0.03 : 0.035) * (isPistol(w) ? 2 : 1) * (1 + (b.tumble || 0));   // (it comes out tumbling, further off line each wall)
     return { point: exitP, dir: dir.clone().add(new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(dev)).normalize(), v: nv };
   }
@@ -836,6 +837,7 @@ function worldPen(b, hit, dir, nIn) {
     impactFx(exitP, bx.n, ud.surf);
     if (kind === 'concrete' || w === 2) particles(exitP.clone().addScaledVector(bx.n, 0.03), 10, PMAT.chip, 3.5, 0.02, 0.9, 1, bx.n);
     const nv = Math.sqrt(2 * (E - loss) / m), dev = (kind === 'concrete' ? 0.03 : kind === 'metal' ? 0.02 : 0.01) * (isPistol(w) ? 2 : 1) * (1 + (b.tumble || 0));
+    b.tumble = (b.tumble || 0) + 1;
     const nd = dir.clone().add(new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(dev)).normalize();
     return { point: exitP, dir: nd, v: nv };
   }
