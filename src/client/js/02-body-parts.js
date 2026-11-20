@@ -98,6 +98,7 @@ function skinShader(sh, U) {
     .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\n' + SKIN_VS[1])
     .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + SKIN_VS[2]);
 }
+const SEG_PAR = [0, 0, 1, 2, 1, 4, 1, 6, 0, 8, 0, 10], _skA = new V3(), _skB = new V3();
 const _skI = new THREE.Matrix4(), _skT = new THREE.Matrix4(), _skN = new THREE.Matrix3();
 // Helper bones 12-15 (left/right shoulder, left/right hip): at the joint, turned half as far as the limb is turned from
 // the trunk. M = trunk * (joint offset, half the turn); positions in the helper's frame are the limb's rest-frame ones.
@@ -117,6 +118,13 @@ function skinUpdate() {
     sk.U.segOK.value[k] = 1;
     sk.U.segM.value[k].multiplyMatrices(_skI, at[0].matrixWorld).multiply(_skT.makeTranslation(0, at[1], 0));
   }
+  // a joint pulled apart (a blast throws a limb harder than the ragdoll's links can hold for a frame or two): the skin across
+  // it lets go rather than stretching out into a long streak, and takes hold again once the joint is back together
+  { const M = sk.U.segM.value, OK = sk.U.segOK.value, d = k => _skA.setFromMatrixPosition(M[k]).distanceTo(_skB.setFromMatrixPosition(M[SEG_PAR[k]]));
+    if (!sk.rest) { sk.rest = new Float32Array(12); for (let k = 1; k < 12; k++) sk.rest[k] = OK[k] && OK[SEG_PAR[k]] ? d(k) : -1; }
+    if (sk.own === undefined) { sk.own = 0; for (let q = this.parent; q && sk.own === 0; q = q.parent) for (let k = 0; k < 12; k++) if (sk.at[HUMAN_SEGS[k]] && sk.at[HUMAN_SEGS[k]][0] === q) { sk.own = k; break; } }
+    const under = (k, c) => { for (let i = 0; i < 6; i++) { if (k === c) return true; if (!k) return false; k = SEG_PAR[k]; } return false; };
+    for (let c = 1; c < 12; c++) if (OK[c] && OK[SEG_PAR[c]] && sk.rest[c] > 0 && d(c) > sk.rest[c] * 1.25 + 0.04) { if (under(sk.own, c)) OK[SEG_PAR[c]] = 0; else OK[c] = 0; } }
   for (let h = 0; h < 4; h++) helperMat(sk.U.segM.value, sk.U.segOK.value, h);
   if (sk.U.cD && sk.sim) { _skN.setFromMatrix4(_skI); const D = sk.sim.d, out = sk.U.cD.value; for (let k = 0; k < 56; k++) out[k].copy(D[k]).applyMatrix3(_skN); }
   if (this.material) this.material.uniformsNeedUpdate = true;

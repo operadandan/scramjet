@@ -720,6 +720,7 @@ function updateWounds(hum, dt) {
   }
 }
 function clearWounds(hum) {
+  if (hum && hum.bruises) { for (const b of hum.bruises) b.removeFromParent(); hum.bruises = []; }
   if (hum.wounds) for (const w of hum.wounds) { w.m.removeFromParent(); w.st.removeFromParent(); if (w.tr) w.tr.removeFromParent(); if (w.more) for (const x of w.more) x.removeFromParent(); } hum.wounds = []; hum.holes = [];
   const tubes = [];
   hum.root.traverse(o => { if (o.isMesh && o.userData.holeN) { for (const v of o.material.userData.hA.value) v.w = 0; o.userData.holeN = 0; } if (o.userData.tube) tubes.push(o); if (o.userData.organ || o.userData.inner || o.userData.under) o.visible = false; });
@@ -729,7 +730,7 @@ function clearWounds(hum) {
 // Each round carries kinetic energy. Every material it passes through takes energy per metre (scaled by how the round behaves:
 // soft pistol bullets flatten and lose a lot, a heavy .50 BMG keeps going). Bones cost a lump each. When the energy runs out the
 // round stops where it is; anything left over carries on out the other side at the matching speed.
-const PEN_CF = w => isPistol(w) ? 1.6 : w === 2 ? 0.55 : isShotgun(w) ? 0.85 : 1;
+const PEN_CF = w => isPistol(w) ? 1.3 : w === 2 ? 0.55 : isShotgun(w) ? 0.85 : 1;
 const FLESH_J = 2200;
 function bodyPen(frame, e, d, len, v, w) {
   const m = WEAPONS[w].mass, cf = PEN_CF(w), FL = FLESH_J * cf * (frame === 'head' ? 0.4 : 1); let E = 0.5 * m * v * v, s = 0;
@@ -774,7 +775,7 @@ function bodyWound(hit, dir, w, pen, ex, hum, frag) {
   if (!ex.object.userData.armor) addWound(hum, ex.object.userData.frame, g2, p2, d2, 'rimX', r1 * 6.5);
 }
 // walls and props. [energy per metre for a rifle round, hollow shell thickness or 0 for solid, colour of the inside]
-const PEN_MAT = { concrete: [68000, 0, 0x2f2c28], wood: [6000, 0.022, 0x3a2614], metal: [600000, 0.003, 0x111111], drywall: [2600, 0.013, 0xb9b3a8], plywood: [6000, 0, 0x5a3e22] };
+const PEN_MAT = { concrete: [68000, 0, 0x2f2c28], wood: [7000, 0.022, 0x3a2614], metal: [600000, 0.003, 0x111111], drywall: [12000, 0.013, 0xb9b3a8], plywood: [4200, 0, 0x5a3e22] };
 const KIND_PEN = { concrete: 'concrete', crate: 'wood', metal: 'metal', drywall: 'drywall', plywood: 'plywood' };
 // ray against an axis-aligned box from a point on its surface: distance to the far side, and which face it leaves through
 function boxExit(box, p, d) {
@@ -802,14 +803,18 @@ function worldPen(b, hit, dir, nIn) {
   // real walls cost more than their sheets: a round yaws and breaks up after the first one (a share of what it has left goes
   // each time), an outside wall has siding and sheathing besides, and now and then there is a stud in the way. And none goes
   // through walls without end: a pistol round two or three, a rifle round four or five, the .50 about ten.
-  let loss = R * thick;
-  if (kind === 'drywall' || kind === 'plywood' || kind === 'wood') {
-    loss += E * (isPistol(w) ? 0.38 : w === 2 ? 0.12 : isShotgun(w) ? 0.45 : 0.26);
-    if (ud.ext) loss += 0.5 * m * 900 * 900 * 0.06 * cf + R * 0.04;
-    if (kind === 'drywall' && Math.random() < 0.12) loss += PEN_MAT.wood[0] * 0.09 * cf;
-  }
-  b.walls = (b.walls || 0) + 1;
-  if (b.walls > (isPistol(w) ? 3 : w === 2 ? 10 : isShotgun(w) ? 2 : 5)) loss = Infinity;
+  // Energy lost is the material's resistance times the distance travelled through it (a slanted path is longer), nothing
+  // else: no wall count. A round that has already gone through something is yawing or tumbling and presents its side, so
+  // the same wall costs it several times as much (a .50 is too long and heavy to turn over much). Outside walls are the
+  // whole sandwich: siding, sheathing, insulation, studs and drywall. Rule of thumb that falls out: a rifle or pistol round
+  // goes through one ordinary wall and stops in the next, a thin sheet or two more maybe; the .50 goes through the house.
+  const tum = 1 + (b.tumble || 0) * (w === 2 ? 0.35 : isShotgun(w) ? 2.2 : 3.6);
+  let path = thick;
+  if (ud.ext) path = bx.t / cos;
+  let loss = R * path * tum;
+  if (ud.ext) loss += PEN_MAT.wood[0] * cf * Math.min(0.1, 0.035 / cos) * tum;
+  if (kind === 'drywall' && Math.random() < 0.12) loss += PEN_MAT.wood[0] * cf * 0.09 / cos * tum;   // a stud
+  b.walls = (b.walls || 0) + 1; if (b.walls > 14) loss = Infinity;
   const rIn = kind === 'concrete' ? Math.max(0.012, cal[0] * 3.4) : kind === 'metal' ? cal[0] * 1.3 : kind === 'drywall' ? cal[0] * 2.4 : cal[0] * 2;
   const rOut = kind === 'concrete' ? Math.max(0.03, cal[0] * 9) : kind === 'metal' ? cal[0] * 1.5 : kind === 'drywall' ? cal[0] * 5 : cal[0] * 4.2;
   const inner = pm[2], local = p => mesh.worldToLocal(p.clone()), dLoc = dir.clone().transformDirection(_hm.copy(mesh.matrixWorld).invert());
@@ -819,7 +824,7 @@ function worldPen(b, hit, dir, nIn) {
     wallDamage(mesh, hit.point, nIn, dir, E, w, 1, through);
     if (!through) return null;
     wallDamage(mesh, exitP, bx.n, dir, E - loss, w, 0, true);
-    const nv = Math.sqrt(2 * (E - loss) / m), dev = (kind === 'concrete' ? 0.03 : 0.035) * (isPistol(w) ? 2 : 1) * Math.min(3, b.walls);   // (it comes out tumbling, further off line each wall)
+    const nv = Math.sqrt(2 * (E - loss) / m), dev = (kind === 'concrete' ? 0.03 : 0.035) * (isPistol(w) ? 2 : 1) * (1 + (b.tumble || 0));   // (it comes out tumbling, further off line each wall)
     return { point: exitP, dir: dir.clone().add(new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(dev)).normalize(), v: nv };
   }
   if (E > loss + 12) {
@@ -830,7 +835,7 @@ function worldPen(b, hit, dir, nIn) {
     pierceMark(mesh, exitP, bx.n, ud.surf, rOut, true);
     impactFx(exitP, bx.n, ud.surf);
     if (kind === 'concrete' || w === 2) particles(exitP.clone().addScaledVector(bx.n, 0.03), 10, PMAT.chip, 3.5, 0.02, 0.9, 1, bx.n);
-    const nv = Math.sqrt(2 * (E - loss) / m), dev = (kind === 'concrete' ? 0.03 : kind === 'metal' ? 0.02 : 0.01) * (isPistol(w) ? 2 : 1);
+    const nv = Math.sqrt(2 * (E - loss) / m), dev = (kind === 'concrete' ? 0.03 : kind === 'metal' ? 0.02 : 0.01) * (isPistol(w) ? 2 : 1) * (1 + (b.tumble || 0));
     const nd = dir.clone().add(new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(dev)).normalize();
     return { point: exitP, dir: nd, v: nv };
   }

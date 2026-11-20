@@ -173,7 +173,8 @@ class Ragdoll {
     if (!quiet) goreBurst(c, dir, this.skin);
   }
   // ---------------------------------------------------------------- neck torn through: the head hangs on by strands of muscle and skin
-  tearNeck(dir) {
+  // the neck no longer tears through (it snapped the head round in a single frame): kept as a no-op for old callers
+  tearNeck(dir) { return;
     if (this.neckTorn || this.headGone || this.headBlown || !this.headG.visible) return;
     this.neckTorn = true; this.neckTw = rnd(-0.6, 0.6);
     // the skin and clothes stop pulling across the tear: what is on the trunk (the collar) lets go of the neck and head, what

@@ -179,13 +179,13 @@ class GameRoom extends DurableObject {
         break;
       }
       case "s": {
-        if (!p.ready || !p.alive || !Array.isArray(m.p)) return;
-        m.id = p.id; p.state = m;
+        if (!p.ready || !p.alive || !Array.isArray(m.p) || m.p.length < 3 || !m.p.every(Number.isFinite)) return;
+        this.holdStill(p, m); m.id = p.id; p.state = m;
         this.broadcast(m, p);
         break;
       }
       case "shot": {
-        if (!p.ready || !p.alive) return;
+        if (!p.ready || !p.alive || this.frozen()) return;
         const nums = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
         if (!nums(m.o) || !nums(m.d)) return;
         this.broadcast({ t: "shot", id: p.id, o: m.o, d: m.d, w: wIndex(m.w), tr: m.tr ? 1 : 0, sp: m.sp ? 1 : 0, sd: (Number(m.sd) >>> 0) || 0 }, p);
@@ -204,7 +204,7 @@ class GameRoom extends DurableObject {
       case "vote": if (p.ready && this.R.ph === "lobby" && m.map === "house") { this.R.votes[p.id] = "house"; this.broadcast(this.rMsg()); } break;
       case "sg": if (raw.length < 400) this.sgMsg(p, m); break;
       case "chat": if (p.ready && typeof m.s === "string" && m.s.trim() && (p.chatT || 0) < Date.now() - 500) { p.chatT = Date.now(); this.broadcast({ t: "chat", id: p.id, s: m.s.slice(0, 120) }, p); } break;
-      case "x": { if (p.ready && raw.length < 600 && ["c4p", "c4t", "nade", "boom", "chk", "gd", "gdx"].includes(m.a) && this.xGuard(p, m)) this.broadcast({ t: "x", id: p.id, a: m.a, k: ["c4", "frag", "smoke", "flash", "claymore", "beartrap", "wire", "shield", "alarm", "snap", "rustle"].includes(m.k) ? m.k : "frag", i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0, w: m.w, c: Number(m.c) || 0, tg: Number.isFinite(m.tg) ? m.tg : undefined, tp: Number(m.tp) || 0, lp: m.lp, lq: m.lq, ob: m.ob ? 1 : 0, T: Array.isArray(m.T) ? m.T.slice(0, 48).map(Number) : undefined, C: Array.isArray(m.C) ? m.C.slice(0, 32).map(Number) : undefined, H: Array.isArray(m.H) ? m.H.slice(0, 24).map(Number) : undefined }, p); break; }
+      case "x": { if (p.ready && raw.length < 600 && ["c4p", "c4t", "nade", "boom", "chk", "gd", "gdx"].includes(m.a) && !this.frozen() && this.xGuard(p, m)) this.broadcast({ t: "x", id: p.id, a: m.a, k: ["c4", "frag", "smoke", "flash", "claymore", "beartrap", "wire", "shield", "alarm", "snap", "rustle"].includes(m.k) ? m.k : "frag", i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0, w: m.w, c: Number(m.c) || 0, tg: Number.isFinite(m.tg) ? m.tg : undefined, tp: Number(m.tp) || 0, lp: m.lp, lq: m.lq, ob: m.ob ? 1 : 0, T: Array.isArray(m.T) ? m.T.slice(0, 48).map(Number) : undefined, C: Array.isArray(m.C) ? m.C.slice(0, 32).map(Number) : undefined, H: Array.isArray(m.H) ? m.H.slice(0, 24).map(Number) : undefined }, p); break; }
       // a punch: forwarded to the one hit, whose client works out the bruise
       case "punch": { const tgt = this.players.get(m.id); if (p.ready && p.alive && tgt && tgt !== p && tgt.alive && Date.now() - (p.lastPunch || 0) > 220) { p.lastPunch = Date.now(); this.send(tgt, { t: "punched", by: p.id, f: String(m.f || "").slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)) }); } break; }
       case "hit": this.hit(p, m); break;
@@ -221,7 +221,7 @@ class GameRoom extends DurableObject {
     if (m.a === 'gd') {
       const rule = Object.hasOwn(GD_RULES, m.k) ? GD_RULES[m.k] : null; p.gdN = p.gdN || {};
       if (!rule || R.ph !== 'live' || !p.alive || p.team !== rule[0] || (p.gdN[m.k] || 0) >= rule[1] || !fin(m.p) || !near(m.p, 4)) return false;
-      p.gdN[m.k] = (p.gdN[m.k] || 0) + 1; m.c = p.team === 'r' ? 1 : 2; R.gd[p.id + ':' + (Number(m.i) || 0)] = { team: p.team, k: m.k, p: m.p };
+      p.gdN[m.k] = (p.gdN[m.k] || 0) + 1; m.c = p.team === 'r' ? 1 : 2; R.gd[p.id + ':' + (Number(m.i) || 0)] = { team: p.team, k: m.k, p: m.p, f: Number(m.f) || 0, o: p.id, i: Number(m.i) || 0 };
       return true;
     }
     if (m.a === 'gdx' || (m.a === 'boom' && m.k === 'claymore')) {
@@ -232,6 +232,13 @@ class GameRoom extends DurableObject {
       if (m.k === 'snap') g.sn = 1; p.gxT = now; return true;
     }
     return true;
+  }
+  // held still at round start (loadout and the 5 s count): the room keeps you where you spawned and drops your shots
+  frozen() { const R = this.R; return R.ph === 'load' || (R.ph === 'live' && Date.now() < R.go); }
+  holdStill(p, m) {
+    if (!this.frozen()) { p.frz = null; return; }
+    if (!p.frz) { p.frz = m.p.slice(0, 3); return; }
+    if (Math.hypot(m.p[0] - p.frz[0], m.p[2] - p.frz[2]) > 0.6) m.p = p.frz.slice();
   }
   hit(p, m) {
     if (this.R.ph === 'load' || (this.R.ph === 'live' && Date.now() < this.R.go)) return;
@@ -262,16 +269,18 @@ class GameRoom extends DurableObject {
 
   // downing someone counts as the kill, once per life
   down(p, m) {
-    if (!p.ready || !p.alive || p.credited || (m.lf !== undefined && m.lf !== p.life)) return;
-    const by = this.players.has(m.by) && m.by !== p.id ? m.by : 0;
-    if (!by || this.players.get(by).team === p.team) return;
+    if (!p.ready || !p.alive || (m.lf !== undefined && m.lf !== p.life)) return;
+    // past saving (organ damage, paralysis...): still breathing, but out of the round, so it can end without waiting for them
+    if (m.ft && !p.fatal) { p.fatal = true; this.broadcast({ t: 'fatal', id: p.id }); this.rCheck(); }
+    if (p.credited) return;
+    const by = this.players.has(m.by) && m.by !== p.id ? m.by : 0; if (!by || this.players.get(by).team === p.team) return;
     p.credited = by; this.players.get(by).kills++;
-    this.broadcast({ t: "kill", id: p.id, by });
+    this.broadcast({ t: 'kill', id: p.id, by });
   }
 
   spawn(p) {
     if (!this.players.has(p.id)) return;
-    p.hp = 100; p.alive = true; p.state = null; p.credited = 0; p.life = (p.life || 0) + 1;
+    p.hp = 100; p.alive = true; p.fatal = false; p.state = null; p.credited = 0; p.life = (p.life || 0) + 1;
     this.broadcast({ t: "spawn", id: p.id, lf: p.life, sp: Math.floor(Math.random() * SPAWN_COUNT), tm: p.team });
   }
   // ---------------------------------------------------------------- teams and rounds
@@ -280,9 +289,9 @@ class GameRoom extends DurableObject {
   // every defender, defenders by killing every attacker or by holding out until the clock runs out.
   rInit() { if (this.R && this.R.pt) clearTimeout(this.R.pt); if (this.R && this.R.tm) clearTimeout(this.R.tm); this.R = { n: 0, ph: 'lobby', go: 0, votes: {}, map: 'house', end: 0, sc: { r: 0, b: 0 }, tm: null, pt: null, carrier: null, dz: null, plant: null, sgw: [], found: [] }; }
   rTeam() { let r = 0, b = 0; for (const x of this.players.values()) if (x.ready && x.team) x.team === 'r' ? r++ : b++; return r < b ? 'r' : b < r ? 'b' : (Math.random() < 0.5 ? 'r' : 'b'); }
-  rCount(alive) { const c = { r: 0, b: 0 }; for (const x of this.players.values()) if (x.ready && x.team && (!alive || x.alive)) c[x.team]++; return c; }
+  rCount(alive) { const c = { r: 0, b: 0 }; for (const x of this.players.values()) if (x.ready && x.team && (!alive || (x.alive && !x.fatal))) c[x.team]++; return c; }
   rTeams() { const o = {}; for (const x of this.players.values()) if (x.ready && x.team) o[x.id] = x.team; return o; }
-  rMsg(extra) { const R = this.R; return Object.assign({ t: 'round', n: R.n, ph: R.ph, left: Math.max(0, R.end - Date.now()), go: Math.max(0, (R.go || 0) - Date.now()), sc: R.sc, mv: Object.values(R.votes || {}).length, map: R.map, tm: this.rTeams(), dfz: R.carrier, dz: R.dz, pl: R.plant && { site: R.plant.site, left: Math.max(0, R.plant.end - Date.now()) }, sgw: R.sgw, fd: R.found, env: typeof envSnap === 'function' ? envSnap() : undefined }, extra || {}); }
+  rMsg(extra) { const R = this.R; return Object.assign({ t: 'round', n: R.n, ph: R.ph, left: Math.max(0, R.end - Date.now()), go: Math.max(0, (R.go || 0) - Date.now()), sc: R.sc, mv: Object.values(R.votes || {}).length, map: R.map, tm: this.rTeams(), dfz: R.carrier, dz: R.dz, pl: R.plant && { site: R.plant.site, left: Math.max(0, R.plant.end - Date.now()) }, sgw: R.sgw, gdw: Object.values(R.gd || {}).filter(g => !g.sn).map(g => [g.o, g.i, g.k, g.p, g.f, g.team]), fd: R.found, env: typeof envSnap === 'function' ? envSnap() : undefined }, extra || {}); }
   rTimer(ms, f) { if (this.R.tm) clearTimeout(this.R.tm); this.R.tm = setTimeout(() => { this.R.tm = null; f(); }, ms); }
   // ---- the match: a lobby on the baseplate (voting for the map) until there is someone on each team, then rounds to 5 wins.
   // A round: 15 s to pick a loadout (everyone at their start, held there), then the round itself, the first 5 s still held.
@@ -342,7 +351,7 @@ class GameRoom extends DurableObject {
     // (where the room last saw them: a plant, a disable or a revive has to be done from right there)
     const near = (q, r) => !at || !q || Math.hypot(at[0] - q[0], at[1] - q[1], at[2] - q[2]) < r;
     const site = id => typeof TOWN !== 'undefined' && TOWN.sites ? (TOWN.sites.find(x => x.id === id) || {}).p : null, sp = v => v ? [v.x, v.y, v.z] : null;
-    p.sgT = p.sgT || {}; if (m.a !== 'found' && (p.sgT[m.a] || 0) > now - 150) return; p.sgT[m.a] = now;
+    p.sgT = p.sgT || {}; if (m.a !== 'found' && m.a !== 'bk' && (p.sgT[m.a] || 0) > now - 150) return; p.sgT[m.a] = now;
     switch (m.a) {
       case 'rv': { const tg = this.players.get(m.to), tq = tg && tg.state && Array.isArray(tg.state.p) ? tg.state.p : null; if (tg && tg !== p && tg.alive && tg.team === p.team && near(tq, 3.2)) this.send(tg, { t: 'sg', a: 'rv', by: p.id }); break; }
       case 'take': if (live && p.team === 'r' && R.dz && !R.carrier && near(R.dz, 2.5)) { R.carrier = p.id; R.dz = null; this.broadcast({ t: 'sg', a: 'carrier', id: p.id }); } break;
@@ -353,7 +362,8 @@ class GameRoom extends DurableObject {
       } break;
       case 'disable': if (live && R.plant && p.team === 'b' && near(sp(site(R.plant.site)), 2.8)) this.rEnd('b', 'disabled'); break;
       case 'found': if (live && p.team === 'r' && (m.site === 'A' || m.site === 'B') && !R.found.includes(m.site)) { R.found.push(m.site); this.broadcast({ t: 'sg', a: 'found', site: m.site, by: p.id }, p); } break;
-      case 'bd': { const i = m.i | 0; if (p.team === 'b' && i >= 0 && i < 64 && !R.sgw.some(e => e[0] === 'bd' && e[1] === i) && R.sgw.length < 200) { R.sgw.push(['bd', i]); this.broadcast({ t: 'sg', a: 'bd', i }, p); } break; }
+      case 'bk': { const i = m.i | 0, k = m.k | 0; if (i >= 0 && i < 64 && k >= 0 && k < 3 && R.sgw.length < 300) { R.sgw.push(['bk', i, k]); this.broadcast({ t: 'sg', a: 'bk', i, k }, p); } break; }
+      case 'bd': { const i = m.i | 0; if (p.team === 'b' && i >= 0 && i < 64 && R.sgw.length < 300) { R.sgw.push(['bd', i]); this.broadcast({ t: 'sg', a: 'bd', i }, p); } break; }
       case 'rf': { const b = m.b; if (p.team === 'b' && (p.rfN || 0) < 2 && Array.isArray(b) && b.length === 6 && b.every(v => Number.isFinite(v) && Math.abs(v) < 60) && b[3] > 0 && b[3] <= 1.45 && b[4] > 0 && b[4] <= 3.1 && b[5] > 0 && b[5] <= 1.45 && Math.min(b[3], b[5]) <= 0.07 && near([b[0], b[1], b[2]], 4) && R.sgw.length < 200) { p.rfN = (p.rfN || 0) + 1; const e = b.map(v => Math.round(v * 1000) / 1000); R.sgw.push(['rf', e]); this.broadcast({ t: 'sg', a: 'rf', b: e }, p); } break; }
     }
   }

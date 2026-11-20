@@ -21,6 +21,7 @@ function screenBlood(k, dirW) {
   // which side: the hit direction seen from the camera (blood comes back out toward the side it went in)
   let sx = rnd(-0.6, 0.6), sy = rnd(-0.4, 0.4);
   if (dirW) { const d = dirW.clone().negate().applyQuaternion(camera.quaternion.clone().invert()); sx = clamp(d.x * 1.4, -0.9, 0.9) + rnd(-0.2, 0.2); sy = clamp(-d.y, -0.6, 0.6) + rnd(-0.2, 0.2); }
+  SFX.bloodT = performance.now(); SFX.wiped = false;
   const n = Math.round(2 + k * 4);
   for (let i = 0; i < n; i++) {
     const x = W / 2 + (sx + rnd(-0.35, 0.35)) * W / 2, y = H / 2 + (sy + rnd(-0.35, 0.35)) * H / 2, r = rnd(10, 34) * (0.6 + k * 0.4);
@@ -39,7 +40,10 @@ function screenFx(dt) {
   if (!SFX.g) sfxInit();
   const g = SFX.g, W = SFX.cv.width, H = SFX.cv.height;
   // the blood on the screen thins and dries off over several seconds; the runs crawl down, slowing
-  g.globalCompositeOperation = 'destination-out'; g.fillStyle = 'rgba(0,0,0,' + Math.min(1, dt * 0.16) + ')'; g.fillRect(0, 0, W, H); g.globalCompositeOperation = 'source-over';
+  // (it fades over three or four seconds, then whatever faint stain is left is wiped: 8-bit alpha never quite reaches zero)
+  const age = (performance.now() - (SFX.bloodT || 0)) / 1000;
+  if (age > 4.5) { if (!SFX.wiped) { g.clearRect(0, 0, W, H); SFX.wiped = true; } }
+  else { g.globalCompositeOperation = 'destination-out'; g.fillStyle = 'rgba(0,0,0,' + Math.min(1, dt * (age > 1.5 ? 1.1 : 0.25)) + ')'; g.fillRect(0, 0, W, H); g.globalCompositeOperation = 'source-over'; }
   for (let i = SFX.drips.length - 1; i >= 0; i--) {
     const d = SFX.drips[i]; d.life -= dt; d.v *= Math.exp(-dt * 0.6); const y0 = d.y; d.y += d.v * dt; d.x += rnd(-0.3, 0.3);
     g.strokeStyle = 'rgba(110,0,0,0.75)'; g.lineWidth = d.r; g.beginPath(); g.moveTo(d.x, y0); g.lineTo(d.x, d.y); g.stroke();

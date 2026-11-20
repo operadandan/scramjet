@@ -20,6 +20,7 @@ import { P, S, dummies, localBody, spawnDummies } from './17-dummies.js';
 import { esc, respawnLocal, updatePlayer, updateWeapons } from './18-player.js';
 import { api, joinPeer, net, netSend, onNet, roundHud, startHosting } from './19-network.js';
 import { clearExplosives, updateExplosives } from './19b-explosives.js';
+import { updateBash } from './19c-toolvm.js';
 import { setPixelation, updateCamera, updateHUD, updateViewmodel } from './20-camera-hud-input.js';
 import { clearItems, hlMesh, openAttMenu, updateInv, updatePickup, updateToolbar } from './21-items-inventory.js';
 import { screenFx } from './21b-screenfx.js';
@@ -249,7 +250,7 @@ function frame(now, hidden) {
   S.ts = damp(S.ts === undefined ? 1 : S.ts, S.slow && S.mode ? 0.08 : 1, 6, dt);
   const wdt = dt * S.ts;
   if (S.mode) {
-    const pp0 = P.pos.clone(); freezeBegin(); updatePlayer(dt); updateWeapons(dt); freezeEnd(); updateExplosives(dt); updateGadgets(dt); if (P.slot !== 2 || !P.alive || P.downed) gadgetGhostOff(); wireDrag(pp0);
+    const pp0 = P.pos.clone(); freezeBegin(); updatePlayer(dt); updateWeapons(dt); freezeEnd(); updateExplosives(dt); updateGadgets(dt); updateBash(dt); if (P.slot !== 2 || !P.alive || P.downed) gadgetGhostOff(); wireDrag(pp0);
     for (const r of S.remotes.values()) r.update(dt);
     // far bodies are stepped less often (every 2nd frame past 40 m, every 3rd past 80 m) with the time they missed: nobody
     // can see a 20 Hz animation at that range, and the AI and animation of a range full of targets was a big part of each frame

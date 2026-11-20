@@ -5,14 +5,14 @@ import { colliders, worldMeshes } from './01-world.js';
 import { CH_GIB, chunkCount, chunkRootOf, chunkShot, headCrater } from './02b-chunks.js';
 import { RAG_MASS, _Y, _a, ragdolls, setHelmet, syncLost } from './04-ragdoll.js';
 import { LIMB_OF, LSEG, hitToFrame, regionOf } from './05-anatomy.js';
-import { WEAPONS, canDismember, isPistol } from './06-weapons.js';
+import { WEAPONS, isPistol } from './06-weapons.js';
 import { copperMat } from './07-gun-models.js';
 import { blip, noiseHit, suppress } from './10-audio.js';
 import { bulletHole, fragScuff, impactFx, puffTex, tracer } from './11-fx.js';
 import { goreBlast, spawnGore } from './12b-gore.js';
 import { addWound, bloodFx, blowSpatter, bodyPen, bodyWound, exitThrough, holeInGroup, wallSpatter, worldPen } from './14-wounds.js';
 import { DESTR_OF, holePass, markPlate, packHit, ragHitInfo } from './15-destruction.js';
-import { doorPartHit } from './15b-doors.js';
+import { doorPartHit, doorShotgun } from './15b-doors.js';
 import { P, S, dummies, localBody } from './17-dummies.js';
 import { pointBlocked } from './18-player.js';
 import { net } from './19-network.js';
@@ -265,7 +265,7 @@ function onBulletHit(b, hit, dir, dist) {
       const tg = hit.object.parent.children.filter(o => o.isMesh && !o.userData.keep && !o.userData.organ && !o.userData.inner && !o.userData.tube), ex = exitThrough(tg, hit.point, dir, 0.8);
       const pen = bodyPen(info.frame, info.e, info.d, ex ? ex.len : 0.3, afterArmor(info.armor, info.d), b.w);
       info.pd = pen.depth; bodyWound(hit, dir, b.w, pen, ex, null, b.frag);
-      bloodFx(hit.point, dir, false, b.frag ? 0.6 : pen.v > 0 && ex ? 1 : 0.4); if (pen.v > 0 && ex) { bloodFx(ex.point, dir, !b.frag, b.frag ? 0.6 : WEAPONS[b.w].pellets ? 0.35 : 1); cont = { point: ex.point, dir, v: pen.v }; exitBits(ex.point, dir, b, info); }
+      bloodFx(hit.point, dir, false, b.frag ? 0.6 : pen.v > 0 && ex ? 1 : 0.4); if (pen.v > 0 && ex) { bloodFx(ex.point, dir, !b.frag, b.frag ? 0.6 : WEAPONS[b.w].pellets ? 0.35 : 1); b.tumble = (b.tumble || 0) + 1; cont = { point: ex.point, dir, v: pen.v }; exitBits(ex.point, dir, b, info); }
       if (b.shot) blastVisual(b.shot, hit, dir, info, rag, null);
       if (b.w === 2 && !b.shot) erode(rag, hit.object.parent, info.frame, hit.object.parent.worldToLocal(hit.point.clone()), 0.045, info, dir);
     }
@@ -313,7 +313,7 @@ function onBulletHit(b, hit, dir, dist) {
       info.pd = pen.depth; bodyWound(hit, dir, b.w, pen, ex, ud.hum, b.frag);
       bloodFx(hit.point, dir, false, b.frag ? 0.6 : pen.v > 0 && ex ? 1 : 0.4);
       // a grenade fragment or one pellet going out the far side throws a little; a bullet the full exit spray
-      if (pen.v > 0 && ex) { bloodFx(ex.point, dir, !b.frag, b.frag ? 0.6 : WEAPONS[b.w].pellets ? 0.35 : 1); cont = { point: ex.point, dir, v: pen.v }; exitBits(ex.point, dir, b, info); if (!b.frag && (info.frame === 'head' || info.frame === 'neck')) wallSpatter(ex.point, dir, rnd(0.6, 0.9), true); }
+      if (pen.v > 0 && ex) { bloodFx(ex.point, dir, !b.frag, b.frag ? 0.6 : WEAPONS[b.w].pellets ? 0.35 : 1); b.tumble = (b.tumble || 0) + 1; cont = { point: ex.point, dir, v: pen.v }; exitBits(ex.point, dir, b, info); if (!b.frag && (info.frame === 'head' || info.frame === 'neck')) wallSpatter(ex.point, dir, rnd(0.6, 0.9), true); }
       else if (info.frame === 'head' || info.frame === 'neck') { bloodFx(hit.point, dir, false, 2); blowSpatter(hit.point, dir, rnd(0.35, 0.55)); }
       if (!b.shot && !info.armor) woundBits(info.frame, ex && pen.v > 0 ? ex.point : hit.point, dir, Math.max(0, Eh - 0.5 * WEAPONS[b.w].mass * pen.v * pen.v), !!(ex && pen.v > 0), ud.hum, b.w);
       if (ud.hum.flinch && ud.hum.root.visible) ud.hum.flinch(info.frame, info.d, clamp(Eh / 1700, 0.3, 2.2) * (b.shot ? 0.45 : 1));
@@ -327,16 +327,15 @@ function onBulletHit(b, hit, dir, dist) {
       const d0 = ud.hum.dummy;
       // heavy hits into the neck add up: one .50 or a few close blasts tear it through and the head is left hanging (rifle and
       // pistol rounds never take the head off)
-      if (info.frame === 'neck' && !stopped && canDismember(b.w)) { d0.neckHits = (d0.neckHits || 0) + (b.w === 2 ? 6 : b.shot ? 1.4 : 1); if (d0.neckHits >= 4) { d0.anat.neckTear = true; if (!d0.anat.dead) d0.anat.kill('spinal'); } }
       d0.shot(info, v, b.w, dir, dist);
       // a piece of the skull gone is never survivable: no getting up from a knockout with half a head
       if (ud.hum._skullOpen) { ud.hum._skullOpen = false; if (!d0.anat.dead) { d0.anat.kill('brain'); if (!d0.dead && d0.die) d0.die(); } }
-      if (d0.anat.neckTear && d0.rag && !d0.rag.neckTorn && d0.rag.headG.visible) d0.rag.tearNeck(dir);
     }
     return cont;
   }
   // a plywood door's knob or a hinge: shot off, and it stops the round
   if (ud.doorPart && doorPartHit(ud.doorPart, hit, dir, b.local) && b.w !== 2) return null;   // (a .50 carries on through)
+  if (ud.door && b.local && WEAPONS[b.w].pellets) doorShotgun(ud.door, hit.point, dir, Eh, b.shot);
   if (hit.face) {
     const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
     const open = holePass(hit.object, hit.point, n, dir, v); if (open) return open;

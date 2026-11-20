@@ -1,14 +1,16 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
-import { V3, camera, clamp, scene } from './00-setup.js';
+import { V3, camera, clamp, rnd, scene } from './00-setup.js';
 import { addBox, colliders, worldMeshes } from './01-world.js';
 import { BOARD_COL, TOWN } from './01b-town.js';
 import { vm } from './06-weapons.js';
 import { blip, noiseHit } from './10-audio.js';
 import { floorAt } from './14-wounds.js';
+import { DESTR, dust, spawnDebris } from './15-destruction.js';
 import { P, S } from './17-dummies.js';
 import { esc, feed, flashMsg, wakeUp } from './18-player.js';
 import { DEF_TEAM, net, teamName } from './19-network.js';
+import { gadgetAdd } from './27-gadgets.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- Siege: the bomb, the defuser, boards, reinforcements, revives
 // The room decides (19-network HostRoom.sgMsg): who carries the defuser, when it is planted, when it is disabled. This file is
@@ -61,7 +63,9 @@ function siegeRound(m, joining) {
   siegeSetDrop(Array.isArray(m.dz) ? m.dz : null);
   if (m.pl && !SG.plant) siegePlanted(m.pl.site, Number(m.pl.left) || 0);
   if (!m.pl && SG.plant && m.ph !== 'post') { SG.plant = null; sgDisposeModel(SG.plantM); SG.plantM = null; }
-  if (joining && Array.isArray(m.sgw)) for (const e of m.sgw) if (Array.isArray(e)) e[0] === 'bd' ? boardWindow(e[1] | 0) : e[0] === 'rf' && reinforceBox(e[1]);
+  // gadgets already out when you join mid-round
+  if (joining && Array.isArray(m.gdw)) for (const g of m.gdw) if (Array.isArray(g) && Array.isArray(g[3]) && g[3].length === 3 && g[3].every(Number.isFinite)) gadgetAdd(g[0], g[1], String(g[2]), new V3().fromArray(g[3]), Number(g[4]) || 0, g[5] === 'r' ? 'r' : 'b');
+  if (joining && Array.isArray(m.sgw)) for (const e of m.sgw) if (Array.isArray(e)) e[0] === 'bd' ? boardWindow(e[1] | 0) : e[0] === 'bk' ? boardBreak(e[1] | 0, e[2] | 0, null) : e[0] === 'rf' && reinforceBox(e[1]);
 }
 function siegeSetDrop(p) {
   sgDisposeMarker(SG.dropM); SG.dropM = null; sgDisposeModel(SG.dropG); SG.dropG = null; SG.drop = null;
@@ -85,6 +89,7 @@ function siegeRx(m) {
     case 'plant': siegePlanted(m.site, Number(m.left) || 45000); feed(teamName(m.by) + ' <span style="color:#ffd166">planted the defuser at ' + esc(String(m.site)) + '</span>'); noiseHit(900, 0.1, 0.06); break;
     case 'found': if (!SG.found.has(m.site)) { SG.found.add(m.site); if (S.team[S.myId] === 'r') feed(teamName(m.by) + ' <span style="color:#ffd166">found bomb site ' + esc(String(m.site)) + '</span>'); } break;
     case 'bd': boardWindow(m.i | 0); break;
+    case 'bk': boardBreak(m.i | 0, m.k | 0, null); break;
     case 'rf': reinforceBox(m.b); break;
   }
 }
@@ -99,6 +104,21 @@ function boardWindow(i) {
     if (w.ax === 'x') addBox(w.p.x, y, w.p.z, w.w + 0.14, h, 0.04, 'plywood', BOARD_COL); else addBox(w.p.x, y, w.p.z, 0.04, h, w.w + 0.14, 'plywood', BOARD_COL);
     const m = worldMeshes[worldMeshes.length - 1]; m.userData.board = i; w.boards.push(m);
   }
+}
+// one plank of a boarded window breaks off in pieces (bashed, or someone else's bash coming in over the network)
+function boardBreak(i, k, d) {
+  const w = TOWN.windows[i]; if (!w || !w.boards || !w.boards[k]) return;
+  const m = w.boards[k]; w.boards[k] = null;
+  const bx = m.userData.box, gp = m.geometry.parameters, c = m.position.clone(), dir = d ? d.clone() : new V3(0, 0, 1);
+  const wi = worldMeshes.indexOf(m); if (wi >= 0) worldMeshes.splice(wi, 1); const ci = colliders.indexOf(bx); if (ci >= 0) colliders.splice(ci, 1);
+  m.removeFromParent(); if (m.material) { if (m.material.map) m.material.map.dispose(); m.material.dispose(); } m.geometry.dispose();
+  const long = Math.max(gp.width, gp.depth), n = 3 + Math.floor(Math.random() * 2);
+  for (let j = 0; j < n; j++) {
+    const off = (j + 0.5) / n - 0.5, p = c.clone(); if (gp.width > gp.depth) p.x += off * long; else p.z += off * long;
+    spawnDebris(p, 1, dir.clone().add(new V3(rnd(-0.3, 0.3), rnd(0, 0.5), rnd(-0.3, 0.3))).normalize(), 0.3, rnd(2, 4), DESTR.plywood, 0, [long / n * rnd(0.8, 1), gp.height * rnd(0.7, 1), 0.035]);
+  }
+  spawnDebris(c, 8, dir, 0.6, rnd(2, 4), DESTR.plywood, 0.02); dust(c, dir, DESTR.plywood.dust, 0.6, 0.5, 1.4); noiseHit(rnd(700, 1000), 0.12, 0.6);
+  if (w.boards.every(b => !b)) { w.boarded = false; w.boards = []; }
 }
 // a steel panel bolted over a stretch of wall: rounds and grenades don't go through it; a charge right on it tears it off
 function reinforceBox(b) {
@@ -134,7 +154,7 @@ function siegeBlast(p, W) {
 // ---- revives
 // a teammate held F over you: the bleeding is stopped and bound up, the pain dulled, and if your legs and spine still work you get up
 function reviveMe(by) {
-  if (!P.alive || !P.downed) return;
+  if (!P.alive || !P.downed || P.fatal) return;
   const an = P.anat; an.treat(); an.blood = Math.max(an.blood, 3400); an.koT = 0; an.painDown = false; an.shock = 0; P.forceDown = false;
   if (!an.isDowned()) wakeUp();
   flashMsg('REVIVED<small>' + esc(S.names[by] || 'A teammate') + ' patched you up' + (an.isDowned() ? ', but you still cannot stand' : '') + '</small>', 2500);
@@ -147,7 +167,7 @@ function siegeCandidate() {
   const o = camera.getWorldPosition(_sgO), dir = camera.getWorldDirection(_sgD);
   // a downed teammate at your feet
   for (const [id, r] of S.remotes) {
-    if (!r.rag || !r.alive || S.team[id] !== my) continue;
+    if (!r.rag || !r.alive || r.fatal || S.team[id] !== my) continue;
     const pc = r.rag.p[2]; if (pc.distanceTo(P.pos) > 2.2) continue;
     const to = _sgV.copy(pc).sub(o).normalize(); if (to.dot(dir) < 0.82) continue;
     return { key: 'rv' + id, label: 'Revive ' + esc(r.name), time: 4, ring: pc, go: () => net.send({ t: 'sg', a: 'rv', to: id }) };
@@ -236,5 +256,5 @@ function siegeUpdate(dt) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { SG, boardWindow, reinforceBox, sgDisposeMarker, sgMarker, siegeBlast, siegeClear, siegeHint, siegeKeyDown, siegeKeyUp, siegeReset, siegeRound, siegeRx, siegeUpdate };
+export { SG, boardBreak, boardWindow, reinforceBox, sgDisposeMarker, sgMarker, siegeBlast, siegeClear, siegeHint, siegeKeyDown, siegeKeyUp, siegeReset, siegeRound, siegeRx, siegeUpdate };
 // ---- end module exports ----

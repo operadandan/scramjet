@@ -15,7 +15,7 @@ import { P, S, keys, localBody, mouse } from './17-dummies.js';
 import { PITCH_MIN, canRack, localDeath, pointBlocked, pumpCurve, rackK, rackNeeded, standHeight, startInspect, startReload, testDeath, testSelfHit, workAction } from './18-player.js';
 import { net } from './19-network.js';
 import { c4Mine } from './19b-explosives.js';
-import { TV, vmTools } from './19c-toolvm.js';
+import { TV, bashK, meleeBash, vmTools } from './19c-toolvm.js';
 import { closeInv, curSlot, dragRotate, dropHeld, openInv, pickUp, pressSlot } from './21-items-inventory.js';
 import { SFX, specNext } from './21b-screenfx.js';
 import { renderScore } from './22-menu-loop.js';
@@ -35,11 +35,11 @@ function updateCamera(dt) {
   }
   // dead in a round: through a living teammate's eyes, looking where they look
   if (!P.alive && SFX.spec && S.remotes.get(SFX.spec)) {
-    const r = S.remotes.get(SFX.spec), y = r.yaw, pi = (r.st && r.st.pi) || 0, c = (r.st && r.st.c) || 0, fw = _a.set(-Math.sin(y), 0, -Math.cos(y));
+    const r = S.remotes.get(SFX.spec), y = r.yaw, pi = (r.st && r.st.pi) || 0, c = (r.st && r.st.c) || 0, pr = (r.st && r.st.pr) || 0, fw = _a.set(-Math.sin(y), 0, -Math.cos(y));
     // (their head is kept off this camera's layer, not hidden: hidden doubles as 'no head' for the gore)
     if (SFX.specHead !== r) { specHeadLayer(SFX.specHead, 0); SFX.specHead = r; specHeadLayer(r, 1); }
     if (P.rag && P.rag.headG) P.rag.headG.visible = true;
-    camera.position.copy(r.pos).add(_b.set(0, 1.62 - c * 0.55, 0)).addScaledVector(fw, 0.12);
+    camera.position.copy(r.pos).add(_b.set(0, lerp(1.62 - c * 0.55, 0.32, pr), 0)).addScaledVector(fw, 0.12);
     _camQ.setFromEuler(_camEu.set(pi, y, 0, 'YXZ')); camera.quaternion.slerp(_camQ, 1 - Math.exp(-20 * dt));
     camera.fov = 75; camera.updateProjectionMatrix();
     return;
@@ -63,7 +63,7 @@ function updateCamera(dt) {
     let f = 0.75 * P.prone; while (f > 0 && pointBlocked(head.clone().addScaledVector(fwd, f), 0.12)) f -= 0.05;
     head.addScaledVector(fwd, Math.max(0, f));
   }
-  const an = P.anat, shake = an.pain * 0.004 + (P.supp || 0) * 0.01 + an.concussion * 0.006 + (an.blood < 3500 ? (3500 - an.blood) / 1000 * 0.004 : 0);
+  const an = P.anat, shake = (P.recShake || 0) + an.pain * 0.004 + (P.supp || 0) * 0.01 + an.concussion * 0.006 + (an.blood < 3500 ? (3500 - an.blood) / 1000 * 0.004 : 0);
   let s = 1;
   if (Math.abs(P.lean) > 0.01) {
     for (s = 1; s > 0; s -= 0.1) { const t = head.clone().addScaledVector(right, P.lean * 0.42 * s); t.y -= Math.abs(P.lean) * 0.08 * s; if (!pointBlocked(t, 0.18)) break; }
@@ -108,7 +108,8 @@ function updateCamera(dt) {
     if (P.stepDip) { P.ld -= Math.min(P.stepDip, 0.36) * 0.5; P.stepDip = 0; }
     camera.position.y += clamp(P.ld, -0.25, 0.1); }
   // vaulting through a window: the head ducks under the top of it, the whole way across
-  if (P.mantle && P.mantle.vault) camera.position.y = Math.min(camera.position.y, P.mantle.top + 0.72);
+  { const cap = P.mantle && P.mantle.vault && P.mantle.ceil < 1e8 ? P.mantle.ceil - 0.16 : 1e9, want = Math.min(0, cap - camera.position.y);
+    P.vcOff = damp(P.vcOff || 0, want, want < (P.vcOff || 0) ? 40 : 8, dt); camera.position.y = Math.min(camera.position.y + P.vcOff, cap); }
   // climbing over something: the head pitches down at the edge and comes up as the body goes over
   // staggered: the view reels and sinks, the head lolling forward; rocked by a hit: a short jolt
   P.stunV = damp(P.stunV || 0, P.stun > 0 ? 1 : 0, 14, dt);
@@ -167,9 +168,9 @@ function updateViewmodel(dt) {
   vm.position.set(
     t.x + bx + P.swayX - 0.05 * s + P.aimOX * 0.06 * ao - 0.02 * ib + ip.x,
     t.y + by + P.swayY - 0.05 * s - 0.03 * b - P.switchT * 0.7 + air - P.aimOY * 0.04 * ao + 0.02 * ib + ip.y,
-    t.z + P.kick * 0.05 * (1 - a * 0.4) + 0.03 * s + 0.03 * ib + ip.z);
+    t.z + P.kick * 0.05 * (1 - a * 0.4) + 0.03 * s + 0.03 * ib + ip.z - bashK() * 0.2);
   vm.rotation.set(
-    P.kick * 0.09 * (1 - a * 0.6) - 0.35 * s - 0.12 * b + P.swayY * 2 * ao - P.aimOY * ao + 0.07 * hipK + 0.06 * ib + ir.x,
+    -bashK() * 0.45 + P.kick * 0.09 * (1 - a * 0.6) - 0.35 * s - 0.12 * b + P.swayY * 2 * ao - P.aimOY * ao + 0.07 * hipK + 0.06 * ib + ir.x,
     0.6 * s + P.swayX * 2 * ao - P.aimOX * ao + 0.12 * b + 0.035 * hipK + 0.08 * ib + ir.y,
     0.35 * b + P.leanEff * 0.04 * (1 - a) + 0.18 * ib + ir.z);
   // the turn happens at the wrist/grip, and the elbows stay where they were in the view, so the forearms twist instead of swinging with the gun
@@ -306,6 +307,7 @@ addEventListener('keydown', e => {
   // F on a door works the door (a tap swings it, holding eases it open); otherwise the gun's action or picking up
   if (e.code === 'KeyF' && !e.repeat) { if (rackNeeded()) workAction(); else if (siegeKeyDown(true)) { } else if (S.pick) pickUp(); else if (siegeKeyDown()) { } else if (S.mode && P.alive && !P.downed && doorKeyDown()) { } else if (canRack()) workAction(); else pickUp(); }
   if (e.code === 'KeyB') dropHeld();
+  if (e.code === 'KeyV' && !e.repeat) meleeBash();
   if (S.mode === 'test' && e.code === 'KeyN') suppress(0.8, 900);
   if (e.code === 'KeyT') { P.deviceOn = !P.deviceOn; noiseHit(3000, 0.02, 0.04); }
   if (e.code === 'KeyZ') toggleAds();
@@ -324,7 +326,7 @@ addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Tab') $('
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouse.left = false; });
 renderer.domElement.addEventListener('mousedown', e => {
   if (!S.mode) return;
-  if (!S.locked) { renderer.domElement.requestPointerLock(); return; }
+  if (!S.locked) { if (!S.loOpen) renderer.domElement.requestPointerLock(); return; }
   if (!P.alive) { specNext(); return; }
   audio();
   if (e.button === 0) mouse.left = true;

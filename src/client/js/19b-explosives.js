@@ -237,7 +237,7 @@ function los(a, b) { const d = b.clone().sub(a), L = d.length(); if (L < 1e-3) r
 // ---------------------------------------------------------------- walls: the blast punches out and cracks what it reaches
 // only: a door the charge is on; then only that door's leaf and frame are hurt
 function blastWalls(p, W, owner, only) {
-  const cW = Math.cbrt(W);
+  const cW = Math.cbrt(W); blastWalls.shot = null;
   for (const mesh of worldMeshes) {
     const ud = mesh.userData; if (only && ud.door !== only && ud.doorFrame !== only) continue; const kind = DESTR_OF[ud.kind]; if (!kind || !ud.box) continue;
     const G = wallGrid(mesh); if (!G) continue;
@@ -269,7 +269,16 @@ function blastWalls(p, W, owner, only) {
       else data[k] = Math.round(Math.min(0.92, G.dmg[k]) * 255);
     }
     G.tex.needsUpdate = true;
-    if (opened) { const dir = d > 0.01 ? near.clone().sub(p).normalize() : new V3().setComponent(G.ax, Math.sign(mesh.worldToLocal(p.clone()).getComponent(G.ax)) * -1 || 1).transformDirection(mesh.matrixWorld); settleWall(mesh, G, D, dir, U + ou / opened, V + ov / opened, opened, clamp(2.5 / (z + 0.3), 1, 5)); }
+    if (opened) { const dir = d > 0.01 ? near.clone().sub(p).normalize() : new V3().setComponent(G.ax, Math.sign(mesh.worldToLocal(p.clone()).getComponent(G.ax)) * -1 || 1).transformDirection(mesh.matrixWorld); settleWall(mesh, G, D, dir, U + ou / opened, V + ov / opened, opened, clamp(2.5 / (z + 0.3), 1, 5));
+      // the broken wall itself flies: chunks of block, splinters, plaster blown out the far side are fragments too, and hurt
+      // whoever stands behind it (slower and blunter than a grenade's steel). The one who set it off works out who they hit.
+      { const q = new V3(); q.setComponent(G.a1, U + ou / opened); q.setComponent(G.a2, V + ov / opened); const c = mesh.localToWorld(q), out = dir.clone();
+        const n = Math.min(36, Math.round(Math.sqrt(opened) * (kind === 'concrete' ? 1.6 : 1.1) * clamp(2 / (z + 0.4), 0.5, 3))), mine = owner === S.myIdOr0() || S.mode !== 'online';
+        for (let f = 0; f < n; f++) {
+          const fd = out.clone().add(new V3(rnd(-0.7, 0.7), rnd(-0.4, 0.6), rnd(-0.7, 0.7))).normalize(); if (fd.dot(out) < 0.2) continue;
+          spawnBullet(c.clone().addScaledVector(out, th / 2 + 0.06), fd, 5, false, mine, owner, mine ? (blastWalls.shot || (blastWalls.shot = { hits: new Map(), frag: true })) : null);
+          const b = bullets[bullets.length - 1]; b.vel.setLength((kind === 'concrete' ? rnd(140, 320) : rnd(90, 220)) * clamp(1.6 / (z + 0.5), 0.4, 1.4)); b.drag *= 9; b.frag = true; b.spall = true;
+        } } }
   }
 }
 // ---------------------------------------------------------------- bodies
@@ -358,7 +367,7 @@ function applyFate(an, F, kind) {
   if (F.gib) an.gibHead = true;
   // a charge on the chest does not leave the head clean: half the time the neck is torn through, a quarter of the time the
   // head goes; otherwise the face is burned and blackened (the burn is drawn from the blast's own burn sphere)
-  if (F.limbs >= 4 && !an.gibHead && !an.neckTear && !F.rolled) { F.rolled = 1; const r = Math.random(); if (r < 0.25) an.gibHead = true; else if (r < 0.75) an.neckTear = true; }
+  if (F.limbs >= 4 && !an.gibHead && !an.neckTear && !F.rolled) { F.rolled = 1; const r = Math.random(); if (r < 0.3) an.gibHead = true; }
   if (F.limbs) blastLimbs(an, null, F.limbs);
   if (F.lung) { an.shock = (an.shock || 0) + 40 + F.lung * 2; an.pain = Math.min(1, (an.pain || 0) + 0.5); an.wounds.push({ region: 'chest', name: 'Blast injury (lungs)', rate: F.lung, treated: false }); an.version++; }
   if (F.kill) an.kill('blast');

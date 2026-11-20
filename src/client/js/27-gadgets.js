@@ -199,5 +199,5 @@ function flashBang(p) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { GADGETS, GD, clearGadgets, flashBang, gadgetBlast, gadgetGhostOff, gadgetRemove, gadgetRx, gdKey, smokeCloud, updateGadget, updateGadgets, wireDrag };
+export { GADGETS, GD, clearGadgets, flashBang, gadgetAdd, gadgetBlast, gadgetGhostOff, gadgetRemove, gadgetRx, gdKey, smokeCloud, updateGadget, updateGadgets, wireDrag };
 // ---- end module exports ----

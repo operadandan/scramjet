@@ -12,7 +12,7 @@ import { blip, noiseHit, shotSound } from './10-audio.js';
 import { fx, tracer } from './11-fx.js';
 import { muzzleSmoke } from './12-blood.js';
 import { tpAim } from './13-third-person.js';
-import { clearWounds, floorAt } from './14-wounds.js';
+import { CAL, addWound, clearWounds, floorAt } from './14-wounds.js';
 import { gridOpenW, gridPass } from './15-destruction.js';
 import { addProp, ejectShell, spawnBullet } from './16-ballistics.js';
 import { P, S, arteryRate, bleedDrips, deathMasks, fpBody, fpClip, keys, localBody, mouse, reactRun, reactStart } from './17-dummies.js';
@@ -21,6 +21,7 @@ import { updateC4, updateFrag } from './19b-explosives.js';
 import { TV, keepSlot, updateFists } from './19c-toolvm.js';
 import { closeInv, dropWeapon } from './21-items-inventory.js';
 import { SFX, screenBlood, sfxClear } from './21b-screenfx.js';
+import { frame } from './22-menu-loop.js';
 import { CON } from './25-console.js';
 import { gadgetGhostOff, updateGadget } from './27-gadgets.js';
 import { applyGadgets } from './28-match.js';
@@ -39,6 +40,13 @@ const PR = 0.35;
 const PITCH_MIN = -1.05;
 // the player's body has no wound meshes; its ragdoll gets wounds (and so bleeds from them) where the rounds actually went in
 function playerWoundMasks(an) { return (an.hitPts || []).map(h => ({ frame: h.frame, p: h.e.clone(), n: h.d.clone().negate(), tear: 0 })); }
+// your own body gets the same wound marks anyone else's does (seen in third person, in mirrors of it, on your arms and legs)
+function selfWound(frame, e, d, w) {
+  for (const hum of [localBody, fpBody]) {
+    const m = hum && hum.hitMeshes && hum.hitMeshes.find(x => x.userData.frame === frame); if (!m) continue;
+    try { addWound(hum, frame, m.parent, e.clone(), d.clone().normalize().negate(), 'rim', (CAL[w] || CAL[0])[0] * 5.2); } catch (er) {}
+  }
+}
 function enterDowned(extra) {
   const an = P.anat;
   P.downed = true; P.adsOn = false; P.reloading = false; P.healing = false; P.inspecting = false; mouse.left = false; P.react = null; P.stun = 0;
@@ -47,7 +55,12 @@ function enterDowned(extra) {
   P.rag.owner = { anat: an };
   $('downmsg').style.display = 'block';
   $('downwhy').textContent = an.koT > 0 ? 'Knocked out. You will come round in a few seconds.' : an.paralyzed ? 'Spinal cord injury. You will not get up.' : P.forceDown ? 'You went down and cannot get back up.' : 'You blacked out from the pain. You may come to if it eases.';
-  if (S.mode === 'online') $('downwhy').textContent += ' A teammate can revive you: they hold F over you.';
+  downText();
+}
+function downText() {
+  const an = P.anat, fw = an.fatalWhy();
+  if (fw) { $('downwhy').textContent = fw + '. This cannot be survived: nobody can revive you.'; $('downwhy').style.color = '#ff6a5a'; P.fatal = fw; }
+  else { $('downwhy').style.color = ''; if (S.mode === 'online') $('downwhy').textContent += ' A teammate can revive you: they hold F over you.'; }
 }
 function wakeUp() {
   const r = P.rag; P.downed = false; P.reactDone = false;
@@ -93,7 +106,9 @@ function tryVault() {
     const L = P.pos.clone().addScaledVector(fwd, far + 0.5); const fy = floorAt(L.x, top, L.z); if (top - fy > 2.2 || fy > top) return false; L.y = fy;
     if (blocked(L, 1.75, PR - 0.05)) return false;
     const edge = P.pos.clone().addScaledVector(fwd, d + 0.02); edge.y = top;
-    P.mantle = { t: 0, dur: 0.55 + up * 0.25, a: P.pos.clone(), a2: P.pos.clone(), b: L, up, top, vault: true, edge: edge.toArray() }; P.adsOn = false; P.leanState = 0; P.inspecting = false; P.sprinting = false;
+    // what is overhead through the gap (a window's head): the view is kept under it, eased, so it never pokes into the wall
+    let ceil = 1e9; for (let e = d - 0.1; e <= far + 0.3; e += 0.1) { const q = P.pos.clone().addScaledVector(fwd, e); for (const c of colliders) if (q.x > c.min.x - 0.15 && q.x < c.max.x + 0.15 && q.z > c.min.z - 0.15 && q.z < c.max.z + 0.15 && c.min.y > top + 0.2 && c.min.y < ceil) ceil = c.min.y; }
+    P.mantle = { t: 0, dur: 0.55 + up * 0.25, a: P.pos.clone(), a2: P.pos.clone(), b: L, up, top, ceil, vault: true, edge: edge.toArray() }; P.adsOn = false; P.leanState = 0; P.inspecting = false; P.sprinting = false;
     return true;
   }
   return false;
@@ -149,6 +164,9 @@ function updatePlayer(dt) {
   }
   // a down only counts as a kill for the shooter if it isn't just pain (spine or both legs gone); pain knockouts wait for the death
   if (P.downed && !P.downSent && S.mode === 'online' && an.lastBy && (an.paralyzed || an.bothLegs())) { P.downSent = true; net.send({ t: 'down', by: an.lastBy, lf: S.life }); }
+  // the injuries get worse while you lie there: once one is past saving, you are out of the round (the team is told)
+  if (P.downed && !P.fatal && an.fatalWhy()) downText();
+  if (P.downed && P.fatal && !P.fatalSent && S.mode === 'online') { P.fatalSent = true; net.send({ t: 'down', by: an.lastBy || 0, lf: S.life, ft: 1 }); }
   else if (P.downed && !an.isDowned() && !P.forceDown) wakeUp();
   // down in a fight, nobody keeps you going: the blood goes much faster (half a minute or so if nobody comes to help)
   if (P.downed && S.mode === 'online') an.blood -= (an.bleedRate() * 1.5 + 40) * dt;
@@ -422,7 +440,7 @@ function updateWeapons(dt) {
   if (P.slot >= 2) {
     keepSlot(); if (P.slot !== 2) gadgetGhostOff(); if (P.slot === 2) (P.tool2 && P.tool2 !== 'c4' ? updateGadget(dt) : (typeof TV !== 'undefined' && TV.c4 && (TV.c4.visible = true), updateC4(dt))); else if (P.slot === 3) updateFrag(dt); else if (P.slot === 4) updateFists(dt);
     P.ads = damp(P.ads, 0, 14, dt); P.sprintBlend = damp(P.sprintBlend, P.sprinting ? 1 : 0, 10, dt);
-    P.kick = damp(P.kick, 0, 14, dt); P.recoilPitch = damp(P.recoilPitch, 0, 9, dt);
+    P.kick = damp(P.kick, 0, 14, dt); P.recoilPitch = damp(P.recoilPitch, 0, 7, dt); P.recShake = damp(P.recShake || 0, 0, 12, dt);
     VMW.forEach(v => { v.flash.visible = false; }); muzzleLight.intensity = 0; vmMuzzleLight.intensity = 0;
     return;
   }
@@ -455,7 +473,7 @@ function updateWeapons(dt) {
     if (P.pumpStage === 0 && ts > 0.17) { P.pumpStage = 1; pumpSound(0); if (P.pumpEject) { const e = P.pumpEject; vmCamera.updateMatrixWorld(true); ejectShell(S.tp ? e.o : V.port.getWorldPosition(new V3()), e.right, e.up, e.f, P.vel, '12g'); P.pumpEject = null; } }
     if (P.pumpStage === 1 && ts > 0.36) { P.pumpStage = 2; pumpSound(1); }
   }
-  P.kick = damp(P.kick, 0, 14, dt); P.recoilPitch = damp(P.recoilPitch, 0, 9, dt);
+  P.kick = damp(P.kick, 0, 14, dt); P.recoilPitch = damp(P.recoilPitch, 0, 7, dt); P.recShake = damp(P.recShake || 0, 0, 12, dt);
   updateRack(w, G, V, dt);
   const rk = rackK(G), back = V.rack ? Math.max(G.lockBack ? 0.03 : 0, rk * V.rack.travel) : 0;
   P.slideBack = back > 0 ? back : damp(P.slideBack, 0, 28, dt);
@@ -526,12 +544,39 @@ function fire(w) {
   // a pump gun keeps its hull until the pump comes back
   if (w.pellets) { P.pumpStage = 0; P.pumpEject = { o: origin.clone(), right: right.clone(), up: up.clone(), f: gF.clone() }; V.boltK = 0; }
   else ejectShell(V.port.getWorldPosition(new V3()), right, up, gF, P.vel, w.shell);
-  const rc = w.recoil * (V.mods ? V.mods.recoil : 1) * lerp(1, 0.6, P.ads) * lerp(1, 0.75, P.crouch) * lerp(1, 0.45, P.prone) * (P.anat.anyArm() ? 1.8 : 1);
-  P.pitch = clamp(P.pitch + rc * 0.7, PITCH_MIN, 1.5); P.recoilPitch += rc * 0.6; P.yaw += (Math.random() - 0.45) * rc * 0.6;
+  recoilKick(w);
   if (S.mode === 'online' && net.ready()) {
     const r4 = v => Math.round(v * 10000) / 10000;
     net.send({ t: 'shot', o: [r4(origin.x), r4(origin.y), r4(origin.z)], d: [r4(dir.x), r4(dir.y), r4(dir.z)], w: P.weapon, tr: tracer ? 1 : 0, sp: V.supp ? 1 : 0, sd: seed });
   }
+}
+// Recoil, from the real guns. Free recoil momentum (bullet + powder gas) over gun mass sets how hard each one comes back; the
+// muzzle rises (the bore sits above the shoulder/grip), wanders sideways, and the shooter only drags part of it back down:
+// sustained auto fire climbs and walks off to one side. Per shot, unsupported standing, in radians of muzzle rise:
+//   M4A1 (5.56, 3.4 kg, ~4 J): about 1 deg up, light right drift.   AK-74M (5.45, 3.6 kg, good brake): a little under 1 deg, kicks right.
+//   Glock 17 / M9 (9 mm in a 0.9 kg pistol): 3 deg of snap-flip that mostly comes back by itself.
+//   M870 (12 ga 00 buck, ~30 J): 6-7 deg, a real shove.   M107 (.50 BMG, ~60 J with the brake): 8 deg and the scope is off target.
+const RECOIL = {
+  m4: { v: 0.018, h: 0.0065, bias: 0.0022, back: 0.5, shake: 0.004 },
+  ak74: { v: 0.016, h: 0.0075, bias: 0.0035, back: 0.5, shake: 0.004 },
+  g17: { v: 0.052, h: 0.012, bias: 0.002, back: 0.82, shake: 0.006 },
+  m9: { v: 0.048, h: 0.011, bias: 0.0015, back: 0.82, shake: 0.006 },
+  m870: { v: 0.115, h: 0.022, bias: 0.004, back: 0.62, shake: 0.03 },
+  m107: { v: 0.14, h: 0.03, bias: 0.006, back: 0.55, shake: 0.05 }
+};
+function recoilKick(w) {
+  const R = RECOIL[w.id] || { v: w.recoil, h: w.recoil * 0.4, bias: 0, back: 0.6, shake: 0.005 }, now = performance.now();
+  // a burst: each round lands before the shooter has the gun settled, so it stacks (and the side-to-side wander grows)
+  if (now - (P.recLast || 0) > 60000 / (w.rpm || 600) + 220) { P.recN = 0; P.recH = 0; }
+  P.recLast = now; P.recN = (P.recN || 0) + 1;
+  const mv = Math.min(1, Math.hypot(P.vel.x, P.vel.z) / 4);
+  const ctl = (V.mods ? V.mods.recoil : 1) * lerp(1, 0.82, P.ads) * lerp(1, 0.86, P.crouch) * lerp(1, 0.5, P.prone) * (1 + mv * 0.35) * (P.anat.anyArm() ? 2 : 1) * (P.anat.pain > 50 ? 1.25 : 1);
+  const first = P.recN === 1 ? 0.85 : Math.min(1.45, 1 + (P.recN - 1) * 0.045);
+  const up = R.v * ctl * first * rnd(0.85, 1.15);
+  const gs = (Math.random() + Math.random() + Math.random() - 1.5) / 0.5;
+  P.recH = (P.recH || 0) * 0.85 + (gs * R.h + R.bias) * ctl * (1 + Math.min(P.recN, 12) * 0.08);
+  P.pitch = clamp(P.pitch + up * (1 - R.back), PITCH_MIN, 1.5); P.recoilPitch += up * R.back;
+  P.yaw -= P.recH; P.recShake = Math.min(0.08, (P.recShake || 0) + R.shake * ctl);
 }
 function remoteShot(m) {
   if (!Array.isArray(m.o) || !Array.isArray(m.d)) return;
@@ -628,7 +673,8 @@ function respawnLocal(sp) {
   // a fresh body: no holes, wounds, blood, tubes or missing parts carried over from the last life, on either body you own
   clearWounds(localBody); clearWounds(fpBody); fpBody.setLost(0); setHelmet(localBody, true);
   { const a = localBody.anim; a.hurt = 0; a.clutchT = 0; a.clutchW = 0; a.clutchF = null; a.woundF = null; a.braceP = null; a.braceW = 0; a.stag = 0; a.stagW = 0; localBody.fl = null; }
-  P.anat = new Anatomy(); P.downed = false; localBody.setLost(0); P.stance = 0; P.prone = 0; P.slot = 0; P.weapon = P.loadout[0]; P.medUses = 3; P.c4N = 2; P.fragN = 3; P.tool2 = 'c4'; P.tool3 = 'frag'; if (S.mode === 'online') applyGadgets(); P.defOut = false; P.trapped = null; P.nade = null; P.c4 = null; P.emptySel = -1; P.healing = false; P.healT = 0; P.platesInv = 0; P.plating = false; P.plateTarget = null; P.invPlate = null; P.packGuns = []; P.loose = []; P.packPos = {}; P.supp = 0; P.downSent = false; P.lookX = P.lookY = 0; setHelmet(localBody, true);
+  try { clearWounds(localBody); clearWounds(fpBody); } catch (er) {}
+  P.anat = new Anatomy(); P.downed = false; P.fatal = ''; P.fatalSent = false; localBody.setLost(0); P.stance = 0; P.prone = 0; P.slot = 0; P.weapon = P.loadout[0]; P.medUses = 3; P.c4N = 2; P.fragN = 3; P.tool2 = 'c4'; P.tool3 = 'frag'; if (S.mode === 'online') applyGadgets(); P.defOut = false; P.trapped = null; P.nade = null; P.c4 = null; P.emptySel = -1; P.healing = false; P.healT = 0; P.platesInv = 0; P.plating = false; P.plateTarget = null; P.invPlate = null; P.packGuns = []; P.loose = []; P.packPos = {}; P.supp = 0; P.downSent = false; P.lookX = P.lookY = 0; setHelmet(localBody, true);
   P.alive = true; P.stamina = 100; P.staminaLock = false; P.mantle = null; P.mantleK = 0; P.jumpCD = 0; P.landK = 0; P.crouch = 0; P.lean = 0; P.leanState = 0; P.adsOn = false;
   P.activeLo = P.loadout.slice(); P.guns = freshGuns(P.activeLo); P.reloading = false; P.inspecting = false; P.rag = null; P.headDeath = false;
   $('black').style.transition = 'opacity .35s'; $('black').style.opacity = '0';
@@ -661,5 +707,5 @@ function testDeath(head) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { PITCH_MIN, PR, blocked, canRack, esc, feed, flashMsg, hurtFlash, localDeath, magEstimate, onSelfHurt, pointBlocked, pumpCurve, rackK, rackNeeded, ray, remoteShot, respawnLocal, selectEmpty, standHeight, startInspect, startReload, switchWeapon, testDeath, testSelfHit, updatePlayer, updateWeapons, wakeUp, workAction };
+export { PITCH_MIN, PR, blocked, canRack, esc, feed, flashMsg, hurtFlash, localDeath, magEstimate, onSelfHurt, pointBlocked, pumpCurve, rackK, rackNeeded, ray, remoteShot, respawnLocal, selectEmpty, selfWound, standHeight, startInspect, startReload, switchWeapon, testDeath, testSelfHit, updatePlayer, updateWeapons, wakeUp, workAction };
 // ---- end module exports ----

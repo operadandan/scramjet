@@ -2,18 +2,24 @@
 import * as THREE from 'three';
 import { $, V3, camera, clamp, damp, lerp, rnd, sunDir, vmCamera, vmSun } from './00-setup.js';
 import { worldMeshes } from './01-world.js';
+import { TOWN } from './01b-town.js';
 import { ragdolls } from './04-ragdoll.js';
 import { hitToFrame } from './05-anatomy.js';
 import { vm } from './06-weapons.js';
 import { ARM_DATA, ArmRig, GraspCloud, fingerTo, graspSolve, lerpCurls, thumbTo, v3a } from './06c-arm-rig.js';
 import { VMW, pressHand, settleHand, solveElbow } from './08-hands.js';
 import { noiseHit } from './10-audio.js';
-import { gridOpenW } from './15-destruction.js';
-import { P, S, dummies, mouse } from './17-dummies.js';
+import { impactFx } from './11-fx.js';
+import { addWound } from './14-wounds.js';
+import { DESTR_OF, gridOpenW, wallDamage } from './15-destruction.js';
+import { P, S, dummies, localBody, mouse } from './17-dummies.js';
 import { PITCH_MIN, flashMsg, hurtFlash } from './18-player.js';
 import { net } from './19-network.js';
 import { c4Mine, makeC4, makeFrag, makeRemote, r4x, ragMeshes } from './19b-explosives.js';
 import { pressSlot, toolSlotIndex } from './21-items-inventory.js';
+import { frame } from './22-menu-loop.js';
+import { boardBreak } from './23-siege.js';
+import { matchFrozen } from './28-match.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- tool viewmodels: grenade, C4 + remote, fists
 // The same rigged arms, the same skin and sleeves, the same way of placing a hand as the guns: each hand's grip on what it
@@ -222,14 +228,84 @@ function landPunch(pw, side) {
   const h = _pr.intersectObjects(tg, false).find(x => !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(d, 0.01))));
   if (!h) return;
   const ud = h.object.userData, hum = ud.hum;
-  P.kick += 0.15 * pw;
+  // the knuckles landing: the hand stops dead and the jolt comes back up the arm into the view
+  P.kick += 0.55 * pw; P.recShake = Math.min(0.08, (P.recShake || 0) + 0.018 * pw); P.pitch = clamp(P.pitch + 0.012 * pw, -1.05, 1.5);
   if (hum && (hum.dummy || hum.remote)) {
     const info = hitToFrame(hum, h.object, h.point, d), head = info.frame === 'head';
-    noiseHit(rnd(150, 260), 0.07, 0.4 * pw); if (head) noiseHit(rnd(900, 1300), 0.03, 0.12 * pw);
+    noiseHit(rnd(90, 140), 0.12, 0.65 * pw); noiseHit(rnd(150, 260), 0.07, 0.5 * pw); if (head) noiseHit(rnd(900, 1300), 0.03, 0.18 * pw);
+    if (hum.flinch && hum.root.visible) hum.flinch(info.frame, info.d, 1.4 * pw);
+    punchMark(hum, h.object.parent, h.object.parent.worldToLocal(h.point.clone()), info.frame, pw);
     if (hum.dummy) { const res = hum.dummy.punched(info, d, pw); if (res && res.ko) flashMsg('KNOCKOUT', 900); }
     else net.send({ t: 'punch', id: hum.remote.id, f: info.frame, p: info.e.toArray().map(r4x), wd: d.toArray().map(r4x), pw: Math.round(pw * 100) / 100 });
   } else if (ud.rag) { noiseHit(rnd(150, 240), 0.06, 0.3 * pw); const r = ud.rag; for (let i = 0; i < r.p.length; i++) if (r.p[i].distanceTo(h.point) < 0.35) r.q[i].addScaledVector(d, -0.02 * pw); r.asleep = false; }
-  else { noiseHit(rnd(120, 200), 0.05, 0.35 * pw); P.stun = Math.max(P.stun || 0, 0.15); }     // a wall: it stops you dead
+  else if (ud.kind === 'plywood' && DESTR_OF[ud.kind]) {
+    // plywood gives: a hard punch splits it and the fist goes through, a ragged hole about the size of a hand
+    noiseHit(rnd(700, 950), 0.09, 0.4 * pw); noiseHit(rnd(110, 160), 0.08, 0.35 * pw);
+    const n = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : d.clone().negate();
+    for (let i = 0; i < 4; i++) { const q = h.point.clone().add(new V3(rnd(-0.035, 0.035), rnd(-0.035, 0.035), rnd(-0.035, 0.035)).projectOnPlane(n)); wallDamage(h.object, q, n, d, 900 * pw, 2, 1, true); }
+  }
+  else { noiseHit(rnd(110, 180), 0.08, 0.5 * pw); P.stun = Math.max(P.stun || 0, 0.15); }     // a wall: it stops you dead
+}
+// a punch leaves its mark: a bruise coming up where it landed (a split lip or a bloody nose now and then on the face)
+const BRUISE_GEO = new THREE.CircleGeometry(1, 14), BRUISE_MAT = new THREE.MeshStandardMaterial({ color: 0x5a2238, transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, roughness: 0.6 });
+BRUISE_MAT.userData.shared = true;
+function punchMark(hum, group, pL, frame, pw) {
+  if (!group) return;
+  const m = new THREE.Mesh(BRUISE_GEO, BRUISE_MAT), c = group.worldToLocal(group.getWorldPosition(new V3()).clone()), n = pL.clone().sub(c).normalize();
+  m.position.copy(pL).addScaledVector(n, 0.003); m.lookAt(group.localToWorld(pL.clone().addScaledVector(n, 1))); m.quaternion.premultiply(group.getWorldQuaternion(new THREE.Quaternion()).invert());
+  m.scale.setScalar(0.018 + 0.02 * pw); m.userData.keep = true; m.userData.bruise = true; group.add(m);
+  hum.bruises = hum.bruises || []; hum.bruises.push(m); if (hum.bruises.length > 10) hum.bruises.shift().removeFromParent();
+  if (frame === 'head' && Math.random() < 0.35 * pw) try { addWound(hum, frame, group, pL.clone(), n, 'rim', 0.012); } catch (er) {}
+}
+// V: a butt-stroke / muzzle jab with the gun in your hands. It breaks window boards like in Siege (a plank or two a hit,
+// two or three hits clears a window), smashes through plywood, and hits people hard (blunt, like a heavy punch)
+function bashK() { const t = P.bashT || 0; return t > 0 ? Math.sin((1 - t / 0.42) * Math.PI) : 0; }
+function meleeBash() {
+  if (!P.alive || P.downed || P.slot > 1 || P.reloading || (P.bashT || 0) > 0 || (P.bashCd || 0) > 0 || !S.locked || matchFrozen()) return;
+  P.bashT = 0.42; P.bashCd = 0.85; P.bashHit = false; P.adsOn = false; noiseHit(rnd(400, 600), 0.1, 0.05);
+}
+function updateBash(dt) {
+  if (P.bashCd > 0) P.bashCd -= dt;
+  if (!(P.bashT > 0)) return;
+  P.bashT -= dt;
+  if (!P.bashHit && P.bashT < 0.26) { P.bashHit = true; bashLand(); }
+  if (P.bashT <= 0) P.bashT = 0;
+}
+function bashLand() {
+  const q = camera.quaternion, d = new V3(0, 0, -1).applyQuaternion(q), o = camera.position.clone();
+  const tg = worldMeshes.slice();
+  for (const dm of dummies) { if (dm.rag) tg.push(...ragMeshes(dm.rag)); else if (dm.hum.root.visible) { dm.hum.root.updateMatrixWorld(true); tg.push(...dm.hum.hitMeshes.filter(m => m.visible)); } }
+  if (S.remotes) for (const r of S.remotes.values()) if (r.hum && r.hum.root.visible && r.alive) tg.push(...r.hum.hitMeshes.filter(m => m.visible));
+  _pr.set(o, d); _pr.far = 1.15;
+  const h = _pr.intersectObjects(tg, false).find(x => !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(d, 0.01))));
+  P.kick += 0.7; P.recShake = Math.min(0.08, (P.recShake || 0) + 0.02);
+  if (!h) return;
+  const ud = h.object.userData, hum = ud.hum;
+  if (hum && (hum.dummy || hum.remote)) {
+    const info = hitToFrame(hum, h.object, h.point, d), pw = 1.25;
+    noiseHit(rnd(80, 120), 0.14, 0.8); noiseHit(rnd(1200, 1600), 0.03, 0.2);
+    if (hum.flinch && hum.root.visible) hum.flinch(info.frame, info.d, 2);
+    punchMark(hum, h.object.parent, h.object.parent.worldToLocal(h.point.clone()), info.frame, pw);
+    if (hum.dummy) { const res = hum.dummy.punched(info, d, pw); if (res && res.ko) flashMsg('KNOCKOUT', 900); }
+    else net.send({ t: 'punch', id: hum.remote.id, f: info.frame, p: info.e.toArray().map(r4x), wd: d.toArray().map(r4x), pw });
+    return;
+  }
+  if (ud.board !== undefined) { bashBoard(h.object, d); return; }
+  if (DESTR_OF[ud.kind] === 'plywood' || DESTR_OF[ud.kind] === 'drywall') {
+    noiseHit(rnd(600, 900), 0.1, 0.5);
+    const n = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : d.clone().negate();
+    const k = DESTR_OF[ud.kind] === 'plywood' ? 1 : 0.6;
+    for (let i = 0; i < 5; i++) { const qq = h.point.clone().add(new V3(rnd(-0.05, 0.05), rnd(-0.05, 0.05), rnd(-0.05, 0.05)).projectOnPlane(n)); wallDamage(h.object, qq, n, d, 1300 * k, 2, 1, true); }
+    return;
+  }
+  noiseHit(rnd(150, 260), 0.1, 0.5); impactFx(h.point, d.clone().negate(), ud.surf === 'metal' ? 'metal' : 'concrete');
+}
+// a board (and the one next to it, half the time) splinters off the window
+function bashBoard(m, d) {
+  const i = m.userData.board, w = TOWN.windows[i]; if (!w || !w.boards) return;
+  const k = w.boards.indexOf(m); if (k < 0) return;
+  boardBreak(i, k, d); net.send({ t: 'sg', a: 'bk', i, k });
+  if (Math.random() < 0.5) { const k2 = w.boards.findIndex((b, j) => b && j !== k && Math.abs(j - k) === 1); if (k2 >= 0) { boardBreak(i, k2, d); net.send({ t: 'sg', a: 'bk', i, k: k2 }); } }
 }
 // someone punched us
 function onPunched(m) {
@@ -237,7 +313,8 @@ function onPunched(m) {
   const an = P.anat, pw = clamp(Number(m.pw) || 0.6, 0, 1.2); an.lastBy = m.by; if (Array.isArray(m.wd)) an.lastDir.fromArray(m.wd);
   const res = an.blunt(String(m.f), new V3().fromArray(m.p), pw);
   hurtFlash(); noiseHit(rnd(150, 260), 0.07, 0.45 * pw);
-  P.pitch = clamp(P.pitch + rnd(0.03, 0.08) * pw, PITCH_MIN, 1.5); P.yaw += rnd(-0.08, 0.08) * pw; P.kick += 0.5 * pw;
+  P.pitch = clamp(P.pitch + rnd(0.05, 0.12) * pw, PITCH_MIN, 1.5); P.yaw += rnd(-0.12, 0.12) * pw; P.kick += 0.9 * pw; P.recShake = Math.min(0.08, (P.recShake || 0) + 0.03 * pw); noiseHit(rnd(90, 140), 0.12, 0.6 * pw);
+  { const mm = localBody.hitMeshes && localBody.hitMeshes.find(x => x.userData.frame === String(m.f)); if (mm) punchMark(localBody, mm.parent, new V3().fromArray(m.p), String(m.f), pw); }
   P.stun = Math.max(P.stun || 0, res.winded ? 0.7 : 0.15 * pw);
   if (res.ko) flashMsg('KNOCKED OUT', 1800);
 }
@@ -252,5 +329,5 @@ function keepSlot() {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { TV, ez, keepSlot, onPunched, seg, updateFists, vmTools };
+export { TV, bashK, ez, keepSlot, meleeBash, onPunched, seg, updateBash, updateFists, vmTools };
 // ---- end module exports ----

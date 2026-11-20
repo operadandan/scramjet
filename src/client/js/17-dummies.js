@@ -233,7 +233,7 @@ class Remote {
       this.anat = an; this.noBleed = true;
       if (this.react && !this.react.done) reactRun(this, dt);
       if (!this.react) this.react = { seed: +rx.sd, t: 99, done: 1 };   // finished here first: hold until the owner goes down
-      bleedDrips(this, st.bl || 0, dt);
+      bleedDrips(this, st.bl || 0, dt, st.arr || 0, st.bp || 1);
       this.pos.copy(this.hum.root.position);
       return;
     }
@@ -249,7 +249,7 @@ class Remote {
     for (let i = 0; i < this.hum.tp.length; i++) if (this.hum.tp[i].sup) this.hum.tp[i].sup.visible = i === a.weapon && !!m.su;
     a.bb = m.bb || 0; a.ah = m.ah || 0; a.ls = m.ls || 0; syncLost(this.hum, a.ls, new V3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).negate(), m.lc);
     this.hum.update(dt);
-    bleedDrips(this, m.bl || 0, dt);
+    bleedDrips(this, m.bl || 0, dt, m.arr || 0, m.bp || 1);
   }
   dispose() { scene.remove(this.hum.root); if (this.label) { this.label.material.map.dispose(); this.label.material.dispose(); } }
 }

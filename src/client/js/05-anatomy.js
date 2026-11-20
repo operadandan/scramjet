@@ -232,7 +232,7 @@ class Anatomy {
       for (const st of STRUCTS_BY_FRAME[z.frame] || []) this.damage(this.s[st.id], st, 45 * k, region);
       this.flesh.head = Math.max(0, this.flesh.head - 30 * k); this.flesh.neck = Math.max(0, this.flesh.neck - 15 * k);
       // a blast through the neck tears it rather than taking the head away: the head ends up hanging on what is left
-      if (z.frame === 'neck' && (z.n >= 4 && spread < 0.1 || z.n >= 6 && spread < 0.14) && !this.gibHead && !this.neckTear) { this.neckTear = true; res.tear = true; this.wounds.push({ region: 'neck', name: 'Neck torn through', rate: 110, treated: false, artery: 1 }); this.kill('spinal'); }
+      if (false && z.frame === 'neck' && (z.n >= 4 && spread < 0.1 || z.n >= 6 && spread < 0.14) && !this.gibHead && !this.neckTear) { this.neckTear = true; res.tear = true; this.wounds.push({ region: 'neck', name: 'Neck torn through', rate: 110, treated: false, artery: 1 }); this.kill('spinal'); }
       else if ((z.n >= 4 && spread < 0.1 || z.n >= 6 && spread < 0.14) && !this.gibHead && z.frame !== 'neck') { this.gibHead = true; res.gib = true; this.wounds.push({ region: 'neck', name: 'Head destroyed', rate: 120, treated: false, artery: 1 }); this.kill('brain'); }
       else if (z.n >= 3 && spread < 0.11 && !this.dead) this.kill(z.frame === 'neck' ? 'spinal' : 'brain');
     } else if (limb) {
@@ -359,6 +359,18 @@ class Anatomy {
     p += Object.keys(this.lost).length * 30;
     for (const w of this.wounds) if (!w.treated) p += w.artery ? 6 : 3;
     return Math.max(0, p - this.morphine);
+  }
+  // injuries nobody can be patched up from in the field: no revive gets you back from these, and in a round you count as dead
+  fatalWhy() {
+    const S = this.s, hp = k => S[k] ? S[k].hp : 100;
+    if (this.paralyzed) return 'Spinal cord severed: paralysed';
+    if (hp('brainstem') <= 0 || hp('brain') < 40) return 'Brain injury';
+    if (hp('heart') < 30) return 'Heart destroyed';
+    if (hp('aorta') <= 0) return 'Aorta torn open';
+    if (hp('trachea') < 25 || (hp('lungL') + hp('lungR')) / 2 < 25) return 'Airway or both lungs destroyed';
+    if (hp('liver') <= 0) return 'Liver destroyed: organ damage';
+    if (this.lostMask && this.lostMask() && this.bothLegs() && this.blood < 2500) return 'Traumatic amputation and blood loss';
+    return '';
   }
   isDowned() { return this.paralyzed || this.painDown || this.bothLegs() || this.koT > 0; }
   bothLegs() { return !!this.lost.legL || !!this.lost.legR || (this.legBroken('L') && this.legBroken('R')); }

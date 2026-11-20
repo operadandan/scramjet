@@ -74,7 +74,7 @@ function applyGadgets() {
 }
 function loadoutUI(open) {
   const el = $('loadout'); S.loOpen = !!open;
-  if (!open) { el.style.display = 'none'; return; }
+  if (!open) { const was = el.style.display !== 'none'; el.style.display = 'none'; if (was && S.mode && !S.locked && !S.inv) $('pause').style.display = 'flex'; return; }
   const t = S.team[S.myId] || 'r', opt = (cls, id, name, on, sub) => '<button class="' + cls + (on ? ' on' : '') + '" data-v="' + id + '"><b>' + name + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</button>';
   const list = slot => Object.entries(GADGETS).filter(([k, g]) => g.slot === slot && g.team.includes(t));
   el.innerHTML = '<h3>LOADOUT · ' + (t === 'r' ? '<span style="color:#ff6a5a">ATTACK</span>' : '<span style="color:#6aa0ff">DEFEND</span>') + '</h3><div id="lotime" class="ls"></div>' +
