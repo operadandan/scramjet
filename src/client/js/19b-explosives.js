@@ -19,9 +19,11 @@ import { bullets, onBulletHit, spawnBullet } from './16-ballistics.js';
 import { P, S, dummies, localBody, mouse } from './17-dummies.js';
 import { PITCH_MIN, flashMsg, onSelfHurt, selectEmpty } from './18-player.js';
 import { net } from './19-network.js';
+import { meleeWall } from './19c-toolvm.js';
 import { WARMING } from './22b-warm.js';
 import { siegeBlast } from './23-siege.js';
-import { GD, flashBang, gadgetBlast, gadgetRemove, gadgetRx, gdKey, gdModel, smokeCloud } from './27-gadgets.js';
+import { GADGETS, GD, flashBang, gadgetBlast, gadgetRemove, gadgetRx, gdKey, gdModel, smokeCloud } from './27-gadgets.js';
+import { blastSlabs } from './30-structure.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- explosives: M112 C4 (slot 3) and the M67 fragmentation grenade (slot 4)
 // Charges are rated in kilograms of TNT. Blast effects scale with Hopkinson's scaled distance Z = d / W^(1/3) (m / kg^1/3):
@@ -247,10 +249,11 @@ function blastWalls(p, W, owner, only) {
     // breach radius at contact, and how fast it falls off with scaled distance, by material
     let Rb, zc, amt;
     if (kind === 'concrete') { Rb = (W > 0.5 ? 0.34 : 0.07) * cW * clamp(0.25 / th, 0.6, 1.5); zc = 0.55; amt = 0.5; }
+    else if (kind === 'brick') { Rb = (W > 0.5 ? 0.6 : 0.22) * cW; zc = 0.8; amt = 0.6; }
     else if (kind === 'drywall') { Rb = 0.85 * cW; zc = 1.5; amt = 0.75; }
     else if (kind === 'wood') { Rb = 0.55 * cW; zc = 1.1; amt = 0.6; }
     else { Rb = 0.8 * cW; zc = 1.7; amt = 0.8; }
-    Rb *= Math.max(0, 1 - z / zc); const Rh = Rb * 1.7 + (kind === 'concrete' ? 0.35 : 0.25) * cW * Math.max(0, 1 - z / (zc * 1.8));
+    Rb *= Math.max(0, 1 - z / zc); const Rh = Rb * 1.7 + (kind === 'concrete' || kind === 'brick' ? 0.35 : 0.25) * cW * Math.max(0, 1 - z / (zc * 1.8));
     if (Rh < 0.02) continue;
     holeify(mesh, SLOTS, D.inner); ud.holeMax = SLOTS; wallMask(mesh); ud.dmg = ud.dmg || [];
     const lp = mesh.worldToLocal(near.clone()), U = lp.getComponent(G.a1), V = lp.getComponent(G.a2), seed = Math.round(U * 1000) * 0.37 + Math.round(V * 1000) * 0.61 + 3.1;
@@ -273,11 +276,11 @@ function blastWalls(p, W, owner, only) {
       // the broken wall itself flies: chunks of block, splinters, plaster blown out the far side are fragments too, and hurt
       // whoever stands behind it (slower and blunter than a grenade's steel). The one who set it off works out who they hit.
       { const q = new V3(); q.setComponent(G.a1, U + ou / opened); q.setComponent(G.a2, V + ov / opened); const c = mesh.localToWorld(q), out = dir.clone();
-        const n = Math.min(36, Math.round(Math.sqrt(opened) * (kind === 'concrete' ? 1.6 : 1.1) * clamp(2 / (z + 0.4), 0.5, 3))), mine = owner === S.myIdOr0() || S.mode !== 'online';
+        const n = Math.min(36, Math.round(Math.sqrt(opened) * (kind === 'concrete' || kind === 'brick' ? 1.6 : 1.1) * clamp(2 / (z + 0.4), 0.5, 3))), mine = owner === S.myIdOr0() || S.mode !== 'online';
         for (let f = 0; f < n; f++) {
           const fd = out.clone().add(new V3(rnd(-0.7, 0.7), rnd(-0.4, 0.6), rnd(-0.7, 0.7))).normalize(); if (fd.dot(out) < 0.2) continue;
           spawnBullet(c.clone().addScaledVector(out, th / 2 + 0.06), fd, 5, false, mine, owner, mine ? (blastWalls.shot || (blastWalls.shot = { hits: new Map(), frag: true })) : null);
-          const b = bullets[bullets.length - 1]; b.vel.setLength((kind === 'concrete' ? rnd(140, 320) : rnd(90, 220)) * clamp(1.6 / (z + 0.5), 0.4, 1.4)); b.drag *= 9; b.frag = true; b.spall = true;
+          const b = bullets[bullets.length - 1]; b.vel.setLength((kind === 'concrete' || kind === 'brick' ? rnd(140, 320) : rnd(90, 220)) * clamp(1.6 / (z + 0.5), 0.4, 1.4)); b.drag *= 9; b.frag = true; b.spall = true;
         } } }
   }
 }
@@ -486,7 +489,7 @@ function explode(p, kind, owner, isOwner, n, onBody) {
   const E = EXPL[kind] || EXPL.frag; n = n || new V3(0, 1, 0); gadgetBlast(p, E.W);
   if (kind === 'claymore') kind = 'frag';   // (a claymore is a big frag, as far as walls and bodies go)
   boomVisual(p, n, E.W, kind);
-  blastWalls(p, E.W, owner, doorAt(p, E.W));
+  blastWalls(p, E.W, owner, doorAt(p, E.W)); blastSlabs(p, E.W);
   doorBlast(p, E.W, isOwner || S.mode !== 'online'); siegeBlast(p, E.W);
   // fragments flying everywhere: they chip and hole walls and crates (bodies are worked out above, hit by hit)
   if (E.frags) for (let i = 0; i < 110; i++) {
@@ -686,7 +689,7 @@ addEventListener('mouseup', e => { if (e.button === 2) mouse.right = false; });
 // leaving the slot with the pin out: an uncooked grenade gets its pin back; a cooked one is dropped where you stand
 function nadeAbandon() {
   const N = P.nade; if (!N || N.ph === 'idle') return;
-  if (N.cook) { const p0 = P.pos.clone().setY(0.6); throwNade(S.myIdOr0(), explSeq++, p0, new V3(rnd(-0.5, 0.5), 0, rnd(-0.5, 0.5)), N.fuse, true); P.fragN = Math.max(0, P.fragN - 1); flashMsg('LIVE GRENADE DROPPED', 1500); }
+  if (N.cook) { const p0 = P.pos.clone().setY(0.6); throwNade(S.myIdOr0(), explSeq++, p0, new V3(rnd(-0.5, 0.5), 0, rnd(-0.5, 0.5)), N.fuse, true, null, null, P.tool3 || 'frag'); P.fragN = Math.max(0, P.fragN - 1); flashMsg('LIVE GRENADE DROPPED', 1500); }
   nadeReset();
 }
 // the pin and ring, dropped once they are pulled
@@ -813,6 +816,8 @@ function updateExplosives(dt) {
   // on the test range the crates of explosives never run dry: a few seconds after the last one is used, more are there
   if (S.mode === 'test' && P.alive) {
     if (P.c4N <= 0 && !c4Mine().length) { P.c4R = (P.c4R || 0) + dt; if (P.c4R > 4) { P.c4N = 2; P.c4R = 0; flashMsg('C4 RESTOCKED', 900); } } else P.c4R = 0;
+    if (P.gN <= 0 && GADGETS[P.tool2]) { P.gR = (P.gR || 0) + dt; if (P.gR > 4) { P.gN = GADGETS[P.tool2].n; P.gR = 0; flashMsg('GADGETS RESTOCKED', 900); } } else P.gR = 0;
+    if (P.toolB === 'bcharge' && P.bcN <= 0) { P.bcR = (P.bcR || 0) + dt; if (P.bcR > 4) { P.bcN = GADGETS.bcharge.n; P.bcR = 0; flashMsg('BREACH CHARGES RESTOCKED', 900); } } else P.bcR = 0;
     if (P.fragN <= 0 && !NADES.some(o => o.local)) { P.fragR = (P.fragR || 0) + dt; if (P.fragR > 4) { P.fragN = 3; P.fragR = 0; flashMsg('GRENADES RESTOCKED', 900); } } else P.fragR = 0;
   }
 }
@@ -836,6 +841,7 @@ function onExplosiveMsg(m) {
   else if (m.a === 'nade' && ok(m.v)) throwNade(m.id, m.i, p, new V3().fromArray(m.v), clamp(Number(m.f) || 4, 0, 6) + 0.5, false, ok(m.w) ? new V3().fromArray(m.w) : null, clamp(Number(m.c) || 0, -0.2, 0.2), m.k);
   else if (m.a === 'chk') chunkRx(m);
   else if (m.a === 'gd') gadgetRx(m);
+  else if (m.a === 'mw' && ok(m.p) && ok(m.v)) meleeWall(new V3().fromArray(m.p), new V3().fromArray(m.v).normalize(), clamp(Number(m.w) || 0, 0, 3000), clamp(m.n | 0, 0, 9), clamp(Number(m.f) || 0, 0, 0.2), (Number(m.i) >>> 0) || 1, false);
   else if (m.a === 'boom') {
     const kind = Object.hasOwn(EXPL, m.k) ? m.k : 'frag';
     // (a claymore is set off by whoever walks into it, but it is its owner's blast)

@@ -2,8 +2,10 @@
 import { $, camera, clamp, damp, renderer, rnd } from './00-setup.js';
 import { noiseHit } from './10-audio.js';
 import { P, S, dummies } from './17-dummies.js';
+import { PITCH_MIN } from './18-player.js';
 import { deafen } from './19b-explosives.js';
 import { smokeAt } from './27-gadgets.js';
+import { matchFrozen } from './28-match.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- what the eyes see: blinking, flashbangs, smoke and gas,
 // passing out, film grain, night vision and the gas mask
@@ -15,8 +17,8 @@ import { smokeAt } from './27-gadgets.js';
 // Downed: the eyes close as you black out (black, the sound goes dull); conscious but down, they stay open with slow heavy
 // blinks; coming round, they flutter open.
 // A faint grain over everything; night vision is green, bright and much grainier, and shows laser beams.
-const EYE = { blinkT: rnd(8, 10), blink: 0, lid: 0, flashK: 0, stillK: 0, grabbed: false, grabReq: false, gasK: 0, smokeK: 0, cough: 0, outK: 0, wasOut: false, grainT: 0, filt: '' };
-let eyeEls = null;
+var EYE = { blinkT: rnd(8, 10), blink: 0, lid: 0, flashK: 0, stillK: 0, grabbed: false, grabReq: false, gasK: 0, smokeK: 0, cough: 0, outK: 0, wasOut: false, grainT: 0, filt: '' };
+var eyeEls = null;
 function eyeInit() {
   const mk = (id, css) => { const d = document.createElement(id === 'still' || id === 'grain' ? 'canvas' : 'div'); d.id = 'eye_' + id; d.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;' + css; document.body.appendChild(d); return d; };
   eyeEls = {
@@ -39,7 +41,7 @@ function drawMask() {
   g.globalCompositeOperation = 'source-over'; g.fillStyle = 'rgba(7,9,9,0.97)'; g.fillRect(0, 0, W, H);
   g.globalCompositeOperation = 'destination-out';
   for (const s of [-1, 1]) {
-    const cx = W / 2 + s * W * 0.205, cy = H * 0.46, rx = W * 0.25, ry = H * 0.4, gr = g.createRadialGradient(cx, cy, 0, cx, cy, 1);
+    const cx = W / 2 + s * W * 0.205, cy = H * 0.46, rx = W * 0.25, ry = H * 0.4;
     g.save(); g.translate(cx, cy); g.scale(rx, ry); const r = g.createRadialGradient(0, 0, 0.82, 0, 0, 1); r.addColorStop(0, 'rgba(0,0,0,1)'); r.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = r; g.beginPath(); g.arc(0, 0, 1, 0, 7); g.fill(); g.restore();
   }
@@ -59,6 +61,7 @@ function flashHit(k, ears) {
   P.flashBlind = Math.max(P.flashBlind || 0, k * 4);
   deafen(Math.max(ears || 0, k * 0.8));
 }
+function eyeReset() { EYE.flashK = 0; EYE.stillK = 0; EYE.gasK = 0; EYE.smokeK = 0; EYE.outK = 0; P.flashBlind = 0; P.nvgOn = false; if (eyeEls) setLid(0); }
 function toggleNvg() { P.nvgOn = !P.nvgOn; noiseHit(P.nvgOn ? 4200 : 2600, 0.03, 0.04); }
 function setLid(k) { const h = (k * 51) + '%'; eyeEls.lidT.style.height = h; eyeEls.lidB.style.height = h; }
 function updateEyes(dt) {
@@ -76,10 +79,10 @@ function updateEyes(dt) {
   const sK = on && !masked ? smokeAt(camera.position, false) : 0, gK = on && !masked ? smokeAt(camera.position, true) : 0;
   EYE.smokeK = damp(EYE.smokeK, sK, sK > EYE.smokeK ? 2 : 0.4, dt); EYE.gasK = damp(EYE.gasK, gK, gK > EYE.gasK ? 3 : 0.15, dt);
   const choke = Math.max(EYE.smokeK * 0.45, EYE.gasK);
-  if (choke > 0.15 && on) {
+  if (choke > 0.15 && on && !P.downed && !matchFrozen()) {
     EYE.cough -= dt; if (EYE.cough <= 0) { EYE.cough = rnd(0.7, 2) / (0.4 + choke); noiseHit(rnd(180, 320), 0.18, 0.12 * choke); noiseHit(rnd(600, 900), 0.08, 0.05 * choke); P.recShake = Math.min(0.08, (P.recShake || 0) + 0.03 * choke); }
     // the view swims, the aim wanders
-    P.pitch += Math.sin(performance.now() / 310) * 0.0009 * choke; P.yaw += Math.sin(performance.now() / 430) * 0.0012 * choke;
+    P.pitch = clamp(P.pitch + Math.sin(performance.now() / 310) * 0.0009 * choke, PITCH_MIN, 1.5); P.yaw += Math.sin(performance.now() / 430) * 0.0012 * choke;
   }
   eyeEls.gas.style.opacity = String(clamp(EYE.gasK * 0.9, 0, 0.9));
   P.gasK = EYE.gasK; P.smokeK = EYE.smokeK;
@@ -124,5 +127,5 @@ function updateEyes(dt) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { eyeAfterRender, flashHit, toggleNvg, updateEyes };
+export { eyeAfterRender, eyeReset, flashHit, toggleNvg, updateEyes };
 // ---- end module exports ----

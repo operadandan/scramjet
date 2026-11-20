@@ -65,6 +65,8 @@ function updateBrace(hum, dt) {
   a.braceP = best.point.clone().addScaledVector(n, 0.03).toArray(); a.braceSide = best.sd < 0 ? -1 : 1;
 }
 const _cv = new V3(), _bv = new V3();
+const SL_GEO = { body: new THREE.CylinderGeometry(0.017, 0.015, 0.11, 10), clip: new THREE.BoxGeometry(0.03, 0.05, 0.012), lens: new THREE.CircleGeometry(0.0165, 12) };
+const SL_MAT = { body: new THREE.MeshStandardMaterial({ color: 0x1a1b1c, roughness: 0.5, metalness: 0.6 }) }; SL_MAT.body.userData.shared = true;
 class Humanoid {
   constructor(pal, shadowOnly) {
     this.pal = Object.assign({}, HUM_DEFAULT, pal || {});
@@ -113,6 +115,16 @@ class Humanoid {
     this.handMagR.userData.keep = this.handMagP.userData.keep = true;
     mergeTree(this.root, this.shadowOnly ? shadowMat : vcMat);
     if (!this.shadowOnly) attachSkin(this.root, B.segAt);
+    // the light clipped to the left shoulder strap, pointing ahead (its lens glows when it is on); added after the body is
+    // merged, so it stays its own part
+    if (!this.shadowOnly) {
+      const sl = new THREE.Group(); sl.position.set(-0.12, 0.43, -0.13); this.spine.add(sl);
+      const body = new THREE.Mesh(SL_GEO.body, SL_MAT.body); body.rotation.x = Math.PI / 2; sl.add(body);
+      const clip = new THREE.Mesh(SL_GEO.clip, SL_MAT.body); clip.position.set(0, 0, 0.03); sl.add(clip);
+      const lens = new THREE.Mesh(SL_GEO.lens, new THREE.MeshStandardMaterial({ color: 0xdde8ff, emissive: 0xfff1dc, emissiveIntensity: 0, roughness: 0.2 })); lens.rotation.y = Math.PI; lens.position.z = -0.056; sl.add(lens);
+      for (const o of [body, clip, lens]) { o.userData.keep = true; o.castShadow = true; }
+      this.slLens = lens;
+    }
     this.hitMeshes = []; this.root.traverse(o => { if (o.isMesh && o.userData.frame) this.hitMeshes.push(o); });
     this._t = new V3(); this._p1 = new V3(); this._p2 = new V3();
   }

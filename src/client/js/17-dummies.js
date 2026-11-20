@@ -1,6 +1,6 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
-import { V3, angLerp, clamp, damp, lerp, renderer, rnd, scene, smooth } from './00-setup.js';
+import { V3, angLerp, camera, clamp, damp, lerp, renderer, rnd, scene, smooth } from './00-setup.js';
 import { RANGE_DISTS, RANGE_X, mat } from './01-world.js';
 import { chunkReset } from './02b-chunks.js';
 import { CLUTCH_OK, Humanoid, hurtClutch, hurtLevel, reClutch, solveArm, updateBrace } from './03-humanoid.js';
@@ -8,6 +8,7 @@ import { freeRag, setHelmet, spawnRagdoll, syncLost } from './04-ragdoll.js';
 import { Anatomy, PART_OF_REGION, makeLabel } from './05-anatomy.js';
 import { MEDKIT_W, PRIMARIES, SECONDARIES, WEAPONS, isPistol, isShotgun } from './06-weapons.js';
 import { ATT_DEFAULT, PLATE_W } from './09-attachments.js';
+import { footSound, surfaceAt } from './10-audio.js';
 import { killNotice } from './12-blood.js';
 import { clearWounds, feedPool, floorAt, spawnDrop, updateWounds } from './14-wounds.js';
 import { blocked } from './18-player.js';
@@ -37,7 +38,7 @@ const localBody = new Humanoid({}, true); scene.add(localBody.root);
 // head, neck and slung weapons are hidden, and it sits a little behind the eye so the camera never ends up inside it.
 const fpBody = new Humanoid({ noRig: true });
 for (const k of ['head', 'neck', 'shL', 'shR']) if (fpBody[k]) fpBody[k].visible = false;
-if (fpBody.rPiv) fpBody.rPiv.visible = false; if (fpBody.pPiv) fpBody.pPiv.visible = false;
+if (fpBody.slLens && fpBody.slLens.parent) fpBody.slLens.parent.visible = false; if (fpBody.rPiv) fpBody.rPiv.visible = false; if (fpBody.pPiv) fpBody.pPiv.visible = false;
 fpBody.root.traverse(o => { if (o.isMesh) { o.castShadow = false; o.userData.fp = true; } }); fpBody.root.visible = false; scene.add(fpBody.root);
 // the player's eyes sit about 20 cm above the shoulders and over the front of the chest: the humanoid's neck is short, so for
 // the first-person body the torso is set lower into the hips (the camera goes where the eyes would be)
@@ -238,7 +239,11 @@ class Remote {
       return;
     }
     this.react = null;
-    this.pos.lerp(this.tpos, 1 - Math.exp(-14 * dt));
+    { const px = this.pos.x, pz = this.pos.z; this.pos.lerp(this.tpos, 1 - Math.exp(-14 * dt));
+      // their footsteps, heard from where they are (sprinting carries, a crouch-walk barely does)
+      const mv = Math.hypot(this.pos.x - px, this.pos.z - pz), st = this.st || {}, sp = st.v || 0;
+      if (mv < 1 && sp > 0.4 && !(st.pr > 0.5)) { this.stepD = (this.stepD || 0) + mv; const stride = sp > 5 ? 1.05 : sp > 3 ? 0.9 : 0.7;
+        if (this.stepD > stride) { this.stepD = 0; const d = camera.position.distanceTo(this.pos); if (d < 45) footSound(this.pos, surfaceAt(this.pos), (st.c > 0.5 ? 0.3 : sp > 5 ? 1.4 : sp > 3 ? 1 : 0.6), d); } } }
     this.yaw = angLerp(this.yaw, this.tyaw, 1 - Math.exp(-16 * dt));
     this.hum.root.position.copy(this.pos); this.hum.root.rotation.y = this.yaw;
     const a = this.hum.anim, m = this.st;
@@ -247,6 +252,7 @@ class Remote {
     a.sprint = damp(a.sprint, m.sp ? 1 : 0, 8, dt); a.air = damp(a.air, m.g ? 0 : 1, 10, dt);
     a.ads = m.a; a.weapon = WEAPONS[m.w] || m.w === MEDKIT_W ? m.w : m.w === PLATE_W || m.w === 7 ? MEDKIT_W : 0; a.unarmed = m.w === 7; a.reload = m.r; a.prone = damp(a.prone, m.pr || 0, 5, dt); a.limp = m.lm || 0; a.hurt = damp(a.hurt || 0, clamp(Number(m.hu) || 0, 0, 1), 3, dt); a.stag = clamp(Number(m.sg) || 0, 0, 1); a.downedPose = !!m.dn; if (Array.isArray(m.cl) && CLUTCH_OK[m.cl[0]] === 1 && m.cl.length === 4 && m.cl.slice(1).every(v => Number.isFinite(v) && Math.abs(v) < 1)) { a.clutchF = m.cl[0]; a.clutchP = m.cl.slice(1); a.clutchT = 0.35; } updateBrace(this.hum, dt);
     for (let i = 0; i < this.hum.tp.length; i++) if (this.hum.tp[i].sup) this.hum.tp[i].sup.visible = i === a.weapon && !!m.su;
+    if (this.hum.slLens) this.hum.slLens.material.emissiveIntensity = m.fl ? 4 : 0;
     a.bb = m.bb || 0; a.ah = m.ah || 0; a.ls = m.ls || 0; syncLost(this.hum, a.ls, new V3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).negate(), m.lc);
     this.hum.update(dt);
     bleedDrips(this, clamp(Number(m.bl) || 0, 0, 900), dt, clamp(Number(m.arr) || 0, 0, 500), clamp(Number(m.bp) || 1, 0.2, 1));

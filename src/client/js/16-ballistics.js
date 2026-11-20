@@ -18,6 +18,7 @@ import { pointBlocked } from './18-player.js';
 import { net } from './19-network.js';
 import { seg } from './19c-toolvm.js';
 import { frame } from './22-menu-loop.js';
+import { lampBreak } from './24-env.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- props: shells, mags, dropped guns
 const props = [];
@@ -335,6 +336,8 @@ function onBulletHit(b, hit, dir, dist) {
   }
   // a plywood door's knob or a hinge: shot off, and it stops the round
   if (ud.doorPart && doorPartHit(ud.doorPart, hit, dir, b.local) && b.w !== 2) return null;   // (a .50 carries on through)
+  // a ceiling light: the shade and bulb burst, the light goes out (every client sees the same round hit it)
+  if (ud.lamp !== undefined) { lampBreak(ud.lamp, hit.point, dir); return { point: hit.point.clone().addScaledVector(dir, 0.3), dir, v: v * 0.95 }; }
   if (ud.door && b.local && !b.frag && WEAPONS[b.w].pellets) doorShotgun(ud.door, hit.point, dir, Eh, b.shot);
   if (hit.face) {
     const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);

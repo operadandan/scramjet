@@ -25,6 +25,7 @@ import { frame } from './22-menu-loop.js';
 import { CON } from './25-console.js';
 import { gadgetGhostOff, updateGadget, updateSledge } from './27-gadgets.js';
 import { applyGadgets } from './28-match.js';
+import { eyeReset } from './29-eyes.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- physics helpers
 function blocked(pos, h, r) {
@@ -505,9 +506,10 @@ function dropMag(wi) {
 }
 const _fq = new THREE.Quaternion();
 const ray = new THREE.Raycaster();
-function fire(w) {
+// where a round would go if fired now, before the shot's own scatter: the origin (muzzle, or the sight line when aimed) and
+// the direction. The laser uses this too, so its dot sits where the round lands.
+function shotRay(w, V) {
   vmCamera.updateMatrixWorld(true);
-  const V = VMW[P.weapon];
   V.g.getWorldQuaternion(_fq);
   const gF = new V3(0, 0, -1).applyQuaternion(_fq), up = new V3(0, 1, 0).applyQuaternion(_fq), right = new V3(1, 0, 0).applyQuaternion(_fq);
   let origin = V.muzzle.getWorldPosition(new V3());
@@ -523,13 +525,17 @@ function fire(w) {
   const fwdDist = _a.subVectors(origin, camera.position).dot(camF);
   origin.lerp(camera.position.clone().addScaledVector(camF, fwdDist), ak * 0.97);
   const dir = target.sub(origin).normalize();
-  const ang = Math.random() * Math.PI * 2, rad = Math.sqrt(Math.random()) * w.disp;
-  dir.addScaledVector(right, Math.cos(ang) * rad).addScaledVector(up, Math.sin(ang) * rad).normalize();
   // muzzle poking through a wall: start the round at the wall instead
   ray.set(camera.position, _a.subVectors(origin, camera.position).normalize()); ray.far = camera.position.distanceTo(origin);
   const block = ray.intersectObjects(worldMeshes, false)[0];
   if (block) origin = block.point.clone().addScaledVector(_a, -0.02);
-  if (S.tp) { const ta = tpAim(); origin = ta.origin; dir.copy(ta.dir); const sp = w.disp * (1 + (1 - P.ads) * 1.5), a2 = Math.random() * 6.28, r2 = Math.sqrt(Math.random()) * sp; dir.addScaledVector(right, Math.cos(a2) * r2).addScaledVector(up, Math.sin(a2) * r2).normalize(); }
+  if (S.tp) { const ta = tpAim(); origin = ta.origin; dir.copy(ta.dir); }
+  return { origin, dir, gF, up, right };
+}
+function fire(w) {
+  const V = VMW[P.weapon], SR = shotRay(w, V), { origin, dir, gF, up, right } = SR;
+  if (S.tp) { const sp = w.disp * (1 + (1 - P.ads) * 1.5), a2 = Math.random() * 6.28, r2 = Math.sqrt(Math.random()) * sp; dir.addScaledVector(right, Math.cos(a2) * r2).addScaledVector(up, Math.sin(a2) * r2).normalize(); }
+  else { const ang = Math.random() * Math.PI * 2, rad = Math.sqrt(Math.random()) * w.disp; dir.addScaledVector(right, Math.cos(ang) * rad).addScaledVector(up, Math.sin(ang) * rad).normalize(); }
   const tracer = w.tracerEvery > 0 && P.shots % w.tracerEvery === 0;
   const seed = (Math.random() * 4294967295) >>> 0;
   const shot = { hits: new Map() };
@@ -538,7 +544,7 @@ function fire(w) {
   muzzleLight.position.copy(origin).addScaledVector(dir, 0.3);
   vmMuzzleLight.position.copy(V.muzzle.getWorldPosition(new V3()));
   P.flashT = w.snd === 2 || w.pellets ? 0.07 : 0.045;
-  shotSound(P.weapon, 0, V.supp);
+  shotSound(P.weapon, 0, V.supp, camera.position);
   muzzleSmoke(S.tp ? origin : V.muzzle.getWorldPosition(new V3()), dir, P.weapon, V.supp); V.boltK = 1; V.heat = Math.min(14, V.heat + (w.snd === 2 ? 2 : 1));
   P.kick = Math.min(w.snd === 2 ? 3 : w.pellets ? 2.4 : 1.5, P.kick + (w.snd === 2 ? 2.5 : w.pellets ? 2 : 1));
   if (V.slide) P.slideBack = 0.03;
@@ -592,7 +598,7 @@ function remoteShot(m) {
   const ep = o.clone().addScaledVector(dir, isPistol(wi) ? -0.12 : wi === 2 ? -0.95 : -0.45);
   if (WEAPONS[wi].pellets) setTimeout(() => { if (S.mode) ejectShell(ep, right, up, dir, new V3(), '12g'); }, 190);
   else ejectShell(ep, right, up, dir, new V3(), WEAPONS[wi].shell);
-  shotSound(wi, o.distanceTo(camera.position), !!m.sp);
+  shotSound(wi, o.distanceTo(camera.position), !!m.sp, o);
   muzzleSmoke(o, dir, wi, !!m.sp);
 }
 
@@ -675,6 +681,7 @@ function respawnLocal(sp) {
   clearWounds(localBody); clearWounds(fpBody); fpBody.setLost(0); setHelmet(localBody, true);
   { const a = localBody.anim; a.hurt = 0; a.clutchT = 0; a.clutchW = 0; a.clutchF = null; a.woundF = null; a.braceP = null; a.braceW = 0; a.stag = 0; a.stagW = 0; localBody.fl = null; }
   try { clearWounds(localBody); clearWounds(fpBody); } catch (er) {}
+  eyeReset();
   P.anat = new Anatomy(); P.downed = false; P.fatal = ''; P.fatalSent = false; localBody.setLost(0); P.stance = 0; P.prone = 0; P.slot = 0; P.weapon = P.loadout[0]; P.medUses = 3; P.c4N = 2; P.fragN = 3; P.tool2 = 'c4'; P.tool3 = 'frag'; applyGadgets(); P.defOut = false; P.trapped = null; P.trapDown = false; P.sledge = null; P.nade = null; P.c4 = null; P.emptySel = -1; P.healing = false; P.healT = 0; P.platesInv = 0; P.plating = false; P.plateTarget = null; P.invPlate = null; P.packGuns = []; P.loose = []; P.packPos = {}; P.supp = 0; P.downSent = false; P.lookX = P.lookY = 0; setHelmet(localBody, true);
   P.alive = true; P.stamina = 100; P.staminaLock = false; P.mantle = null; P.mantleK = 0; P.jumpCD = 0; P.landK = 0; P.crouch = 0; P.lean = 0; P.leanState = 0; P.adsOn = false;
   P.activeLo = P.loadout.slice(); P.guns = freshGuns(P.activeLo); P.reloading = false; P.inspecting = false; P.rag = null; P.headDeath = false;
@@ -708,5 +715,5 @@ function testDeath(head) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { PITCH_MIN, PR, blocked, canRack, esc, feed, flashMsg, hurtFlash, localDeath, magEstimate, onSelfHurt, pointBlocked, pumpCurve, rackK, rackNeeded, ray, remoteShot, respawnLocal, selectEmpty, selfWound, standHeight, startInspect, startReload, switchWeapon, testDeath, testSelfHit, updatePlayer, updateWeapons, wakeUp, workAction };
+export { PITCH_MIN, PR, blocked, canRack, esc, feed, flashMsg, hurtFlash, localDeath, magEstimate, onSelfHurt, pointBlocked, pumpCurve, rackK, rackNeeded, ray, remoteShot, respawnLocal, selectEmpty, selfWound, shotRay, standHeight, startInspect, startReload, switchWeapon, testDeath, testSelfHit, updatePlayer, updateWeapons, wakeUp, workAction };
 // ---- end module exports ----

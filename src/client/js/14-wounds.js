@@ -9,7 +9,7 @@ import { STRUCTS_BY_FRAME, pathDist } from './05-anatomy.js';
 import { WEAPONS, isPistol, isShotgun } from './06-weapons.js';
 import { bakeColored } from './07-gun-models.js';
 import { buildGripHand } from './08-hands.js';
-import { noiseHit } from './10-audio.js';
+import { footSound, noiseHit, surfaceAt } from './10-audio.js';
 import { PMAT, decals, fx, impactFx, irregular, particles, placeDecal, poolGeo, splatGeo } from './11-fx.js';
 import { BLOOD_MAT, BLOOD_MAX, POOL_MAT, bmat, drips, dropIM, drops, floorSplats, mistTex } from './12-blood.js';
 import { coneDir, goreBlast } from './12b-gore.js';
@@ -775,8 +775,8 @@ function bodyWound(hit, dir, w, pen, ex, hum, frag) {
   if (!ex.object.userData.armor) addWound(hum, ex.object.userData.frame, g2, p2, d2, 'rimX', r1 * 6.5);
 }
 // walls and props. [energy per metre for a rifle round, hollow shell thickness or 0 for solid, colour of the inside]
-const PEN_MAT = { concrete: [68000, 0, 0x2f2c28], wood: [7000, 0.022, 0x3a2614], metal: [600000, 0.003, 0x111111], drywall: [12000, 0.013, 0xb9b3a8], plywood: [4200, 0, 0x5a3e22] };
-const KIND_PEN = { concrete: 'concrete', crate: 'wood', metal: 'metal', drywall: 'drywall', plywood: 'plywood' };
+const PEN_MAT = { concrete: [68000, 0, 0x2f2c28], wood: [7000, 0.022, 0x3a2614], metal: [600000, 0.003, 0x111111], drywall: [12000, 0.013, 0xb9b3a8], plywood: [4200, 0, 0x5a3e22], brick: [21000, 0, 0x6a3a2a] };
+const KIND_PEN = { brick: 'brick', concrete: 'concrete', crate: 'wood', metal: 'metal', drywall: 'drywall', plywood: 'plywood' };
 // ray against an axis-aligned box from a point on its surface: distance to the far side, and which face it leaves through
 function boxExit(box, p, d) {
   // a door's leaf turns: its way out is found in its own frame and turned back
@@ -805,18 +805,17 @@ function worldPen(b, hit, dir, nIn) {
   // through walls without end: a pistol round two or three, a rifle round four or five, the .50 about ten.
   // Energy lost is the material's resistance times the distance travelled through it (a slanted path is longer), nothing
   // else: no wall count. A round that has already gone through something is yawing or tumbling and presents its side, so
-  // the same wall costs it several times as much (a .50 is too long and heavy to turn over much). Outside walls are the
-  // whole sandwich: siding, sheathing, insulation, studs and drywall. Rule of thumb that falls out: a rifle or pistol round
+  // the same wall costs it several times as much (a .50 is too long and heavy to turn over much). Outside walls are
+  // brick veneer (its own solid layer, very costly) over sheathing and drywall. Rule of thumb that falls out: a rifle or pistol round
   // goes through one ordinary wall and stops in the next, a thin sheet or two more maybe; the .50 goes through the house.
   const tum = 1 + (b.tumble || 0) * (w === 2 ? 0.35 : isShotgun(w) ? 2.2 : 3.6);
   let path = thick;
-  if (ud.ext) path = bx.t;
   let loss = R * path * tum;
   if (ud.ext) loss += PEN_MAT.wood[0] * cf * Math.min(0.1, 0.035 / cos) * tum;
   if (kind === 'drywall' && Math.random() < 0.12) loss += PEN_MAT.wood[0] * cf * 0.09 / cos * tum;   // a stud
   b.walls = (b.walls || 0) + 1; if (b.walls > 14) loss = Infinity;
-  const rIn = kind === 'concrete' ? Math.max(0.012, cal[0] * 3.4) : kind === 'metal' ? cal[0] * 1.3 : kind === 'drywall' ? cal[0] * 2.4 : cal[0] * 2;
-  const rOut = kind === 'concrete' ? Math.max(0.03, cal[0] * 9) : kind === 'metal' ? cal[0] * 1.5 : kind === 'drywall' ? cal[0] * 5 : cal[0] * 4.2;
+  const rIn = (kind === 'concrete' || kind === 'brick') ? Math.max(0.012, cal[0] * 3.4) : kind === 'metal' ? cal[0] * 1.3 : kind === 'drywall' ? cal[0] * 2.4 : cal[0] * 2;
+  const rOut = (kind === 'concrete' || kind === 'brick') ? Math.max(0.03, cal[0] * 9) : kind === 'metal' ? cal[0] * 1.5 : kind === 'drywall' ? cal[0] * 5 : cal[0] * 4.2;
   const inner = pm[2], local = p => mesh.worldToLocal(p.clone()), dLoc = dir.clone().transformDirection(_hm.copy(mesh.matrixWorld).invert());
   if (mesh.userData.holeN === undefined) mesh.userData.holeMax = 24;
   if (DESTR_OF[ud.kind]) {
@@ -825,7 +824,7 @@ function worldPen(b, hit, dir, nIn) {
     if (!through) return null;
     wallDamage(mesh, exitP, bx.n, dir, E - loss, w, 0, true);
     b.tumble = (b.tumble || 0) + 1;
-    const nv = Math.sqrt(2 * (E - loss) / m), dev = (kind === 'concrete' ? 0.03 : 0.035) * (isPistol(w) ? 2 : 1) * (1 + (b.tumble || 0));   // (it comes out tumbling, further off line each wall)
+    const nv = Math.sqrt(2 * (E - loss) / m), dev = ((kind === 'concrete' || kind === 'brick') ? 0.03 : 0.035) * (isPistol(w) ? 2 : 1) * (1 + (b.tumble || 0));   // (it comes out tumbling, further off line each wall)
     return { point: exitP, dir: dir.clone().add(new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(dev)).normalize(), v: nv };
   }
   if (E > loss + 12) {
@@ -835,8 +834,8 @@ function worldPen(b, hit, dir, nIn) {
     else cutHole(mesh, local(hit.point.clone().addScaledVector(dir, -0.02)), dLoc, bx.t + 0.05, rIn, rOut, inner);
     pierceMark(mesh, exitP, bx.n, ud.surf, rOut, true);
     impactFx(exitP, bx.n, ud.surf);
-    if (kind === 'concrete' || w === 2) particles(exitP.clone().addScaledVector(bx.n, 0.03), 10, PMAT.chip, 3.5, 0.02, 0.9, 1, bx.n);
-    const nv = Math.sqrt(2 * (E - loss) / m), dev = (kind === 'concrete' ? 0.03 : kind === 'metal' ? 0.02 : 0.01) * (isPistol(w) ? 2 : 1) * (1 + (b.tumble || 0));
+    if ((kind === 'concrete' || kind === 'brick') || w === 2) particles(exitP.clone().addScaledVector(bx.n, 0.03), 10, PMAT.chip, 3.5, 0.02, 0.9, 1, bx.n);
+    const nv = Math.sqrt(2 * (E - loss) / m), dev = ((kind === 'concrete' || kind === 'brick') ? 0.03 : kind === 'metal' ? 0.02 : 0.01) * (isPistol(w) ? 2 : 1) * (1 + (b.tumble || 0));
     b.tumble = (b.tumble || 0) + 1;
     const nd = dir.clone().add(new V3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(dev)).normalize();
     return { point: exitP, dir: nd, v: nv };
@@ -844,7 +843,7 @@ function worldPen(b, hit, dir, nIn) {
   // stopped inside: a crater as deep as it got. Pistol rounds on concrete just splash.
   const depth = Math.max(0.004, E / R);
   cutHole(mesh, local(hit.point.clone().addScaledVector(dir, -0.02)), dLoc, Math.min(depth, bx.t * 0.98) + 0.02, rIn, rIn * 0.6, inner);
-  if (kind === 'concrete' && isPistol(w)) particles(hit.point.clone().addScaledVector(nIn, 0.02), 8, PMAT.spark, 3, 0.004, 0.2, 0.2, nIn, 5);
+  if ((kind === 'concrete' || kind === 'brick') && isPistol(w)) particles(hit.point.clone().addScaledVector(nIn, 0.02), 8, PMAT.spark, 3, 0.004, 0.2, 0.2, nIn, 5);
   return null;
 }
 // a decal with a clear middle, so the hole under it stays visible
@@ -862,6 +861,8 @@ const BOOT_MAT = [];
   for (let i = 0; i < 8; i++) { const m = new THREE.MeshStandardMaterial({ map: t, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, roughness: 0.4, metalness: 0, opacity: 0.85 - i * 0.09 }); BOOT_MAT.push(m); } }
 function footStep() {
   if (!P.alive || !P.onGround) return;
+  // the sound of it: what is underfoot, and how hard (sprinting is loud, crouching nearly silent)
+  footSound(P.pos, surfaceAt(P.pos), P.crouch > 0.5 || P.prone > 0.5 ? 0.25 : P.sprinting ? 1.3 : P.speed > 3 ? 0.9 : 0.55, 0.3);
   const now = performance.now() / 1000;
   for (const p of pools) for (const l of p.lobes) if (now - l.born < 150 && Math.hypot(l.x - P.pos.x, l.z - P.pos.z) < l.r * 0.85) P.bootBlood = 8;
   if (!(P.bootBlood > 0)) return;

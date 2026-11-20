@@ -30,8 +30,9 @@ import { updateEnv } from './24-env.js';
 import { updateConsole } from './25-console.js';
 import { updateLights } from './26-lights.js';
 import { gadgetGhostOff, updateGadgets, wireDrag } from './27-gadgets.js';
-import { freezeBegin, freezeEnd, matchHud, queueUp } from './28-match.js';
+import { freezeBegin, freezeEnd, loadoutUI, matchHud, queueUp } from './28-match.js';
 import { eyeAfterRender, updateEyes } from './29-eyes.js';
+import { updateStructure } from './30-structure.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- scoreboard
 S.score = {};
@@ -113,6 +114,8 @@ async function startOnline(code, create) {
 }
 function startTest() {
   buildTest(); spawnDummies(); enterGame('test'); respawnLocal(spawns[0]);
+  // the loadout comes up first thing (L brings it back any time)
+  setTimeout(() => { if (S.mode === 'test') loadoutUI(true); }, 250);
 }
 function leave() {
   net.close();
@@ -125,7 +128,7 @@ function leave() {
   while (bullets.length) removeBullet(bullets.length - 1);
   S.slow = false; S.ts = 1; S.target = null; S.testKills = 0; S.testDeaths = 0; P.downed = false; $('scope').style.display = 'none'; $('score').style.display = 'none'; S.filt = ''; renderer.domElement.style.filter = ''; $('slowmo').style.display = 'none';
   $('vig').style.display = $('vigads').style.display = 'none';
-  S.mode = null; P.alive = false; P.rag = null; localBody.root.visible = false; S.R = null; siegeClear(); $('teamleft').style.opacity = '0'; $('rbanner').style.opacity = '0';
+  loadoutUI(false); S.loOpen = false; S.mode = null; P.alive = false; P.rag = null; localBody.root.visible = false; S.R = null; siegeClear(); $('teamleft').style.opacity = '0'; $('rbanner').style.opacity = '0';
   $('hud').style.display = 'none'; $('pause').style.display = 'none'; $('menu').style.display = 'flex';
   $('black').style.opacity = '0'; $('deathmsg').style.display = 'none'; $('dmgv').style.opacity = '0';
   if (document.pointerLockElement) document.exitPointerLock();
@@ -251,7 +254,7 @@ function frame(now, hidden) {
   S.ts = damp(S.ts === undefined ? 1 : S.ts, S.slow && S.mode ? 0.08 : 1, 6, dt);
   const wdt = dt * S.ts;
   if (S.mode) {
-    const pp0 = P.pos.clone(); freezeBegin(); updatePlayer(dt); updateWeapons(dt); freezeEnd(); updateExplosives(dt); updateGadgets(dt); updateBash(dt); if (P.slot !== 2 || !P.alive || P.downed) gadgetGhostOff(); wireDrag(pp0);
+    const pp0 = P.pos.clone(); freezeBegin(); updatePlayer(dt); updateWeapons(dt); freezeEnd(); updateExplosives(dt); updateGadgets(dt); updateBash(dt); if (!(P.slot === 2 || (P.slot === 5 && P.toolB === 'bcharge')) || !P.alive || P.downed) gadgetGhostOff(); wireDrag(pp0);
     for (const r of S.remotes.values()) r.update(dt);
     // far bodies are stepped less often (every 2nd frame past 40 m, every 3rd past 80 m) with the time they missed: nobody
     // can see a 20 Hz animation at that range, and the AI and animation of a range full of targets was a big part of each frame
@@ -265,7 +268,7 @@ function frame(now, hidden) {
   }
   updateBullets(wdt);
   for (const r of ragdolls) r.update(wdt);
-  updateFx(wdt); updateDebris(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); siegeUpdate(wdt); roundHud(); matchHud(); screenFx(wdt); updateEyes(wdt); updateConsole(dt); updateEnv(dt); updateLights(dt); updateLimbs(wdt); updateHeats(wdt);
+  updateFx(wdt); updateDebris(wdt); updateStructure(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); siegeUpdate(wdt); roundHud(); matchHud(); screenFx(wdt); updateEyes(wdt); updateConsole(dt); updateEnv(dt); updateLights(dt); updateLimbs(wdt); updateHeats(wdt);
   updateCamera(dt); if (S.mode && P.alive && !P.downed) tpCamera();
   if (S.mode) { updateViewmodel(dt); vmCamera.updateMatrixWorld(true); updateDevices(); } else updateDevices();
   updateTPBody(dt);

@@ -267,8 +267,7 @@ function landPunch(pw, side) {
   else if (ud.kind === 'plywood' && DESTR_OF[ud.kind]) {
     // plywood gives: a hard punch splits it and the fist goes through, a ragged hole about the size of a hand
     noiseHit(rnd(700, 950), 0.09, 0.4 * pw); noiseHit(rnd(110, 160), 0.08, 0.35 * pw);
-    const n = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : d.clone().negate();
-    for (let i = 0; i < 4; i++) { const q = h.point.clone().add(new V3(rnd(-0.035, 0.035), rnd(-0.035, 0.035), rnd(-0.035, 0.035)).projectOnPlane(n)); wallDamage(h.object, q, n, d, 900 * pw, 2, 1, true); }
+    meleeWall(h.point, d, 900 * pw, 4, 0.035, (Math.random() * 1e9) | 0, true);
   }
   else { noiseHit(rnd(110, 180), 0.08, 0.5 * pw); P.stun = Math.max(P.stun || 0, 0.15); }     // a wall: it stops you dead
 }
@@ -320,19 +319,28 @@ function bashLand() {
   if (ud.board !== undefined) { bashBoard(h.object, d); return; }
   if (DESTR_OF[ud.kind] === 'plywood' || DESTR_OF[ud.kind] === 'drywall') {
     noiseHit(rnd(600, 900), 0.1, 0.5);
-    const n = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : d.clone().negate();
-    const k = DESTR_OF[ud.kind] === 'plywood' ? 1 : 0.6;
-    for (let i = 0; i < 5; i++) { const qq = h.point.clone().add(new V3(rnd(-0.05, 0.05), rnd(-0.05, 0.05), rnd(-0.05, 0.05)).projectOnPlane(n)); wallDamage(h.object, qq, n, d, 1300 * k, 2, 1, true); }
+    meleeWall(h.point, d, 1300 * (DESTR_OF[ud.kind] === 'plywood' ? 1 : 0.6), 5, 0.05, (Math.random() * 1e9) | 0, true);
     return;
   }
   noiseHit(rnd(150, 260), 0.1, 0.5); impactFx(h.point, d.clone().negate(), ud.surf === 'metal' ? 'metal' : 'concrete');
 }
+// a fist, a gun butt or a sledgehammer through a soft wall: the same stamps on every machine (one message, a seed for the
+// scatter), so the hole someone smashed is there for everyone
+function meleeWall(p, d, E, n, spread, seed, local) {
+  _pr.set(p.clone().addScaledVector(d, -0.25), d); _pr.far = 0.6; const h = _pr.intersectObjects(worldMeshes, false)[0]; if (!h) return;
+  const ud = h.object.userData; if (!DESTR_OF[ud.kind] || DESTR_OF[ud.kind] === 'concrete' || DESTR_OF[ud.kind] === 'brick') return;
+  const nrm = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : d.clone().negate();
+  let r = seed >>> 0; const rr = () => { r = (r * 1664525 + 1013904223) >>> 0; return r / 4294967296 * 2 - 1; };
+  for (let i = 0; i < n; i++) { const q = h.point.clone().add(new V3(rr() * spread, rr() * spread, rr() * spread).projectOnPlane(nrm)); wallDamage(h.object, q, nrm, d, E, 2, 1, true); }
+  if (local && S.mode === 'online') net.send({ t: 'x', a: 'mw', p: p.toArray().map(r4x), v: d.toArray().map(r4x), n: Math.min(9, n), w: Math.round(Math.min(3000, E)), i: seed >>> 0, f: spread });
+}
 // a board (and the one next to it, half the time) splinters off the window
-function bashBoard(m, d) {
+function bashBoard(m, d, two) {
+  if (S.mode === 'online' && (!S.R || S.R.ph !== 'live' || matchFrozen())) return;
   const i = m.userData.board, w = TOWN.windows[i]; if (!w || !w.boards) return;
   const k = w.boards.indexOf(m); if (k < 0) return;
   boardBreak(i, k, d); net.send({ t: 'sg', a: 'bk', i, k });
-  if (Math.random() < 0.5) { const k2 = w.boards.findIndex((b, j) => b && j !== k && Math.abs(j - k) === 1); if (k2 >= 0) { boardBreak(i, k2, d); net.send({ t: 'sg', a: 'bk', i, k: k2 }); } }
+  if (two || Math.random() < 0.5) { const k2 = w.boards.findIndex((b, j) => b && j !== k && Math.abs(j - k) === 1); if (k2 >= 0) { boardBreak(i, k2, d); net.send({ t: 'sg', a: 'bk', i, k: k2 }); } }
 }
 // someone punched us
 function onPunched(m) {
@@ -357,5 +365,5 @@ function keepSlot() {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { TV, bashBoard, bashK, ez, keepSlot, meleeBash, onPunched, punchMark, seg, updateBash, updateFists, vmTools };
+export { TV, bashBoard, bashK, ez, keepSlot, meleeBash, meleeWall, onPunched, punchMark, seg, updateBash, updateFists, vmTools };
 // ---- end module exports ----

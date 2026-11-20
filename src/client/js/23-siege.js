@@ -112,7 +112,7 @@ function boardBreak(i, k, d, quiet) {
   const m = w.boards[k]; w.boards[k] = null;
   const bx = m.userData.box, gp = m.geometry.parameters, c = m.position.clone(), dir = d ? d.clone() : new V3(0, 0, 1);
   const wi = worldMeshes.indexOf(m); if (wi >= 0) worldMeshes.splice(wi, 1); const ci = colliders.indexOf(bx); if (ci >= 0) colliders.splice(ci, 1);
-  m.removeFromParent(); if (m.material) { if (m.material.map) m.material.map.dispose(); m.material.dispose(); } m.geometry.dispose();
+  m.removeFromParent(); if (m.material) { if (m.material.map && !m.material.map.userData.shared) m.material.map.dispose(); m.material.dispose(); } m.geometry.dispose();
   if (m.customDepthMaterial) m.customDepthMaterial.dispose(); const G = m.userData.grid; if (G) { if (G.tex) G.tex.dispose(); if (G.stex) G.stex.dispose(); }
   // holes and marks shot into it go with it
   for (let q = decals.length - 1; q >= 0; q--) { const dc = decals[q], p = dc.position; if (p.x > bx.min.x - 0.05 && p.x < bx.max.x + 0.05 && p.y > bx.min.y - 0.05 && p.y < bx.max.y + 0.05 && p.z > bx.min.z - 0.05 && p.z < bx.max.z + 0.05) { scene.remove(dc); decals.splice(q, 1); if (dc.geometry && dc.geometry !== splatGeo) dc.geometry.dispose(); } }
@@ -151,7 +151,7 @@ function siegeBlast(p, W) {
     const q = _sgV.set(clamp(p.x, bx.min.x, bx.max.x), clamp(p.y, bx.min.y, bx.max.y), clamp(p.z, bx.min.z, bx.max.z));
     if (q.distanceTo(p) > 0.6) continue;
     worldMeshes.splice(i, 1); const ci = colliders.indexOf(bx); if (ci >= 0) colliders.splice(ci, 1);
-    m.removeFromParent(); m.geometry.dispose(); m.material.map && m.material.map.dispose(); m.material.dispose();
+    m.removeFromParent(); m.geometry.dispose(); m.material.map && !m.material.map.userData.shared && m.material.map.dispose(); m.material.dispose();
     if (net.mode === 'host' && net.host && net.host.R) { const R = net.host.R, c = [(bx.min.x + bx.max.x) / 2, bx.min.y, (bx.min.z + bx.max.z) / 2]; R.sgw = R.sgw.filter(e => !(e[0] === 'rf' && Math.abs(e[1][0] - c[0]) < 0.01 && Math.abs(e[1][1] - c[1]) < 0.01 && Math.abs(e[1][2] - c[2]) < 0.01)); }
     noiseHit(500, 0.2, 0.15);
   }

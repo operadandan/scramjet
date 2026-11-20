@@ -1,8 +1,12 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { V3, renderer, scene } from './00-setup.js';
+import { IMG_TEX } from './00b-images.js';
+import { nz } from './12b-gore.js';
 import { DOOR_FW, DOOR_H, DOOR_W, addDoor, clearDoors } from './15b-doors.js';
+import { P } from './17-dummies.js';
 import { seg } from './19c-toolvm.js';
+import { clearStructure } from './30-structure.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- textures / materials
 function canvasTex(draw, size, repeat) {
@@ -31,7 +35,24 @@ const TEX = {
   crate: makeTex((g, s) => { speckle(g, s, '#7a5a36', 0.18, 3000); g.fillStyle = 'rgba(0,0,0,0.25)'; for (let i = 0; i < 6; i++) g.fillRect(0, i * s / 6, s, 3); g.strokeStyle = '#4d3820'; g.lineWidth = 14; g.strokeRect(7, 7, s - 14, s - 14); g.beginPath(); g.moveTo(10, 10); g.lineTo(s - 10, s - 10); g.stroke(); }),
   metal: makeTex((g, s) => { speckle(g, s, '#9a9a9a', 0.12, 2500); for (let i = 0; i < s; i += 16) { g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(i, 0, 5, s); g.fillStyle = 'rgba(255,255,255,0.1)'; g.fillRect(i + 7, 0, 3, s); } })
 };
-const SURF = { concrete: 'concrete', ground: 'dirt', grid: 'concrete', crate: 'wood', metal: 'metal', plywood: 'wood', drywall: 'concrete' };
+// the two image textures (brick for the house's outside skin, planks for every wooden sheet: boards, fences, plywood)
+{ const L = new THREE.TextureLoader(); for (const k of ['brick', 'planks']) { const t = L.load(IMG_TEX[k]); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; TEX[k] = t; } }
+for (const k in TEX) TEX[k].userData.shared = true;
+// how big one repeat of each texture is in the world (metres across, metres up): textures keep their real size on every face
+// of every box, whatever its size, and run on round corners (the end of a wall shows the ends of its bricks)
+const TEX_M = { concrete: [2.5, 2.5], ground: [4, 4], grid: [4, 4], crate: [1.6, 1.6], metal: [1.2, 1.2], brick: [0.92, 0.6], planks: [1.7, 1.05] };
+const TEX_OF = { plywood: 'planks', drywall: 'concrete', brick: 'brick' };
+function worldUV(geo, cx, cy, cz, key) {
+  const [tu, tv] = TEX_M[key] || [2.5, 2.5], P = geo.attributes.position, N = geo.attributes.normal, U = geo.attributes.uv;
+  for (let i = 0; i < P.count; i++) {
+    const x = P.getX(i) + cx, y = P.getY(i) + cy, z = P.getZ(i) + cz, nx = N.getX(i), ny = N.getY(i), nz = N.getZ(i);
+    if (Math.abs(nx) > 0.5) U.setXY(i, (nx > 0 ? -z : z) / tu, y / tv);
+    else if (Math.abs(nz) > 0.5) U.setXY(i, (nz > 0 ? x : -x) / tu, y / tv);
+    else U.setXY(i, x / tu, z / tv);
+  }
+  U.needsUpdate = true;
+}
+const SURF = { brick: 'concrete', concrete: 'concrete', ground: 'dirt', grid: 'concrete', crate: 'wood', metal: 'metal', plywood: 'wood', drywall: 'concrete' };
 const matCache = {};
 function mat(color, rough, metal) {
   rough = rough === undefined ? 0.85 : rough; metal = metal || 0;
@@ -65,14 +86,14 @@ let spawns = [new V3()];
 function clearWorld() {
   // (the old materials go a few seconds later, once the new world has been drawn: let go now, the shader they share would be
   // thrown away and built again, a hitch at the start of every round)
-  const mats = new Set(); worldGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material.map) o.material.map.dispose(); if (o.material && !Array.isArray(o.material) && !o.material.userData.shared) mats.add(o.material); });
+  const mats = new Set(); worldGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material.map && !o.material.map.userData.shared) o.material.map.dispose(); if (o.material && !Array.isArray(o.material) && !o.material.userData.shared) mats.add(o.material); });
   setTimeout(() => { for (const m of mats) m.dispose(); }, 4000);
   scene.remove(worldGroup); worldGroup = new THREE.Group(); scene.add(worldGroup);
-  colliders.length = 0; worldMeshes.length = 0; if (typeof clearDoors === 'function') clearDoors();
+  colliders.length = 0; worldMeshes.length = 0; if (typeof clearDoors === 'function') clearDoors(); if (typeof clearStructure === 'function') clearStructure();
 }
-function addBox(x, y, z, w, h, d, kind, color) {
-  const t = TEX[kind === 'plywood' ? 'crate' : kind === 'drywall' ? 'concrete' : kind].clone(); t.needsUpdate = true; t.repeat.set(Math.max(w, d) / 2.5, Math.max(h, 0.5) / 2.5);
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({
+function addBox(x, y, z, w, h, d, kind, color, tex) {
+  const key = tex || TEX_OF[kind] || kind, t = TEX[key], geo = new THREE.BoxGeometry(w, h, d); worldUV(geo, x, y + h / 2, z, key);
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
     map: t, color: color || 0xffffff, roughness: kind === 'metal' ? 0.55 : 0.92, metalness: kind === 'metal' ? 0.35 : 0
   }));
   m.position.set(x, y + h / 2, z); m.castShadow = true; m.receiveShadow = true;
@@ -174,5 +195,5 @@ function tpCyl(M, rad, len, c, parent, x, y, z, seg, r, m) {
 function mark(parent, x, y, z) { const o = new THREE.Object3D(); o.position.set(x, y, z); parent.add(o); return o; }
 
 // ---- module exports: build.mjs strips this block ----
-export { GM, RANGE_DISTS, RANGE_X, SURF, TEX, addBox, addGround, buildTest, canvasTex, clearWorld, colliders, fineNoise, makeTex, mark, mat, shadowMat, spawns, stipple, tpBox, worldGroup, worldMeshes };
+export { GM, RANGE_DISTS, RANGE_X, SURF, TEX, addBox, addGround, buildTest, canvasTex, clearWorld, colliders, fineNoise, makeTex, mark, mat, shadowMat, spawns, stipple, tpBox, worldGroup, worldMeshes, worldUV };
 // ---- end module exports ----

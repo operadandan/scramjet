@@ -1,7 +1,7 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { V3, camera, clamp, scene } from './00-setup.js';
-import { SURF, TEX, addBox, colliders, worldGroup, worldMeshes } from './01-world.js';
+import { SURF, TEX, addBox, colliders, worldGroup, worldMeshes, worldUV } from './01-world.js';
 import { _Y } from './04-ragdoll.js';
 import { blip, noiseHit } from './10-audio.js';
 import { impactFx } from './11-fx.js';
@@ -53,8 +53,8 @@ function addDoor(x, z, rot, kind, hingeSide, lock, y0) {
   }
   // the leaf turns about its hinge edge: a pivot at that edge holds it
   d.pivot = new THREE.Group(); d.pivot.position.set(d.hs * DOOR_W / 2, 0, 0); g.add(d.pivot);
-  const t = TEX[K.leaf === 'plywood' ? 'crate' : 'metal'].clone(); t.needsUpdate = true; t.repeat.set(0.4, 0.9);
-  const leaf = new THREE.Mesh(new THREE.BoxGeometry(DOOR_W - 0.01, DOOR_H - 0.01, K.t, kind === 'metal' ? 9 : 1, kind === 'metal' ? 20 : 1, 1),
+  const t = TEX[K.leaf === 'plywood' ? 'planks' : 'metal'], lg = new THREE.BoxGeometry(DOOR_W - 0.01, DOOR_H - 0.01, K.t, kind === 'metal' ? 9 : 1, kind === 'metal' ? 20 : 1, 1); worldUV(lg, 0, 0, 0, K.leaf === 'plywood' ? 'planks' : 'metal');
+  const leaf = new THREE.Mesh(lg,
     new THREE.MeshStandardMaterial({ map: t, color: K.color, roughness: kind === 'metal' ? 0.5 : 0.9, metalness: kind === 'metal' ? 0.45 : 0 }));
   leaf.position.set(-d.hs * DOOR_W / 2, DOOR_H / 2, 0); leaf.castShadow = leaf.receiveShadow = true;
   leaf.userData.surf = SURF[K.leaf]; leaf.userData.kind = K.leaf; leaf.userData.door = d;

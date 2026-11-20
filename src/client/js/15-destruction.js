@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
 import { GFX, V3, clamp, renderer, rnd, scene } from './00-setup.js';
 import { canvasTex, colliders, mat } from './01-world.js';
+import { slab } from './01b-town.js';
 import { _Y, _a } from './04-ragdoll.js';
 import { isPistol, isShotgun } from './06-weapons.js';
 import { noiseHit } from './10-audio.js';
@@ -13,6 +14,7 @@ import { CAL, FABRIC_IN, HOLE_JAG, _hm, _sUp, boxExit, cutHole, dropSplat, exitT
 import { P } from './17-dummies.js';
 import { pointBlocked } from './18-player.js';
 import { frame } from './22-menu-loop.js';
+import { structDirty } from './30-structure.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- backpack: rounds tear straight through the fabric and carry on
 // a round stopped by the plate still tears the carrier: a ragged hole in the fabric with the plate showing through
@@ -45,9 +47,10 @@ const DESTR = {
   plywood:  { hp: 600, grow: 0.09, rmax: 0.8, col: 0xc89c66, inner: 0x6a4a28, pit: 0x6a4a28, deb: 'wood', dust: 0xb48c5c, snd: [900, 0.07] },
   wood:     { hp: 2600, grow: 0.07, rmax: 0.5, col: 0xa0784a, inner: 0x3a2614, pit: 0x3a2614, deb: 'wood', dust: 0x8a6a45, snd: [800, 0.07] },
   drywall:  { hp: 800, grow: 0.11, rmax: 0.9, col: 0xe8e4dc, inner: 0x8f8a80, pit: 0xb9b3a8, deb: 'plaster', dust: 0xeeeae4, snd: [1100, 0.06] },
+  brick:    { hp: 9000, grow: 0.09, rmax: 0.55, col: 0x9a5a44, inner: 0x7a4232, pit: 0x8a4a3a, deb: 'rock', dust: 0xb0806a, snd: [1300, 0.07] },
   concrete: { hp: 24000, grow: 0.09, rmax: 0.55, col: 0x9d988f, inner: 0x6e6a62, pit: 0x7c776e, deb: 'rock', dust: 0xb8b2a6, snd: [1400, 0.07] }
 };
-const DESTR_OF = { plywood: 'plywood', crate: 'wood', drywall: 'drywall', concrete: 'concrete' };
+const DESTR_OF = { brick: 'brick', plywood: 'plywood', crate: 'wood', drywall: 'drywall', concrete: 'concrete' };
 const BRK = 32, PIT0 = 32, SLOTS = 48;
 
 // ---------------------------------------------------------------- what is left of a wall
@@ -70,7 +73,7 @@ function wallGrid(mesh) {
   const b = ud.box, touch = (x, y, z) => b.min.y <= 0.02 && y < 0.01 ? true : colliders.some(c => c !== b && x > c.min.x - 0.01 && x < c.max.x + 0.01 && y > c.min.y - 0.01 && y < c.max.y + 0.01 && z > c.min.z - 0.01 && z < c.max.z + 0.01);
   const ctr = mesh.position, hs = (k, s) => ctr.getComponent(k) + s * (dims[k] / 2 + 0.02), side = s => [0.2, 0.5, 0.8].some(f => { const p = ctr.clone(); p.setComponent(a1, hs(a1, s)); p.y = b.min.y + dims[1] * f; return touch(p.x, p.y, p.z); });
   G.hold = ud.door ? { bottom: false, top: false, s0: ud.door.hs < 0, s1: ud.door.hs > 0 }   // a door's leaf hangs on its hinge edge only
-    : { bottom: b.min.y <= 0.02 || touch(ctr.x, b.min.y - 0.02, ctr.z), top: touch(ctr.x, b.max.y + 0.02, ctr.z), s0: side(-1), s1: side(1) };
+    : { bottom: b.min.y <= 0.02 || touch(ctr.x, b.min.y - 0.02, ctr.z), top: false, s0: side(-1), s1: side(1) };
   return ud.grid = G;
 }
 // local wall coordinates of a world point (walls are never rotated; a door's leaf is, so it goes through its own frame)
@@ -182,7 +185,7 @@ NO_MASK.hMask.value.needsUpdate = true;
 const MASK_DECL = '\nuniform sampler2D hShr; uniform sampler2D hMask; uniform vec4 hMP; uniform vec3 hS1; uniform vec3 hS2; uniform float hKind; uniform vec4 hTh;\n' + WALL_NOISE + MASK_FN;
 function wallMask(mesh) {
   const G = wallGrid(mesh), m = mesh.material; if (!G || m.userData.hMask) return;
-  G.kind = { plywood: 0, crate: 0, drywall: 1, concrete: 2 }[mesh.userData.kind] || 0;
+  G.kind = { plywood: 0, crate: 0, drywall: 1, concrete: 2, brick: 2 }[mesh.userData.kind] || 0;
   { const gp = mesh.geometry.parameters; G.half = [gp.width, gp.height, gp.depth][G.ax] / 2; }
   const U = maskUniforms(G); Object.assign(m.userData, U); const prev = m.onBeforeCompile;
   m.onBeforeCompile = sh => { prev(sh); Object.assign(sh.uniforms, U); sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vCamL;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvCamL = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz;'); sh.fragmentShader = sh.fragmentShader.replace('uniform vec4 hCut;', 'uniform vec4 hCut;\nvarying vec3 vCamL;' + MASK_DECL).replace('if (dot(vHolePos, hCut.xyz) > hCut.w) discard;', 'if (dot(vHolePos, hCut.xyz) > hCut.w) discard;\n' + MASK_GLSL_IN('vHolePos')).replace('#include <emissivemap_fragment>', WALL_EDGE('vHolePos') + '#include <emissivemap_fragment>'); };
@@ -539,7 +542,7 @@ function settleWall(mesh, G, D, dir, U, V, opened, spd) {
   q.set(0, 0, 0); q.setComponent(G.a1, U); q.setComponent(G.a2, V);
   dust(mesh.localToWorld(q.clone()), fw, D.dust, 0.4 + Math.sqrt(area) * 6, 0.6, 2.2);
   ud.brokeT = performance.now();
-  updateWallGrid(mesh, D, dir);
+  updateWallGrid(mesh, D, dir); structDirty();
   for (const c of ud.dmg || []) c.chips = c.chips.filter(ch => { q.set(0, 0, 0); q.setComponent((c.ax + 1) % 3, ch.u); q.setComponent((c.ax + 2) % 3, ch.v); if (gridOpenW(mesh, mesh.localToWorld(q.clone()))) { dropDecal(ch.m); return false; } return true; });
   if (D.deb === 'rock' && thick > 0.12) rebuildRebar(mesh, G, thick);
 }
@@ -599,5 +602,5 @@ function updateFx(dt) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { DEB_POOLS, DESTR, DESTR_OF, REBAR_GEO, REBAR_MAT, SLOTS, _sh, cutSlot, debris, dust, edgeClipMat, gridOpenW, gridPass, holePass, markPlate, packHit, pick, ragHitInfo, settleWall, spawnDebris, updateDebris, updateFx, wallClipMat, wallDamage, wallGrid, wallMask, warmShaders };
+export { DEB_POOLS, DESTR, DESTR_OF, REBAR_GEO, REBAR_MAT, SLOTS, _sh, cutSlot, debris, dust, edgeClipMat, gridOpenW, gridPass, holePass, markPlate, packHit, pick, ragHitInfo, settleWall, shade, spawnDebris, updateDebris, updateFx, wallClipMat, wallDamage, wallGrid, wallMask, warmShaders };
 // ---- end module exports ----

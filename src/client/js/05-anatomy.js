@@ -505,5 +505,5 @@ function makeLabel(text, color) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { Anatomy, DEATH_TEXT, LIMB_NAME, LIMB_OF, LSEG, PART_OF_REGION, REGION_NAME, STRUCTS_BY_FRAME, hitToFrame, makeBodyPanel, makeLabel, pathDist, regionOf };
+export { Anatomy, DEATH_TEXT, LIMB_NAME, LIMB_OF, LSEG, PART_OF_REGION, REGION_NAME, STRUCTS, STRUCTS_BY_FRAME, S_, hitToFrame, makeBodyPanel, makeLabel, pathDist, regionOf };
 // ---- end module exports ----

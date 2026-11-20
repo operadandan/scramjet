@@ -12,7 +12,7 @@ import { blip, noiseHit } from './10-audio.js';
 import { buildVfgHand } from './14-wounds.js';
 import { bulletTargets } from './16-ballistics.js';
 import { P, S, mouse } from './17-dummies.js';
-import { flashMsg, ray } from './18-player.js';
+import { flashMsg, ray, shotRay } from './18-player.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- attachments
 const ATT = {
@@ -224,20 +224,33 @@ const laserDot = new THREE.Sprite(new THREE.SpriteMaterial({ map: canvasTex((g, 
 laserBeam.visible = laserDot.visible = false; scene.add(laserBeam, laserDot);
 const weaponLight = new THREE.SpotLight(0xfff4e0, 0, 60, 0.32, 0.45, 1.5); scene.add(weaponLight, weaponLight.target);
 const vmLight = new THREE.PointLight(0xfff4e0, 0, 1.2, 2); vmScene.add(vmLight);
-const _lp = new V3(), _ld = new V3(), _lq = new THREE.Quaternion();
+const _lp = new V3(), _ld = new V3(), _lq = new THREE.Quaternion(), _lp2 = new V3();
+// the dot smears when it is swept fast across a surface (the eye holds it a moment): a few fading copies along its path
+const LSM = []; for (let i = 0; i < 5; i++) { const m = laserDot.material.clone(); const sp = new THREE.Sprite(m); sp.visible = false; scene.add(sp); LSM.push(sp); }
+let lsPrev = null;
+function laserSmear(p, len, dir) {
+  for (const sp of LSM) sp.visible = false;
+  if (!p) { lsPrev = null; return; }
+  if (lsPrev) { const d = lsPrev.distanceTo(p), sc = 0.022 + len * 0.0011; if (d > sc * 0.6 && d < 3) for (let i = 0; i < LSM.length; i++) { const k = (i + 1) / (LSM.length + 1), sp = LSM[i]; sp.visible = true; sp.position.copy(p).lerp(lsPrev, k).addScaledVector(dir, -0.01); sp.scale.setScalar(sc * (1 - k * 0.4)); sp.material.opacity = 0.55 * (1 - k); } }
+  lsPrev = (lsPrev || new V3()).copy(p);
+}
 function updateDevices() {
   const W = VMW[P.weapon], on = S.mode && P.alive && !P.downed && P.slot < 2 && W && W.side !== 'none' && P.deviceOn;
   laserBeam.visible = laserDot.visible = false; weaponLight.intensity = 0; vmLight.intensity = 0;
-  if (!on) return;
+  if (!on) { laserSmear(null); return; }
   const part = W.parts.side[W.side]; part.em.getWorldPosition(_lp); W.g.getWorldQuaternion(_lq); _ld.set(0, 0, -1).applyQuaternion(_lq);
   if (W.side === 'laser') {
-    ray.set(_lp, _ld); ray.far = 300;
-    const h = ray.intersectObjects(bulletTargets(), false)[0];
-    const end = h ? h.point : _lp.clone().addScaledVector(_ld, 300), len = _lp.distanceTo(end);
-    laserBeam.visible = true; laserBeam.scale.set(1, len, 1); laserBeam.position.copy(_lp).addScaledVector(_ld, len / 2); laserBeam.quaternion.setFromUnitVectors(_Y, _ld);
-    if (h) { laserDot.visible = true; laserDot.position.copy(h.point).addScaledVector(_ld, -0.01); laserDot.scale.setScalar(0.03 + len * 0.0015); }
+    // zeroed to the gun: the dot sits where a round fired now would land (the same line the shot takes, with the drop at that
+    // range), at every distance. The beam itself is invisible to the eye: only night vision shows it.
+    const SR = shotRay(WEAPONS[P.weapon], W), wv = WEAPONS[P.weapon].vel || 900;
+    ray.set(SR.origin, SR.dir); ray.far = 400; let h = ray.intersectObjects(bulletTargets(), false)[0];
+    if (h && h.distance > 20) { const t = h.distance / (wv * 0.95), drop = 0.5 * 9.81 * t * t, aim = SR.origin.clone().addScaledVector(SR.dir, h.distance).add(_lp2.set(0, -drop, 0)); ray.set(SR.origin, aim.sub(SR.origin).normalize()); h = ray.intersectObjects(bulletTargets(), false)[0] || h; }
+    const end = h ? h.point : SR.origin.clone().addScaledVector(SR.dir, 400), len = _lp.distanceTo(end), nvg = P.head === 'nvg' && P.nvgOn;
+    if (nvg) { _ld.subVectors(end, _lp).normalize(); laserBeam.visible = true; laserBeam.scale.set(1, len, 1); laserBeam.position.copy(_lp).addScaledVector(_ld, len / 2); laserBeam.quaternion.setFromUnitVectors(_Y, _ld); }
+    if (h) { laserDot.visible = true; laserDot.position.copy(h.point).addScaledVector(SR.dir, -0.01); laserDot.scale.setScalar(0.022 + len * 0.0011); laserSmear(h.point, len, SR.dir); }
+    else laserSmear(null);
   } else {
-    weaponLight.intensity = 60; weaponLight.position.copy(_lp); weaponLight.target.position.copy(_lp).addScaledVector(_ld, 10);
+    laserSmear(null); weaponLight.intensity = 110; weaponLight.position.copy(_lp); weaponLight.target.position.copy(_lp).addScaledVector(_ld, 10);
     vmLight.intensity = 0.4; vmLight.position.copy(_lp).addScaledVector(_ld, 0.15);
   }
 }

@@ -1,6 +1,6 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import { $, V3, renderer, scene } from './00-setup.js';
-import { addBox, addGround, clearWorld } from './01-world.js';
+import { addBox, clearWorld } from './01-world.js';
 import { TOWN } from './01b-town.js';
 import { limbBodies, ragdolls } from './04-ragdoll.js';
 import { PRIMARIES, SECONDARIES, WEAPONS, freshGuns } from './06-weapons.js';
@@ -18,6 +18,7 @@ import { clearItems, hlMesh } from './21-items-inventory.js';
 import { CODE_CHARS, setLoadout, startOnline } from './22-menu-loop.js';
 import { siegeClear } from './23-siege.js';
 import { GADGETS, HEADGEAR, clearGadgets } from './27-gadgets.js';
+import { eyeReset } from './29-eyes.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- the match, as each player sees it
 // Between matches (and until there is someone on each team) everyone is on a bare baseplate with empty hands, voting for the
@@ -25,10 +26,9 @@ import { GADGETS, HEADGEAR, clearGadgets } from './27-gadgets.js';
 // then go. First team to 5 rounds wins the match, and it's back to the baseplate.
 const LOBBY_SP = []; for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; LOBBY_SP.push(new V3(Math.cos(a) * 6, 0, Math.sin(a) * 6)); }
 function buildLobby() {
-  clearWorld(); TOWN.windows = []; TOWN.sites = []; TOWN.lamps = [];
-  addGround(180, 'ground');
-  addBox(0, 0, 0, 40, 0.3, 40, 'concrete', 0x9aa0a6);
-  for (const s of [-1, 1]) { addBox(0, 0.3, s * 20.2, 40.8, 1.1, 0.4, 'concrete', 0x6a7078); addBox(s * 20.2, 0.3, 0, 0.4, 1.1, 40, 'concrete', 0x6a7078); }
+  clearWorld(); TOWN.windows = []; TOWN.sites = []; TOWN.lamps = []; TOWN.lampAll = [];
+  // just a baseplate: one big flat slab, nothing on it
+  addBox(0, 0, 0, 120, 0.3, 120, 'concrete', 0x8e959c, 'grid');
   for (let k = 0; k < LOBBY_SP.length; k++) LOBBY_SP[k].y = 0.3;
 }
 // the world each phase is played in
@@ -43,7 +43,7 @@ function goLobbyWorld() {
   buildLobby(); siegeClear(); S.world = 'lobby';
 }
 // on the baseplate: nothing in your hands
-function lobbyStrip() { P.activeLo = [null, null]; P.slot = 4; P.emptySel = 0; P.c4N = 0; P.gN = 0; P.bcN = 0; P.toolB = null; P.fragN = 0; P.medUses = 0; P.defOut = false; }
+function lobbyStrip() { P.activeLo = [null, null]; P.slot = 4; P.emptySel = 0; P.c4N = 0; P.gN = 0; P.bcN = 0; P.toolB = null; P.head = 'none'; eyeReset(); P.fragN = 0; P.medUses = 0; P.defOut = false; }
 const matchFrozen = () => S.mode === 'online' && !!S.R && (S.R.ph === 'load' || (S.R.ph === 'live' && performance.now() < S.R.go));
 
 // ---- the map vote (one map for now)
@@ -105,7 +105,7 @@ function loadoutUI(open) {
 }
 // changed during the loadout phase: in your hands straight away
 function loApply() {
-  if (!P.alive || (S.mode === 'online' && S.R.ph !== 'load')) return;
+  if (!P.alive || P.downed || (S.mode === 'online' && S.R.ph !== 'load')) return;
   P.activeLo = P.loadout.slice(); P.guns = freshGuns(P.activeLo); P.packGuns = []; P.loose = []; P.slot = 0; P.weapon = P.loadout[0]; P.switchT = 0.35; applyGadgets();
 }
 function matchHud() {

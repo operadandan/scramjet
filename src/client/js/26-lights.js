@@ -41,10 +41,8 @@ function toggleFlashlight() { SL.on = !SL.on; blip(SL.on ? 1500 : 1100, 0.015, 0
 function updateLights(dt) {
   if (!P.alive) SL.on = false;
   // ---- mine: on in the dark, off in the light (a little slack either side so it doesn't flicker at the edge)
-  SL.chk -= dt;
-  if (SL.chk <= 0) { SL.chk = 0.4; SL.lvl = S.mode && P.alive ? lightLevel(P.pos) : 1;  }
   const mine = S.mode && P.alive && SL.on && !SFX.spec;
-  shoulderLight.intensity = mine ? 22 : 0;
+  shoulderLight.intensity = mine ? 60 : 0; shoulderLight.distance = 40;
   if (mine) {
     // on the left shoulder, a little below the eyes, pointing where you look
     camera.getWorldDirection(_slD); _slR.set(Math.cos(P.yaw), 0, -Math.sin(P.yaw));
@@ -65,7 +63,7 @@ function updateLights(dt) {
     const fw = _slD.set(-Math.sin(y) * Math.cos(pi), Math.sin(pi), -Math.cos(y) * Math.cos(pi)), rt = _slR.set(Math.cos(y), 0, -Math.sin(y));
     // the shoulder (or the muzzle end of the gun, for a weapon light)
     _slO.copy(r.pos).add(_slT.set(0, 1.62 - (r.st.c || 0) * 0.55 - (wl ? 0.12 : 0.28), 0)).addScaledVector(rt, wl ? 0.18 : -0.2).addScaledVector(fw, wl ? 0.55 : 0.1);
-    L.l.intensity = wl ? 45 : 22; L.l.angle = wl ? 0.32 : 0.48; L.l.position.copy(_slO); L.l.target.position.copy(_slO).addScaledVector(fw, 8);
+    L.l.intensity = wl ? 110 : 60; L.l.distance = 40; L.l.angle = wl ? 0.32 : 0.48; L.l.position.copy(_slO); L.l.target.position.copy(_slO).addScaledVector(fw, 8);
     // the beam itself, seen in the air (longer and plainer in rain and fog)
     const len = 7 + (ENV.fogK || 0) * 6, wdt = Math.tan(L.l.angle) * len * 0.8;
     L.cone.visible = true; L.cone.position.copy(_slO); L.cone.lookAt(_slT.copy(_slO).add(fw)); L.cone.scale.set(wdt, wdt, len);
@@ -75,10 +73,12 @@ function updateLights(dt) {
     const Z = remoteLasers[i], e = las[i];
     if (!e) { Z.beam.visible = Z.dot.visible = false; continue; }
     const r = e[1], y = r.yaw, pi = r.st.pi || 0, fw = _slD.set(-Math.sin(y) * Math.cos(pi), Math.sin(pi), -Math.cos(y) * Math.cos(pi)), rt = _slR.set(Math.cos(y), 0, -Math.sin(y));
-    _slO.copy(r.pos).add(_slT.set(0, 1.5 - (r.st.c || 0) * 0.55, 0)).addScaledVector(rt, 0.2).addScaledVector(fw, 0.6);
+    // the dot goes where they aim (it is zeroed to their gun); the beam from the gun is only seen through night vision
+    _slO.copy(r.pos).add(_slT.set(0, 1.62 - (r.st.c || 0) * 0.55, 0)).addScaledVector(fw, 0.3);
     _slRay.set(_slO, fw); _slRay.far = 120; _slRay.firstHitOnly = true; const h = _slRay.intersectObjects(worldMeshes, false)[0]; _slRay.firstHitOnly = false;
     const len = h ? h.distance : 120;
-    Z.beam.visible = true; Z.beam.scale.set(1, len, 1); Z.beam.position.copy(_slO).addScaledVector(fw, len / 2); Z.beam.quaternion.setFromUnitVectors(_Y, fw);
+    const nvg = P.head === 'nvg' && P.nvgOn, gun = _slT.copy(r.pos).setY(r.pos.y + 1.45 - (r.st.c || 0) * 0.55).addScaledVector(rt, 0.2).addScaledVector(fw, 0.6), end = h ? h.point : _slO.clone().addScaledVector(fw, 120), bl = gun.distanceTo(end), bd = end.clone().sub(gun).normalize();
+    Z.beam.visible = nvg; Z.beam.scale.set(1, bl, 1); Z.beam.position.copy(gun).addScaledVector(bd, bl / 2); Z.beam.quaternion.setFromUnitVectors(_Y, bd);
     Z.dot.visible = !!h; if (h) { Z.dot.position.copy(h.point).addScaledVector(fw, -0.01); Z.dot.scale.setScalar(0.03 + len * 0.0015); }
   }
 }

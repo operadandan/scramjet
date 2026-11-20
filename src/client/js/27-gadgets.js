@@ -3,17 +3,17 @@ import * as THREE from 'three';
 import { V3, camera, clamp, lerp, rnd, scene } from './00-setup.js';
 import { canvasTex, colliders, worldGroup, worldMeshes } from './01-world.js';
 import { decoMat } from './01b-town.js';
-import { hitToFrame } from './05-anatomy.js';
+import { STRUCTS, hitToFrame } from './05-anatomy.js';
 import { laserBeam } from './09-attachments.js';
 import { blip, noiseHit } from './10-audio.js';
 import { impactFx } from './11-fx.js';
-import { DESTR_OF, gridOpenW, wallDamage } from './15-destruction.js';
+import { DESTR_OF, gridOpenW } from './15-destruction.js';
 import { doorDent, doorLaunch, doorNet, hingeOff, knobOff } from './15b-doors.js';
 import { P, S, dummies, mouse } from './17-dummies.js';
 import { flashMsg, hurtFlash, selectEmpty } from './18-player.js';
 import { DEF_TEAM, net } from './19-network.js';
 import { boomL, boomLight, explSeq, explode, los, r3, r4x } from './19b-explosives.js';
-import { TV, bashBoard, punchMark, seg } from './19c-toolvm.js';
+import { TV, bashBoard, meleeWall, punchMark, seg } from './19c-toolvm.js';
 import { screenBlood } from './21b-screenfx.js';
 import { sgDisposeMarker, sgMarker } from './23-siege.js';
 import { matchFrozen } from './28-match.js';
@@ -116,13 +116,13 @@ function gadgetAdd(owner, id, k, p, yaw, team) {
   o.g = gdModel(k); o.g.position.copy(p); o.g.rotation.y = yaw; worldGroup.add(o.g);
   if (k === 'shield') {
     const pl = o.g.userData.plate; o.g.updateMatrixWorld(true);
-    pl.userData.kind = 'metal'; pl.userData.surf = 'metal'; pl.userData.gadget = o.key; pl.userData.box = shieldBoxes(p, yaw)[0]; worldMeshes.push(pl); o.mesh = pl;
+    pl.userData.kind = 'metal'; pl.userData.surf = 'metal'; pl.userData.gadget = o.key; pl.userData.box = (() => { const bs = shieldBoxes(p, yaw), b = { min: bs[0].min.clone(), max: bs[0].max.clone(), mesh: pl }; for (const q of bs) { b.min.min(q.min); b.max.max(q.max); } return b; })(); worldMeshes.push(pl); o.mesh = pl;
     o.segs = shieldBoxes(p, yaw); for (const c of o.segs) { c.mesh = pl; colliders.push(c); }
   }
   if (k === 'bcharge') { o.fuse = 3; noiseHit(1800, 0.05, 0.05); }
   GD.push(o); return o;
 }
-// the shield's footprint: four boxes along the panel (and one over all of it, for the penetration code)
+// the shield's footprint: four boxes along the panel (the plate's own box, for the penetration code, is all four together)
 function shieldBoxes(p, yaw) {
   const f = new V3(-Math.sin(yaw), 0, -Math.cos(yaw)), r = new V3(Math.cos(yaw), 0, -Math.sin(yaw)), out = [];
   for (let i = 0; i < 4; i++) {
@@ -137,7 +137,7 @@ function gdDispose(g) {
   g.traverse(x => {
     if (x.geometry && !x.isSprite && x.geometry !== laserBeam.geometry) x.geometry.dispose();
     const ms = Array.isArray(x.material) ? x.material : x.material ? [x.material] : [];
-    for (const m of ms) if (m !== laserBeam.material && !(m.userData && m.userData.shared)) { if (m.map && m.map !== SMOKE_TEX) m.map.dispose(); m.dispose(); }
+    for (const m of ms) if (m !== laserBeam.material && !(m.userData && m.userData.shared)) { if (m.map && m.map !== SMOKE_TEX && !(m.map.userData && m.map.userData.shared)) m.map.dispose(); m.dispose(); }
   });
 }
 function gadgetRemove(o) {
@@ -155,6 +155,7 @@ function gadgetBlast(p, W) { if (W < 0.1) return; for (const o of GD.slice()) if
 // the breach charge flat on a wall or a door. A ghost shows it, red where it can't go (the shield into a wall, say).
 let gdGhost = null, gdGhostK = '';
 const GHOST_OK = new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.28, depthWrite: false }), GHOST_NO = new THREE.MeshBasicMaterial({ color: 0xff4030, transparent: true, opacity: 0.28, depthWrite: false });
+GHOST_OK.userData.shared = GHOST_NO.userData.shared = true;
 function gdCount(k) { return k === 'bcharge' ? P.bcN : P.gN; }
 function updateGadget(dt, kk) {
   if (typeof TV !== 'undefined' && TV.c4) TV.c4.visible = false;
@@ -171,11 +172,11 @@ function updateGadget(dt, kk) {
   }
   // the shield: never into a wall, a door or another gadget
   if (ok && k === 'shield') for (const c of shieldBoxes(at, yaw)) { c.min.y += 0.05; if (colliders.some(q => q.max.x > c.min.x && q.min.x < c.max.x && q.max.z > c.min.z && q.min.z < c.max.z && q.max.y > c.min.y && q.min.y < c.max.y)) { ok = false; break; } }
-  if (gdGhostK !== k) { if (gdGhost) { gdGhost.removeFromParent(); gdDispose(gdGhost); } gdGhost = gdModel(k); gdGhost.traverse(x => { if (x.isMesh && !x.userData.laser) { x.material = GHOST_OK; x.castShadow = false; } else if (x.userData.laser) x.visible = false; }); scene.add(gdGhost); gdGhostK = k; }
+  if (gdGhostK !== k) { if (gdGhost) { gdGhost.removeFromParent(); gdDispose(gdGhost); } gdGhost = gdModel(k); gdGhost.traverse(x => { if (x.isMesh && !x.userData.laser) { if (x.material && !(x.material.userData && x.material.userData.shared)) x.material.dispose(); x.material = GHOST_OK; x.castShadow = false; } else if (x.userData.laser) x.visible = false; }); scene.add(gdGhost); gdGhostK = k; }
   const show = !!at && P.alive && !matchFrozen();
   gdGhost.visible = show;
   if (show) { gdGhost.position.copy(at); gdGhost.rotation.set(0, yaw, 0); gdGhost.traverse(x => { if (x.isMesh && !x.userData.laser) x.material = ok ? GHOST_OK : GHOST_NO; }); }
-  if (ok && mouse.left && P.semiReady && P.switchT <= 0 && S.locked) {
+  if (ok && mouse.left && P.semiReady && P.switchT <= 0 && S.locked && !matchFrozen() && (S.mode !== 'online' || (S.R && S.R.ph === 'live'))) {
     P.semiReady = false;
     const id = explSeq++, team = S.mode === 'online' ? S.team[S.myId] : 'r';
     gadgetAdd(S.myIdOr0(), id, k, at, yaw, team); if (k === 'bcharge') P.bcN--; else P.gN--; noiseHit(420, 0.08, 0.06);
@@ -213,7 +214,7 @@ function sledgeLand() {
     return;
   }
   noiseHit(rnd(110, 160), 0.18, 0.9);
-  if (ud.board !== undefined) { bashBoard(h.object, d); bashBoard(h.object, d); return; }
+  if (ud.board !== undefined) { bashBoard(h.object, d, true); return; }
   if (ud.door && !ud.door.fly) {
     const D = ud.door; D.sgDmg = (D.sgDmg || 0) + 0.7;
     if (D.kind === 'metal') { const s = D.leaf.worldToLocal(o.clone()).z >= 0 ? 1 : -1; doorDent(D, h.point, 0.5, -s); doorNet({ i: D.i, a: 'dn', p: h.point.toArray().map(r3), k: 0.5, s: -s }); if (D.sgDmg >= 3.5 && !D.fallen) { for (const hg of [...D.hinges]) hingeOff(D, hg.userData.n, d); } }
@@ -222,8 +223,8 @@ function sledgeLand() {
     return;
   }
   if (DESTR_OF[ud.kind] && DESTR_OF[ud.kind] !== 'concrete') {
-    const n = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : d.clone().negate();
-    for (let i = 0; i < 9; i++) { const qq = h.point.clone().add(new V3(rnd(-0.14, 0.14), rnd(-0.14, 0.14), rnd(-0.14, 0.14)).projectOnPlane(n)); wallDamage(h.object, qq, n, d, 2600, 2, 1, true); }
+    if (DESTR_OF[ud.kind] === 'brick') { impactFx(h.point, d.clone().negate(), 'concrete'); return; }
+    meleeWall(h.point, d, 2600, 9, 0.14, (Math.random() * 1e9) | 0, true);
     return;
   }
   impactFx(h.point, d.clone().negate(), 'concrete');
@@ -237,7 +238,8 @@ function updateGadgets(dt) {
     if (o.k === 'alarm' && o.g.userData.led) o.g.userData.led.visible = (now / 500 | 0) % 2 === 0;
     if (o.k === 'bcharge') {
       // the fuse: beeps faster and faster, then the owner sets it off for everyone
-      o.fuse -= dt; const per = o.fuse > 1.5 ? 0.5 : o.fuse > 0.6 ? 0.25 : 0.1; o.beep = (o.beep || 0) - dt;
+      o.fuse -= dt; if (o.fuse < -3) { gadgetRemove(o); continue; }   // (its owner is gone: nobody will set it off)
+      const per = o.fuse > 1.5 ? 0.5 : o.fuse > 0.6 ? 0.25 : 0.1; o.beep = (o.beep || 0) - dt;
       if (o.beep <= 0) { o.beep = per; blip(2200, 0.04, 0.12 / (1 + camera.position.distanceTo(o.p) * 0.15), 'square'); if (o.g.userData.led) o.g.userData.led.visible = !o.g.userData.led.visible; }
       if (o.fuse <= 0 && !o.sprung && (o.owner === S.myIdOr0() || S.mode !== 'online')) {
         o.sprung = true; const p = o.p.clone(), nrm = new V3(Math.sin(o.yaw), 0, Math.cos(o.yaw));
@@ -254,7 +256,7 @@ function updateGadgets(dt) {
       // the jaws close on the leg: it breaks the shin and drops you where you stand (a teammate can free you: revive)
       o.sprung = true; gdSnap(o); P.trapped = { p: o.p.clone(), t: 1e9 };
       const an = P.anat; an.pain = Math.min(100, (an.pain || 0) + 55); an.blood -= 260; hurtFlash(); screenBlood(0.8);
-      try { an.hit('lgL', new V3(0, -0.25, 0), new V3(1, 0, 0), 60, 1); } catch (er) {}
+      try { an.blunt('knL', new V3(0, -0.2, 0), 1.6); an.damage(an.s.tibiaL, STRUCTS.find(x => x.id === 'tibiaL'), 120, 'shinL'); } catch (er) {}
       P.forceDown = true; P.trapDown = true;
       flashMsg('CAUGHT IN A BEAR TRAP<small>Your leg is crushed. A teammate can free you.</small>', 2600);
       net.send({ t: 'x', a: 'gdx', k: 'snap', i: o.id, tg: o.owner });

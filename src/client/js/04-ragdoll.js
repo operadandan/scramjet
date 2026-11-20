@@ -6,7 +6,7 @@ import { Body, HUM_DEFAULT, attachSkin, mergeTree, sph, vcMat } from './02-body-
 import { chunkCopy, chunkIslands, headCrater } from './02b-chunks.js';
 import { WEAPONS } from './06-weapons.js';
 import { ATT_DEFAULT } from './09-attachments.js';
-import { noiseHit } from './10-audio.js';
+import { inside, noiseHit } from './10-audio.js';
 import { decals, puff, splatGeo } from './11-fx.js';
 import { bmat } from './12-blood.js';
 import { addStump, bloodFx, clipGroup, copySegment, feedPool, floorAt, goreBurst, holeInGroup, liquidBlood, setSoak, soakMesh, spawnDrop, tearMesh, trimDecals } from './14-wounds.js';

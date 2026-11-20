@@ -1,11 +1,12 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { V3, camera, clamp, renderer, rnd, scene, sky, sun, sunDir, vmScene, vmSun } from './00-setup.js';
-import { colliders } from './01-world.js';
+import { colliders, worldMeshes } from './01-world.js';
 import { HOUSE, TOWN, lampMat } from './01b-town.js';
 import { noiseHit } from './10-audio.js';
+import { PMAT, particles } from './11-fx.js';
 import { pick } from './15-destruction.js';
-import { S } from './17-dummies.js';
+import { P, S } from './17-dummies.js';
 import { net } from './19-network.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- time of day and weather
@@ -26,7 +27,7 @@ const _fogDay = new THREE.Color(0xb4c2cf), _fogNight = new THREE.Color(0x0a0e15)
 const _sunReal = new V3();
 // the house lights: always there (a light added later would rebuild every shader), only lit at night
 // (one per room the map puts a lamp in: TOWN.lamps; the rest stay dark)
-const houseLights = []; for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xffd8a0, 0, 9, 1.7); l.position.set(0, -50, 0); scene.add(l); houseLights.push(l); }
+const houseLights = []; for (let i = 0; i < 6; i++) { const l = new THREE.PointLight(0xffd8a0, 0, 12, 1.6); l.position.set(0, -50, 0); scene.add(l); houseLights.push(l); }
 // (the lamp shades' glowing material, lampMat, is in 01b-town: the map is built before this file runs)
 // rain: streaks in a box that follows the camera
 const RAIN_N = 2400, rainGeo = new THREE.BufferGeometry(), rainPos = new Float32Array(RAIN_N * 6);
@@ -48,6 +49,14 @@ function envApply(m) {
 }
 // the host tells everyone (when the weather turns, or someone with the command bar changed it)
 function envShare() { if (S.mode === 'online' && net.mode === 'host' && net.host) net.host.broadcast(Object.assign({ t: 'env' }, envSnap())); }
+const LAMP_DEAD = new THREE.MeshStandardMaterial({ color: 0x5a5650, roughness: 0.6 }); LAMP_DEAD.userData.shared = true;
+function lampBreak(i, p, dir) {
+  const L = TOWN.lampAll && TOWN.lampAll[i]; if (!L || L.out) return;
+  L.out = true; L.mesh.material = LAMP_DEAD; L.mesh.scale.set(1, 0.5, 1);
+  const j = worldMeshes.indexOf(L.mesh); if (j >= 0) worldMeshes.splice(j, 1);
+  particles(p, 18, PMAT.spark, 2.5, 0.004, 0.3, 0.6, dir.clone().negate(), 6); particles(p, 14, PMAT.chip, 2, 0.006, 0.8, 0.9, new V3(0, -1, 0));
+  noiseHit(5200, 0.06, 0.25 / (1 + camera.position.distanceTo(p) * 0.2)); noiseHit(2600, 0.12, 0.15 / (1 + camera.position.distanceTo(p) * 0.2));
+}
 function updateEnv(dt) {
   const online = S.mode === 'online', client = online && net.mode !== 'host';
   ENV.tod = (ENV.tod + dt * ENV.rate) % 24;
@@ -66,22 +75,24 @@ function updateEnv(dt) {
   _tmpC.copy(_sunDay).lerp(_sunLow, low * 0.8);
   if (day <= 0.02) _tmpC.copy(_moon);
   sun.color.copy(_tmpC); vmSun.color.copy(_tmpC);
-  const sunI = day > 0.02 ? Math.max(0.6, 4.6 * day) * (1 - cloud * 0.72) : 0.6 * (1 - cloud * 0.5);
+  // (night is really dark: a little moonlight, far less under cloud; inside without a lamp you need a light)
+  const sunI = day > 0.02 ? Math.max(0.15, 4.6 * day) * (1 - cloud * 0.72) : 0.13 * (1 - cloud * 0.7);
   ENV.flash = Math.max(0, ENV.flash - dt * 6);
   sun.intensity = sunI + ENV.flash * 6; vmSun.intensity = sunI * 0.74 + ENV.flash * 4;
-  if (_hemi) _hemi.intensity = _hemiI * (0.55 + day * 0.45) * (1 + cloud * 0.6) + ENV.flash * 0.6;   // (night is dark, but never too dark to play)
-  scene.environmentIntensity = 0.05 + 0.55 * day * (1 - cloud * 0.4); vmScene.environmentIntensity = 0.1 + 0.65 * day * (1 - cloud * 0.4);
+  if (_hemi) _hemi.intensity = _hemiI * (0.05 + day * 0.95) * (1 + cloud * 0.4 * day) + ENV.flash * 0.6;
+  scene.environmentIntensity = 0.012 + 0.55 * day * (1 - cloud * 0.4); vmScene.environmentIntensity = 0.03 + 0.65 * day * (1 - cloud * 0.4);
   // the sky dome: turbid and grey under cloud, dark at night
   const u = sky.material.uniforms; u.sunPosition.value.copy(_sunReal); u.turbidity.value = 7 + cloud * 13; u.rayleigh.value = 1.8 * (1 - cloud * 0.7) + 0.1;
-  renderer.toneMappingExposure = 0.55 * (0.62 + day * 0.38) * (1 - cloud * 0.2) + 0.1 * (1 - day) + ENV.flash * 0.3;
+  renderer.toneMappingExposure = 0.55 * (0.55 + day * 0.45) * (1 - cloud * 0.2) + 0.04 * (1 - day) + ENV.flash * 0.3;
   _tmpC.copy(_fogNight).lerp(_fogDay, day).lerp(_fogGrey, cloud * day * 0.7);
   scene.fog.color.copy(_tmpC); scene.fog.density = fogD;
   // the house lights at dusk
   // the house lights: on through the day too when it is dark out (they are what lights the inside), brighter at night
   const lit = clamp(0.55 + (1 - day) * 0.45 + cloud * 0.15, 0, 1), lamps = (typeof TOWN !== 'undefined' && TOWN.lamps) || [];
-  for (let i = 0; i < houseLights.length; i++) { const l = houseLights[i], q = lamps[i]; if (q && S.mode) { l.position.copy(q); l.intensity = lit * 6; } else l.intensity = 0; }
+  const all = (typeof TOWN !== 'undefined' && TOWN.lampAll) || [];
+  for (let i = 0; i < houseLights.length; i++) { const l = houseLights[i], q = lamps[i], dead = all.some(L => L.li === i && L.out); if (q && S.mode && !dead) { l.position.copy(q); l.intensity = lit * 16; } else l.intensity = 0; }
   lampMat.emissiveIntensity = lamps.length ? lit * 1.6 : 0;
-  ENV.day = day; ENV.cloud = cloud; ENV.fogK = clamp((fogD - 0.002) / 0.02, 0, 1);
+  ENV.day = day; P.envDay = day; ENV.cloud = cloud; ENV.fogK = clamp((fogD - 0.002) / 0.02, 0, 1);
   // rain round the camera, falling and blown with the wind; not under a roof (it is only drawn outdoors)
   const cp = camera.position, inHouse = S.world !== 'lobby' && cp.x > HOUSE.x0 && cp.x < HOUSE.x1 && cp.z > HOUSE.z0 && cp.z < HOUSE.z1 && cp.y < HOUSE.f1 + HOUSE.H + 1;
   const indoor = rain > 0.02 && (inHouse || colliders.some(c => c.min.y > camera.position.y + 0.3 && c.min.y < camera.position.y + 12 && camera.position.x > c.min.x && camera.position.x < c.max.x && camera.position.z > c.min.z && camera.position.z < c.max.z && (c.max.x - c.min.x) > 3 && (c.max.z - c.min.z) > 3));
@@ -105,5 +116,5 @@ function updateEnv(dt) {
 const envClock = () => { const h = Math.floor(ENV.tod), m = Math.floor((ENV.tod - h) * 60); return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'); };
 
 // ---- module exports: build.mjs strips this block ----
-export { ENV, WEATHER, envApply, envClock, envCur, envSet, envShare, envSnap, houseLights, updateEnv };
+export { ENV, WEATHER, envApply, envClock, envCur, envSet, envShare, envSnap, houseLights, lampBreak, updateEnv };
 // ---- end module exports ----
