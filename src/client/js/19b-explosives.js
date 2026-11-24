@@ -23,7 +23,7 @@ import { meleeWall } from './19c-toolvm.js';
 import { WARMING } from './22b-warm.js';
 import { siegeBlast } from './23-siege.js';
 import { GADGETS, GD, flashBang, gadgetBlast, gadgetRemove, gadgetRx, gdKey, gdModel, smokeCloud } from './27-gadgets.js';
-import { blastBoxes, blastSlabs } from './30-structure.js';
+import { blastBoxes, blastSlabs, boxBreakAt } from './30-structure.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- explosives: M112 C4 (slot 3) and the M67 fragmentation grenade (slot 4)
 // Charges are rated in kilograms of TNT. Blast effects scale with Hopkinson's scaled distance Z = d / W^(1/3) (m / kg^1/3):
@@ -841,6 +841,7 @@ function onExplosiveMsg(m) {
   else if (m.a === 'nade' && ok(m.v)) throwNade(m.id, m.i, p, new V3().fromArray(m.v), clamp(Number(m.f) || 4, 0, 6) + 0.5, false, ok(m.w) ? new V3().fromArray(m.w) : null, clamp(Number(m.c) || 0, -0.2, 0.2), m.k);
   else if (m.a === 'chk') chunkRx(m);
   else if (m.a === 'gd') gadgetRx(m);
+  else if (m.a === 'bx' && ok(m.p)) boxBreakAt(new V3().fromArray(m.p));
   else if (m.a === 'mw' && ok(m.p) && ok(m.v)) meleeWall(new V3().fromArray(m.p), new V3().fromArray(m.v).normalize(), clamp(Number(m.w) || 0, 0, 3000), clamp(m.n | 0, 0, 9), clamp(Number(m.f) || 0, 0, 0.2), (Number(m.i) >>> 0) || 1, false);
   else if (m.a === 'boom') {
     const kind = Object.hasOwn(EXPL, m.k) ? m.k : 'frag';

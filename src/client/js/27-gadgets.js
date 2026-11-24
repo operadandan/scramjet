@@ -18,6 +18,7 @@ import { screenBlood } from './21b-screenfx.js';
 import { sgDisposeMarker, sgMarker } from './23-siege.js';
 import { matchFrozen } from './28-match.js';
 import { flashHit } from './29-eyes.js';
+import { boxHit } from './30-structure.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- gadgets
 // Slot 3 holds a gadget, slot 4 a throwable, slot 6 a breaching tool (attackers), plus headgear: picked in the loadout.
@@ -230,13 +231,15 @@ function sledgeLand() {
     else { const kn = D.knob; if (kn && kn.parent && kn.getWorldPosition(new V3()).distanceTo(h.point) < 0.35) knobOff(D, d); }
     return;
   }
-  if (DESTR_OF[ud.kind] && DESTR_OF[ud.kind] !== 'concrete') {
+  if (DESTR_OF[ud.kind]) {
     const masonry = DESTR_OF[ud.kind] === 'brick' || DESTR_OF[ud.kind] === 'concrete';
     meleeWall(h.point, d, 3000, 9, masonry ? 0.12 : 0.2, (Math.random() * 1e9) | 0, true);
     if (masonry) impactFx(h.point, d.clone().negate(), 'concrete');
     return;
   }
-  impactFx(h.point, d.clone().negate(), 'concrete');
+  // (metal and anything else solid: a blow that dents and wears it down until it gives)
+  if (ud.box && !ud.door) boxHit(h.object, 13500, 'own');
+  impactFx(h.point, d.clone().negate(), ud.kind === 'metal' ? 'metal' : 'concrete');
 }
 
 // ---- what the gadgets do (each player works out what happens to themselves)

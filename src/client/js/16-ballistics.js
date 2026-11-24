@@ -340,7 +340,7 @@ function onBulletHit(b, hit, dir, dist) {
   // a ceiling light: the shade and bulb burst, the light goes out (every client sees the same round hit it)
   if (ud.lamp !== undefined && b.frag) return { point: hit.point.clone().addScaledVector(dir, 0.3), dir, v };
   if (ud.lamp !== undefined && !b.frag) { lampBreak(ud.lamp, hit.point, dir); return { point: hit.point.clone().addScaledVector(dir, 0.3), dir, v: v * 0.95 }; }
-  if (ud.box && !ud.door && !ud.grid && !wallGrid(hit.object)) boxHit(hit.object, Eh * 0.6);
+  if (ud.box && !ud.door && !b.frag && !ud.grid && !wallGrid(hit.object)) boxHit(hit.object, Eh * 0.6, b.local ? 'own' : 'peer');   // (fragments and spall, whose paths are random per machine, leave furniture alone)
   if (ud.door && b.local && !b.frag && WEAPONS[b.w].pellets) doorShotgun(ud.door, hit.point, dir, Eh, b.shot);
   if (hit.face) {
     const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);

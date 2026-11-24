@@ -5,10 +5,12 @@ import { colliders, worldMeshes } from './01-world.js';
 import { HOUSE, TOWN } from './01b-town.js';
 import { inside, noiseHit } from './10-audio.js';
 import { decals, splatGeo } from './11-fx.js';
-import { DESTR, DESTR_OF, debris, dust, spawnDebris } from './15-destruction.js';
-import { doorLaunch, doors } from './15b-doors.js';
-import { P, dummies } from './17-dummies.js';
+import { holeify } from './14-wounds.js';
+import { DESTR, DESTR_OF, SLOTS, debris, dust, spawnDebris, wallGrid, wallMask } from './15-destruction.js';
+import { doorLaunch, doorQuiet, doors } from './15b-doors.js';
+import { P, S, dummies } from './17-dummies.js';
 import { flashMsg, hurtFlash, localDeath } from './18-player.js';
+import { net } from './19-network.js';
 import { screenBlood } from './21b-screenfx.js';
 import { boardBreak } from './23-siege.js';
 // ---- end module links ----
@@ -59,22 +61,22 @@ function structCheck() {
   for (const e of els) if (!e.up && !e.failed) { structFall(e.m, e.st); n++; }
   // a door whose wall is gone round it: the frame breaks out and the door falls with it
   for (const d of doors) {
-    if (d.fly || !d.frame.length || !d.frame[0].parent) continue; const fb = d.frame[0].userData.box; if (!fb || !inHouseArea(fb)) continue;
+    if (d.fly || d.fallen || !d.frame.length || !d.frame[0].parent) continue; const fb = d.frame[0].userData.box; if (!fb || !inHouseArea(fb)) continue;
     const c = d.g.position, hold = els.some(e => e.up && !e.failed && !e.m.userData.slab && e.b.max.y > c.y + 0.5 && e.b.min.y < c.y + 2.2 && e.b.max.x > c.x - 0.75 && e.b.min.x < c.x + 0.75 && e.b.max.z > c.z - 0.75 && e.b.min.z < c.z + 0.75);
     if (hold) continue;
     for (const f of d.frame) { const k = worldMeshes.indexOf(f); if (k >= 0) worldMeshes.splice(k, 1); const j = colliders.indexOf(f.userData.box); if (j >= 0) colliders.splice(j, 1); f.visible = false; }
-    doorLaunch(d, new V3(0, -0.5, 0), new V3(0.4, 0, 0.3));
+    doorQuiet(() => doorLaunch(d, new V3(0, -0.5, 0), new V3(0.4, 0, 0.3)));
   }
   // boards nailed across a window come down when the wall they were nailed to is gone
   if (TOWN.windows) TOWN.windows.forEach((w, i) => { if (w.boards) w.boards.forEach((m, k) => { if (!m || !m.userData.box) return; const bb = m.userData.box;
     const ex = { min: bb.min.clone().addScalar(-0.15), max: bb.max.clone().addScalar(0.15) };
-    if (!els.some(e => e.up && !e.failed && !e.m.userData.slab && (e.m.userData.grid || e.m.userData.house !== undefined) && ex.max.x > e.b.min.x && ex.min.x < e.b.max.x && ex.max.y > e.b.min.y && ex.min.y < e.b.max.y && ex.max.z > e.b.min.z && ex.min.z < e.b.max.z)) boardBreak(i, k, new V3(0, -1, 0), false); }); });
+    if (!els.some(e => e.up && !e.failed && !e.m.userData.slab && (e.m.userData.grid || e.m.userData.house !== undefined) && ex.max.x > e.b.min.x && ex.min.x < e.b.max.x && ex.max.y > e.b.min.y && ex.min.y < e.b.max.y && ex.max.z > e.b.min.z && ex.min.z < e.b.max.z)) { boardBreak(i, k, new V3(0, -1, 0), false); if (typeof net !== 'undefined' && net.mode === 'host' && net.host && net.host.R && net.host.R.sgw) net.host.R.sgw.push(['bk', i, k]); } }); });
   if (n >= 3) { noiseHit(120, 1.4, 0.6); noiseHit(60, 2, 0.5); }
 }
 // (demolish takes out everything standing on the ground floor that could hold the house up: walls, posts, the stairs)
 // a piece with nothing under it comes down: out of the solids at once (so what it held is worked out again), then falling
 function structFall(m, st) {
-  const ud = m.userData, b = ud.box; ud.falling = true;
+  const ud = m.userData, b = ud.box; ud.falling = true; if (TOWN.gone) TOWN.gone.push(boxKey(b));
   const i = worldMeshes.indexOf(m); if (i >= 0) worldMeshes.splice(i, 1);
   const j = colliders.indexOf(b); if (j >= 0) colliders.splice(j, 1);
   const w = b.max.x - b.min.x, h = b.max.y - b.min.y, d = b.max.z - b.min.z;
@@ -159,30 +161,73 @@ function blastSlabs(p, W) {
 // ---- solid things that are not wall panels (furniture, posts, the fridge, a skip, slabs) still take damage: each has a
 // strength from its size and what it is made of, rounds, blasts and blows wear it down, and at zero it breaks apart
 const BOX_K = { crate: 1, plywood: 0.6, drywall: 0.8, wood: 1, metal: 4, concrete: 7, brick: 5 };
-function boxHit(m, E) {
-  const ud = m.userData, b = ud.box; if (!b || ud.falling || ud.door || ud.lamp !== undefined || ud.board !== undefined || ud.grid) return;
+// (who: 'peer' for someone else's bullet, which wears it down but never breaks it here, since only the shooter's machine
+// decides that and tells everyone; 'own' for our bullet; nothing for blasts and blows, which every machine works out the same)
+function boxHit(m, E, who) {
+  const ud = m.userData, b = ud.box; if (!b || ud.falling || ud.door || ud.doorFrame || ud.bomb || ud.lamp !== undefined || ud.board !== undefined || ud.grid || wallGrid(m)) return;
   const vol = (b.max.x - b.min.x) * (b.max.y - b.min.y) * (b.max.z - b.min.z); if (vol > 30 || b.max.y - b.min.y > 3.4) return;   // (hedges, the ground)
   if (ud.bhp === undefined) ud.bhp = (3000 + vol * 20000) * (BOX_K[ud.kind] || 1);
+  if (who === 'peer') { ud.bhp = Math.max(1, ud.bhp - E); return; }
   ud.bhp -= E; if (ud.bhp > 0) return;
+  if (who === 'own' && S.mode === 'online') net.send({ t: 'x', a: 'bx', p: [(b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2].map(v => Math.round(v * 1000) / 1000) });
+  boxBreak(m);
+}
+function boxBreak(m) {
+  const ud = m.userData, b = ud.box; if (TOWN.gone) TOWN.gone.push(boxKey(b));
   const i = worldMeshes.indexOf(m); if (i >= 0) worldMeshes.splice(i, 1); const j = colliders.indexOf(b); if (j >= 0) colliders.splice(j, 1);
   ud.falling = true; structLand({ m, b: { min: b.min.clone(), max: b.max.clone() }, kind: ud.kind, footY: b.min.y }); structDirty();
+}
+// someone's round broke a piece of furniture on their machine: it breaks here too
+function boxBreakAt(c) {
+  const m = worldMeshes.find(o => { const u = o.userData, b = u.box; return b && !u.falling && !u.door && !u.bomb && !u.grid && Math.abs((b.min.x + b.max.x) / 2 - c.x) < 0.02 && Math.abs((b.min.y + b.max.y) / 2 - c.y) < 0.02 && Math.abs((b.min.z + b.max.z) / 2 - c.z) < 0.02; });
+  if (m && !wallGrid(m)) boxBreak(m);
 }
 function blastBoxes(p, W) {
   if (W < 0.1) return;
   const r = 2.2 * Math.cbrt(W);
-  for (const m of worldMeshes.slice()) { const ud = m.userData, b = ud.box; if (!b || ud.grid || ud.slab) continue; const q = new V3(clamp(p.x, b.min.x, b.max.x), clamp(p.y, b.min.y, b.max.y), clamp(p.z, b.min.z, b.max.z)), d = q.distanceTo(p); if (d < r) boxHit(m, W * 60000 / (0.15 + d * d)); }
+  for (const m of worldMeshes.slice()) { const ud = m.userData, b = ud.box; if (!b || ud.grid || ud.slab || ud.door || wallGrid(m)) continue; const q = new V3(clamp(p.x, b.min.x, b.max.x), clamp(p.y, b.min.y, b.max.y), clamp(p.z, b.min.z, b.max.z)), d = q.distanceTo(p); if (d < r) boxHit(m, W * 60000 / (0.15 + d * d)); }
 }
 // the host's demolition: every load-bearing wall on the ground floor gives way, one after another along the house, and the
 // rest comes down by itself (the same on every machine: same order, same timing)
 function demolish() {
+  if (TOWN.demolished) return 0; TOWN.demolished = true;
   const walls = worldMeshes.filter(m => { const u = m.userData, b = u.box; return b && !u.door && !u.doorFrame && u.lamp === undefined && b.min.y < 0.05 && ((u.house === 0 && !u.slab && b.max.y > 0.5) || b.max.y > 1.5 && (b.min.x >= HOUSE.x0 - 3 && b.max.x <= HOUSE.x1 + 3 && b.min.z >= HOUSE.z0 - 3 && b.max.z <= HOUSE.z1 + 3)); })
     .sort((a, b) => (a.userData.box.min.x - b.userData.box.min.x) || (a.userData.box.min.z - b.userData.box.min.z));
   noiseHit(70, 2.5, 0.8); noiseHit(140, 1.8, 0.5);
-  walls.forEach((m, i) => setTimeout(() => { if (!m.userData.falling && m.parent) { structFall(m, null); structDirty(); if (i % 6 === 0) noiseHit(rnd(60, 110), 0.8, 0.4); } }, 300 + i * 45));
+  walls.forEach((m, i) => setTimeout(() => { if (!m.userData.falling && m.parent && worldMeshes.includes(m)) { structFall(m, null); structDirty(); if (i % 6 === 0) noiseHit(rnd(60, 110), 0.8, 0.4); } }, 300 + i * 45));
   return walls.length;
+}
+// ---- the house as it is now, for someone joining mid-round: every hole in every wall, and what has fallen or broken
+const boxKey = b => [(b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2].map(v => Math.round(v * 1000) / 1000);
+const byKey = (k, pred) => worldMeshes.find(o => { const u = o.userData, b = u.box; if (!b || u.falling || !pred(o)) return false; const c = boxKey(b); return Math.abs(c[0] - k[0]) < 0.01 && Math.abs(c[1] - k[1]) < 0.01 && Math.abs(c[2] - k[2]) < 0.01; });
+function damageSnap() {
+  const out = [];
+  for (const m of worldMeshes) {
+    const G = m.userData.grid; if (!G || !G.any || m.userData.door || m.userData.falling) continue;
+    const c = G.cell, n = c.length, key = boxKey(m.userData.box); let runs = [];
+    for (let k = 0; k < n;) { if (c[k]) { let e = k; while (e < n && c[e]) e++; runs.push(k, e - k); k = e; if (runs.length >= 160) { out.push(['w', key, runs]); runs = []; } } else k++; }
+    if (runs.length) out.push(['w', key, runs]);
+  }
+  const g = (TOWN.gone || []).slice(); for (let i = 0; i < g.length; i += 60) out.push(['g', g.slice(i, i + 60)]);
+  return out.slice(0, 600);
+}
+function damageApply(s) {
+  if (!Array.isArray(s)) return;
+  const fin = k => Array.isArray(k) && k.length === 3 && k.every(Number.isFinite);
+  if (s[0] === 'w' && fin(s[1]) && Array.isArray(s[2])) {
+    const m = byKey(s[1], o => !o.userData.door && !!wallGrid(o)); if (!m) return; const G = wallGrid(m), D = DESTR[DESTR_OF[m.userData.kind]]; if (!D) return;
+    if (m.userData.holeN === undefined) holeify(m, SLOTS, D.inner); m.userData.holeMax = SLOTS; wallMask(m);
+    const data = G.tex.image.data;
+    for (let r = 0; r + 1 < s[2].length; r += 2) { const a = s[2][r] | 0, L = s[2][r + 1] | 0; for (let k = Math.max(0, a); k < Math.min(G.cell.length, a + L); k++) { G.cell[k] = 1; G.dmg[k] = 1; data[k] = 255; } }
+    G.any = true; G.tex.needsUpdate = true; structDirty();
+  } else if (s[0] === 'g' && Array.isArray(s[1])) {
+    for (const k of s[1]) { if (!fin(k)) continue; const m = byKey(k, o => !o.userData.door && !o.userData.bomb && o.userData.lamp === undefined && o.userData.board === undefined); if (!m) continue;
+      const i = worldMeshes.indexOf(m); worldMeshes.splice(i, 1); const j = colliders.indexOf(m.userData.box); if (j >= 0) colliders.splice(j, 1); m.userData.falling = true; m.visible = false; if (TOWN.gone) TOWN.gone.push(k); }
+    structDirty();
+  }
 }
 function clearStructure() { if (!STRUCT) return; STRUCT.fall.length = 0; STRUCT.dirty = false; }
 
 // ---- module exports: build.mjs strips this block ----
-export { blastBoxes, blastSlabs, boxHit, clearStructure, demolish, structDirty, updateStructure };
+export { blastBoxes, blastSlabs, boxBreakAt, boxHit, clearStructure, damageApply, damageSnap, demolish, structDirty, updateStructure };
 // ---- end module exports ----

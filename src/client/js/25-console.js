@@ -144,7 +144,7 @@ const CMDS = {
   demolish: ['demolish  take out the house\'s supports and watch it come down (host or testing range)', () => {
     if (S.mode === 'test') { conPrint('Bringing it down: ' + demolish() + ' supports gone.'); return; }
     if (net.mode !== 'host' || !net.host) return conPrint('Only the host can do that.', '#ff8a7a');
-    net.host.broadcast({ t: 'demo' }); conPrint('Bringing it down for everyone.');
+    if (net.host.R) net.host.R.demo = true; net.host.broadcast({ t: 'demo' }); conPrint('Bringing it down for everyone.');
   }],
   server: ['server [name <text> | time <0-24> | weather <kind> | win <n> | public <on|off>]  your server\'s settings (host only)', a => {
     if (net.mode !== 'host' || !net.host) return conPrint('Only the host can change the server.', '#ff8a7a');

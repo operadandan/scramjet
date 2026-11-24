@@ -329,6 +329,9 @@ function bashLand() {
 // a fist, a gun butt or a sledgehammer through a soft wall: the same stamps on every machine (one message, a seed for the
 // scatter), so the hole someone smashed is there for everyone
 function meleeWall(p, d, E, n, spread, seed, local) {
+  // (our own blow only lands where the host will take it too, or the hole would be ours alone)
+  if (local && S.mode === 'online') { const now = performance.now(); meleeWall.t = (meleeWall.t || []).filter(t => t > now - 1000);
+    if (!P.alive || (S.R && S.R.ph !== 'live' && S.R.ph !== 'lobby') || matchFrozen() || meleeWall.t.length >= 3) return; meleeWall.t.push(now); }
   // (the one who swung uses exactly what everyone else will get over the network)
   if (local) { p = new V3().fromArray(p.toArray().map(r4x)); d = new V3().fromArray(d.toArray().map(r4x)).normalize(); E = Math.round(Math.min(3000, E)); seed = (seed >>> 0) || 1; }
   _pr.set(p.clone().addScaledVector(d, -0.25), d); _pr.far = 0.6; const h = _pr.intersectObjects(worldMeshes, false).find(x => x.object.userData.box && !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(d, 0.01)))); if (!h) return;

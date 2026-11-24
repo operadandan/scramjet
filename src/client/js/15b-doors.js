@@ -35,6 +35,8 @@ const DOOR_KIND = {
 const _dv = new V3(), _dq = new THREE.Quaternion(), _dRay = new THREE.Raycaster(), _X1 = new V3(1, 0, 0);
 const hingeMat = new THREE.MeshStandardMaterial({ color: 0x9a927e, metalness: 0.85, roughness: 0.35 }); hingeMat.userData.shared = true;
 let DOOR_RX = false;   // applying a door message from someone else: nothing goes back out
+// (something every machine works out for itself happens to a door: nobody needs telling)
+function doorQuiet(fn) { const rx = DOOR_RX; DOOR_RX = true; try { fn(); } finally { DOOR_RX = rx; } }
 const doorNet = m => { if (S.mode === 'online' && !DOOR_RX) net.send(Object.assign({ t: 'door' }, m)); };
 const r3d = x => Math.round(x * 1000) / 1000;
 
@@ -445,5 +447,5 @@ function doorApplySnap(list) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { DOOR_FW, DOOR_H, DOOR_W, addDoor, clearDoors, doorApplySnap, doorAt, doorBlast, doorDent, doorHint, doorKeyDown, doorKeyUp, doorLaunch, doorLeft, doorNet, doorPartHit, doorRx, doorShotgun, doorSnap, doors, hingeOff, knobOff, updateDoors };
+export { DOOR_FW, DOOR_H, DOOR_W, addDoor, clearDoors, doorApplySnap, doorAt, doorBlast, doorDent, doorHint, doorKeyDown, doorKeyUp, doorLaunch, doorLeft, doorNet, doorPartHit, doorQuiet, doorRx, doorShotgun, doorSnap, doors, hingeOff, knobOff, updateDoors };
 // ---- end module exports ----

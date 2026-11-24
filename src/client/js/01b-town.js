@@ -116,7 +116,7 @@ function slab(cx, y, cz, w, h, d, kind, col) {
 }
 function buildTown(pair) {
   clearWorld();
-  TOWN.windows = []; TOWN.sites = []; TOWN.def = []; TOWN.atk = []; TOWN.lamps = []; TOWN.lampAll = [];
+  TOWN.windows = []; TOWN.demolished = false; TOWN.gone = []; TOWN.sites = []; TOWN.def = []; TOWN.atk = []; TOWN.lamps = []; TOWN.lampAll = [];
   addGround(180, 'ground'); { const g = worldMeshes[worldMeshes.length - 1], t = TOWN_TEX.grass.clone(); t.needsUpdate = true; t.repeat.set(60, 60); g.material.map = t; }
   const E = 46;
   // the street out front, the side road to the west, pavements, the drive and the path

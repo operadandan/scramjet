@@ -27,7 +27,7 @@ import { ENV, WEATHER, envApply, envSet, envShare, envSnap } from './24-env.js';
 import { lightState } from './26-lights.js';
 import { clearGadgets } from './27-gadgets.js';
 import { LOBBY_SP, goLobbyWorld, loadoutUI, lobbyStrip } from './28-match.js';
-import { demolish } from './30-structure.js';
+import { damageApply, damageSnap, demolish } from './30-structure.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- transport (Durable Object websocket, or peer-to-peer WebRTC with the room creator as host)
 const net = {
@@ -82,15 +82,18 @@ class HostRoom {
   constructor(snap) {
     this.players = new Map(); this.nextId = snap ? snap.myId : 1; this.cfg = Object.assign({ name: 'BREACH server', mode: 'siege', win: 5, max: MAX_P2P, tod: 6.4, weather: 'rain', pub: 0 }, S.cfg || {}); this.rInit();
     this.self = this.add(null);
-    if (snap) { this.migT = Date.now(); this.nextId = Math.max(this.nextId, ...snap.ids.map(i => i + 1)); this.rResume(snap); }
+    if (snap) { this.migT = Date.now(); this.nextId = Math.max(this.nextId, ...snap.ids.map(i => i + 1)); this.migIds = new Set(snap.ids.filter(i => i !== snap.myId)); this.migPl = snap.pl || {}; this.rResume(snap); }
   }
   rResume(sn) {
     const R = this.R, m = sn.r || {}, now = Date.now(), el = sn.age || 0;
     Object.assign(R, { n: m.n | 0, ph: ['lobby', 'load', 'live', 'post'].includes(m.ph) ? m.ph : 'lobby', sc: m.sc || { r: 0, b: 0 }, sp: m.sp | 0, carrier: m.dfz || null, dz: m.dz || null, sgw: Array.isArray(m.sgw) ? m.sgw.slice() : [], found: Array.isArray(m.fd) ? m.fd.slice() : [] });
     R.end = m.left > 0 ? now + Math.max(1000, m.left - el) : 0; R.go = m.go > 0 ? now + Math.max(0, m.go - el) : (R.ph === 'live' ? now : 0);
     R.gd = {}; for (const g of m.gdw || []) if (Array.isArray(g)) R.gd[g[0] + ':' + g[1]] = { o: g[0], i: g[1], k: g[2], p: g[3], f: g[4], team: g[5], sn: g[6] };
+    R.demo = !!m.demo;
+    // (what each player has already used this round is worked out again from what is down, so the limits carry on too)
+    R.bkSet = {}; const gen = {}; for (const e of R.sgw) { if (!Array.isArray(e)) continue; if (e[0] === 'bd') gen[e[1]] = (gen[e[1]] || 0) + 1; else if (e[0] === 'bk') R.bkSet[e[1] + ':' + e[2] + ':' + (gen[e[1]] || 0)] = 1; }
     if (m.pl && m.pl.site) R.plant = { site: m.pl.site, end: now + Math.max(1000, (m.pl.left || 0) - el), by: 0 };
-    this.self.team = sn.tm; this.self.alive = sn.alive; this.self.life = sn.life; this.self.ready = true; this.self.name = S.myName;
+    this.self.team = sn.tm; this.self.alive = sn.alive; this.self.life = sn.life; this.self.ready = true; this.self.name = S.myName; this.used(this.self);
     // the clocks start again where they were
     const n = R.n, left = Math.max(500, R.end - now);
     if (R.ph === 'load') this.rTimer(left, () => { if (R.n === n && R.ph === 'load') this.rGo(); });
@@ -100,6 +103,8 @@ class HostRoom {
     } else if (R.ph === 'post') { const over = R.sc.r >= this.cfg.win || R.sc.b >= this.cfg.win; this.rTimer(left, () => over ? this.rLobby() : this.rStart()); }
     else setTimeout(() => { if (net.host === this) this.rCheck(); }, 8000);
   }
+  // gadgets and reinforcements a player already put down this round (after a host move)
+  used(p) { const R = this.R; p.gdN = {}; for (const g of Object.values(R.gd || {})) if (g.o === p.id) p.gdN[g.k] = (p.gdN[g.k] || 0) + 1; p.rfN = (R.sgw || []).filter(e => e[0] === 'rf' && e[2] === p.id).length; }
   add(peer) { const p = { id: this.nextId++, peer, name: '', ready: false, alive: false, state: null, lastHit: 0, kills: 0, deaths: 0 }; this.players.set(p.id, p); return p; }
   deliver(p, s, fast) {
     if (!p.peer) { const m = JSON.parse(s); queueMicrotask(() => { if (net.mode === 'host') onNet(m); }); return; }
@@ -115,13 +120,16 @@ class HostRoom {
       case 'hello': {
         if (p.ready) return;
         // someone carrying on after their host left: they keep their id, side, life and score (only just after a move)
-        const mig = m.mig && this.migT && Date.now() - this.migT < 60000 && Number.isInteger(m.want) && m.want > 0 && m.want < 1000 && !this.players.has(m.want);
-        if (mig) { this.players.delete(p.id); p.id = m.want; this.players.set(p.id, p); this.nextId = Math.max(this.nextId, p.id + 1); }
+        // (only an id that was in the room when the host left, once each; side, life and score are what this machine saw, not what
+        // the one joining says)
+        const mig = m.mig && this.migT && Date.now() - this.migT < 60000 && Number.isInteger(m.want) && this.migIds && this.migIds.has(m.want) && !this.players.has(m.want);
+        if (mig) { this.migIds.delete(m.want); this.players.delete(p.id); p.id = m.want; this.players.set(p.id, p); this.nextId = Math.max(this.nextId, p.id + 1); }
         p.name = String(m.name || '').replace(/[<>]/g, '').slice(0, 16) || ('Op' + p.id); p.ready = true;
-        p.team = mig && (m.tm === 'r' || m.tm === 'b') ? m.tm : this.rTeam();
-        if (mig) { p.alive = !!m.alive; p.life = m.life | 0; p.kills = m.k | 0; p.deaths = m.d | 0; }
+        const was = mig ? this.migPl[p.id] || {} : null;
+        p.team = mig && (was.tm === 'r' || was.tm === 'b') ? was.tm : this.rTeam();
+        if (mig) { p.alive = !!was.alive; p.life = m.life | 0; p.kills = was.k | 0; p.deaths = was.d | 0; this.used(p); }
         const players = [...this.players.values()].filter(x => x.ready).map(x => ({ id: x.id, name: x.name, alive: x.alive, state: x.state, k: x.kills, d: x.deaths, tm: x.team }));
-        this.send(p, { t: 'welcome', id: p.id, host: this.self.id, cfg: this.cfg, players, r: this.rMsg() });
+        this.send(p, { t: 'welcome', id: p.id, host: this.self.id, cfg: this.cfg, tk: net.tk, mig: mig ? 1 : 0, players, r: this.rMsg() });
         this.broadcast({ t: 'join', id: p.id, name: p.name, tm: p.team }, p);
         // mid-round: waits for the next one
         if (!mig && (this.R.ph === 'lobby' || this.R.ph === 'load')) this.spawn(p);
@@ -137,12 +145,14 @@ class HostRoom {
       case 'idrop': { const s = JSON.stringify(m); if (p.ready && s.length < 600 && m.it && typeof m.it === 'object') this.broadcast({ t: 'idrop', it: m.it, p: m.p, v: m.v }, p); break; }
       case 'itake': if (p.ready) this.broadcast({ t: 'itake', iid: Number(m.iid) || 0 }, p); break;
       case 'door': if (p.ready && Number.isInteger(m.i) && m.i >= 0 && m.i < 64 && JSON.stringify(m).length < 300) { m.id = p.id; this.broadcast(m, p); } break;
+      case 'wsnap': { const tg = this.players.get(m.to); if (p.ready && tg && tg !== p && Array.isArray(m.s) && JSON.stringify(m).length < 1900) this.send(tg, { t: 'wsnap', s: m.s }); break; }
       case 'dsnap': { const tg = this.players.get(m.to); if (p.ready && tg && tg !== p && Array.isArray(m.s) && JSON.stringify(m).length < 1900) this.send(tg, { t: 'dsnap', s: m.s }); break; }
       case 'vote': if (p.ready && this.R.ph === 'lobby' && m.map === 'house') { this.R.votes[p.id] = 'house'; this.broadcast(this.rMsg()); } break;
       case 'sg': if (JSON.stringify(m).length < 400) this.sgMsg(p, m); break;
       case 'chat': if (p.ready && typeof m.s === 'string' && m.s.trim() && (p.chatT || 0) < Date.now() - 500) { p.chatT = Date.now(); this.broadcast({ t: 'chat', id: p.id, s: m.s.slice(0, 120) }, p); } break;
-      case 'x': if (p.ready && JSON.stringify(m).length < 600 && ['c4p', 'c4t', 'nade', 'boom', 'chk', 'gd', 'gdx', 'mw'].includes(m.a) && !this.frozen() && this.xGuard(p, m)) this.broadcast({ t: 'x', id: p.id, a: m.a, k: ['c4', 'frag', 'smoke', 'flash', 'teargas', 'bcharge', 'claymore', 'beartrap', 'wire', 'shield', 'alarm', 'snap', 'rustle'].includes(m.k) ? m.k : 'frag', i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0, w: m.w, c: Number(m.c) || 0, tg: Number.isFinite(m.tg) ? m.tg : undefined, tp: Number(m.tp) || 0, lp: m.lp, lq: m.lq, ob: m.ob ? 1 : 0, T: Array.isArray(m.T) ? m.T.slice(0, 48).map(Number) : undefined, C: Array.isArray(m.C) ? m.C.slice(0, 32).map(Number) : undefined, H: Array.isArray(m.H) ? m.H.slice(0, 24).map(Number) : undefined }, p); break;
-      case 'punch': { const tgt = this.players.get(m.id), pa = p.state && p.state.p, ta = tgt && tgt.state && tgt.state.p; if (p.ready && p.alive && !this.frozen() && (!pa || !ta || Math.hypot(pa[0] - ta[0], pa[1] - ta[1], pa[2] - ta[2]) < 2.6) && tgt && tgt !== p && tgt.alive && Date.now() - (p.lastPunch || 0) > 220 && (p.lastPunch = Date.now())) this.send(tgt, { t: 'punched', by: p.id, f: String(m.f || '').slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)), sl: m.sl ? 1 : 0 }); break; }
+      case 'x': if (p.ready && JSON.stringify(m).length < 600 && ['c4p', 'c4t', 'nade', 'boom', 'chk', 'gd', 'gdx', 'mw', 'bx'].includes(m.a) && !this.frozen() && this.xGuard(p, m)) this.broadcast({ t: 'x', id: p.id, a: m.a, k: ['c4', 'frag', 'smoke', 'flash', 'teargas', 'bcharge', 'claymore', 'beartrap', 'wire', 'shield', 'alarm', 'snap', 'rustle'].includes(m.k) ? m.k : 'frag', i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0, w: m.w, c: Number(m.c) || 0, tg: Number.isFinite(m.tg) ? m.tg : undefined, tp: Number(m.tp) || 0, lp: m.lp, lq: m.lq, ob: m.ob ? 1 : 0, T: Array.isArray(m.T) ? m.T.slice(0, 48).map(Number) : undefined, C: Array.isArray(m.C) ? m.C.slice(0, 32).map(Number) : undefined, H: Array.isArray(m.H) ? m.H.slice(0, 24).map(Number) : undefined }, p); break;
+      case 'punch': { // (a sledge blow: attackers only, no faster than the swing itself)
+        const sl = m.sl && p.team === 'r' && Date.now() - (p.lastSl || 0) > 1200; if (sl) p.lastSl = Date.now(); const tgt = this.players.get(m.id), pa = p.state && p.state.p, ta = tgt && tgt.state && tgt.state.p; if (p.ready && p.alive && !this.frozen() && (!pa || !ta || Math.hypot(pa[0] - ta[0], pa[1] - ta[1], pa[2] - ta[2]) < 2.6) && tgt && tgt !== p && tgt.alive && Date.now() - (p.lastPunch || 0) > 220 && (p.lastPunch = Date.now())) this.send(tgt, { t: 'punched', by: p.id, f: String(m.f || '').slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)), sl: sl ? 1 : 0 }); break; }
       case 'hit': this.hit(p, m); break;
       case 'died': this.died(p, m); break;
       case 'down': this.down(p, m); break;
@@ -165,9 +175,11 @@ class HostRoom {
       for (const key in R.gd) { const g = R.gd[key]; if (key !== skip && g.k !== 'bcharge' && Math.hypot(g.p[0] - m.p[0], g.p[1] - m.p[1], g.p[2] - m.p[2]) < 1.1 * Math.cbrt(W) + 0.4) delete R.gd[key]; } };
     if (m.a === 'boom' && m.k === 'bcharge') { const key = m.tg + ':' + (Number(m.i) || 0), g = Object.hasOwn(R.gd, key) ? R.gd[key] : null; if (!g || g.k !== 'bcharge' || m.tg !== p.id || !fin(m.p) || Math.hypot(g.p[0] - m.p[0], g.p[1] - m.p[1], g.p[2] - m.p[2]) > 0.6) return false; delete R.gd[key]; sweep(key); return true; }
     // a fist, gun butt or sledge through a soft wall: only from where they stand, only alive, in a round, a few a second
+    // a piece of furniture the sender's round broke: from someone in the round, near the house, a few a second
+    if (m.a === 'bx') { p.bxT = (p.bxT || []).filter(t => t > now - 1000); if (!fin(m.p) || !p.alive || p.bxT.length >= 4 || Math.abs(m.p[0]) > 60 || Math.abs(m.p[2]) > 60) return false; p.bxT.push(now); return true; }
     if (m.a === 'mw') {
       p.mwT = (p.mwT || []).filter(t => t > now - 1000);
-      if (!p.alive || !fin(m.p) || !near(m.p, 2.6) || p.mwT.length >= 3 || (R.ph !== 'live' && R.ph !== 'lobby')) return false;
+      if (!p.alive || !at || !fin(m.p) || !near(m.p, 2.6) || p.mwT.length >= 3 || (R.ph !== 'live' && R.ph !== 'lobby')) return false;
       p.mwT.push(now); m.n = Math.max(0, Math.min(9, m.n | 0)); m.w = Math.max(0, Math.min(3000, Number(m.w) || 0)); m.f = Math.max(0, Math.min(0.2, Number(m.f) || 0)); return true;
     }
     if (m.a === 'gdx' || (m.a === 'boom' && m.k === 'claymore')) {
@@ -230,11 +242,14 @@ class HostRoom {
   rTeam() { let r = 0, b = 0; for (const x of this.players.values()) if (x.ready && x.team) x.team === 'r' ? r++ : b++; return r < b ? 'r' : b < r ? 'b' : (Math.random() < 0.5 ? 'r' : 'b'); }
   rCount(alive) { const c = { r: 0, b: 0 }; for (const x of this.players.values()) if (x.ready && x.team && (!alive || (x.alive && !x.fatal))) c[x.team]++; return c; }
   rTeams() { const o = {}; for (const x of this.players.values()) if (x.ready && x.team) o[x.id] = x.team; return o; }
-  rMsg(extra) { const R = this.R; return Object.assign({ t: 'round', n: R.n, ph: R.ph, left: Math.max(0, R.end - Date.now()), go: Math.max(0, (R.go || 0) - Date.now()), sc: R.sc, mv: Object.values(R.votes || {}).length, map: R.map, tm: this.rTeams(), dfz: R.carrier, dz: R.dz, pl: R.plant && { site: R.plant.site, left: Math.max(0, R.plant.end - Date.now()) }, sp: R.sp | 0, lo: typeof TOWN !== 'undefined' && TOWN.lampAll ? TOWN.lampAll.map((L, i) => L.out ? i : -1).filter(i => i >= 0) : [], sgw: R.sgw, gdw: Object.values(R.gd || {}).map(g => [g.o, g.i, g.k, g.p, g.f, g.team, g.sn ? 1 : 0]), fd: R.found, env: typeof envSnap === 'function' ? envSnap() : undefined }, extra || {}); }
+  rMsg(extra) { const R = this.R; return Object.assign({ t: 'round', n: R.n, ph: R.ph, left: Math.max(0, R.end - Date.now()), go: Math.max(0, (R.go || 0) - Date.now()), sc: R.sc, mv: Object.values(R.votes || {}).length, map: R.map, tm: this.rTeams(), dfz: R.carrier, dz: R.dz, pl: R.plant && { site: R.plant.site, left: Math.max(0, R.plant.end - Date.now()) }, sp: R.sp | 0, demo: R.demo ? 1 : 0, lo: typeof TOWN !== 'undefined' && TOWN.lampAll ? TOWN.lampAll.map((L, i) => L.out ? i : -1).filter(i => i >= 0) : [], sgw: R.sgw, gdw: Object.values(R.gd || {}).map(g => [g.o, g.i, g.k, g.p, g.f, g.team, g.sn ? 1 : 0]), fd: R.found, env: typeof envSnap === 'function' ? envSnap() : undefined }, extra || {}); }
   rTimer(ms, f) { if (this.R.tm) clearTimeout(this.R.tm); this.R.tm = setTimeout(() => { if (net.host !== this) return; this.R.tm = null; f(); }, ms); }
   // ---- the match: a lobby on the baseplate (voting for the map) until there is someone on each team, then rounds to 5 wins.
   // A round: 15 s to pick a loadout (everyone at their start, held there), then the round itself, the first 5 s still held.
+  // (just after a host move most players haven't reconnected yet: nothing is decided on who is missing for a few seconds)
+  migWait(fn) { const w = this.migT ? this.migT + 9000 - Date.now() : 0; if (w <= 0) return false; if (!this.migQ) { this.migQ = true; setTimeout(() => { this.migQ = false; if (net.host === this) fn(); }, w + 50); } return true; }
   rCheck() {
+    if (this.migWait(() => this.rCheck())) return;
     const R = this.R, c = this.rCount(false), now = Date.now();
     if (R.ph === 'lobby') {
       // everyone on one side: the newest crosses over, so a match can start
@@ -255,13 +270,14 @@ class HostRoom {
   // back to the baseplate: the match is over (or there aren't players enough for one)
   rLobby() {
     const R = this.R; if (R.pt) clearTimeout(R.pt); R.pt = null; if (R.tm) clearTimeout(R.tm); R.tm = null;
-    R.ph = 'lobby'; R.end = 0; R.go = 0; R.sc = { r: 0, b: 0 }; R.n = 0; R.plant = null; R.carrier = null; R.dz = null; R.sgw = []; R.bkSet = {}; R.found = []; R.votes = {}; R.gd = {};
+    R.ph = 'lobby'; R.end = 0; R.go = 0; R.sc = { r: 0, b: 0 }; R.n = 0; R.plant = null; R.carrier = null; R.dz = null; R.sgw = []; R.bkSet = {}; R.found = []; R.demo = false; R.votes = {}; R.gd = {};
     this.broadcast(this.rMsg());
     for (const x of this.players.values()) if (x.ready) this.spawn(x);
     this.rCheck();
   }
   rMatch() { const R = this.R; R.sc = { r: 0, b: 0 }; R.n = 0; R.map = 'house'; R.votes = {}; this.rStart(); }
   rStart() {
+    if (this.migT && Date.now() - this.migT < 9000) { setTimeout(() => { if (net.host === this) this.rStart(); }, this.migT + 9050 - Date.now()); return; }
     const R = this.R; let c = this.rCount(false);
     // evens the teams up first (the newest to join moves)
     while (Math.abs(c.r - c.b) > 1) { const from = c.r > c.b ? 'r' : 'b', mv = [...this.players.values()].filter(x => x.ready && x.team === from).pop(); mv.team = from === 'r' ? 'b' : 'r'; c = this.rCount(false); }
@@ -270,7 +286,7 @@ class HostRoom {
     // the bombs move every round: another pair of sites
     { R.sp = R.sp === undefined ? Math.floor(Math.random() * 4) : ((R.sp | 0) + 1 + Math.floor(Math.random() * 3)) % 4; }
     // a new round: one attacker, picked at random, carries the defuser; nothing boarded or reinforced yet
-    if (R.pt) clearTimeout(R.pt); R.pt = null; R.plant = null; R.dz = null; R.sgw = []; R.bkSet = {}; R.found = [];
+    if (R.pt) clearTimeout(R.pt); R.pt = null; R.plant = null; R.dz = null; R.sgw = []; R.bkSet = {}; R.found = []; R.demo = false;
     for (const x of this.players.values()) { x.rfN = 0; x.gdN = {}; } R.gd = {};
     { const at = [...this.players.values()].filter(x => x.ready && x.team === 'r'); R.carrier = at.length ? at[Math.floor(Math.random() * at.length)].id : null; }
     this.broadcast(this.rMsg());
@@ -316,7 +332,7 @@ class HostRoom {
         R.sgw.push(['bk', i, k]); this.broadcast({ t: 'sg', a: 'bk', i, k }, p); break;
       }
       case 'bd': { const i = m.i | 0; if (p.team === 'b' && i >= 0 && i < 64 && R.sgw.length < 300) { R.sgw.push(['bd', i]); this.broadcast({ t: 'sg', a: 'bd', i }, p); } break; }
-      case 'rf': { const b = m.b; if (p.team === 'b' && (p.rfN || 0) < 2 && Array.isArray(b) && b.length === 6 && b.every(v => Number.isFinite(v) && Math.abs(v) < 60) && b[3] > 0 && b[3] <= 1.45 && b[4] > 0 && b[4] <= 3.1 && b[5] > 0 && b[5] <= 1.45 && Math.min(b[3], b[5]) <= 0.07 && near([b[0], b[1], b[2]], 4) && R.sgw.length < 300) { p.rfN = (p.rfN || 0) + 1; const e = b.map(v => Math.round(v * 1000) / 1000); R.sgw.push(['rf', e]); this.broadcast({ t: 'sg', a: 'rf', b: e }, p); } break; }
+      case 'rf': { const b = m.b; if (p.team === 'b' && (p.rfN || 0) < 2 && Array.isArray(b) && b.length === 6 && b.every(v => Number.isFinite(v) && Math.abs(v) < 60) && b[3] > 0 && b[3] <= 1.45 && b[4] > 0 && b[4] <= 3.1 && b[5] > 0 && b[5] <= 1.45 && Math.min(b[3], b[5]) <= 0.07 && near([b[0], b[1], b[2]], 4) && R.sgw.length < 300) { p.rfN = (p.rfN || 0) + 1; const e = b.map(v => Math.round(v * 1000) / 1000); R.sgw.push(['rf', e, p.id]); this.broadcast({ t: 'sg', a: 'rf', b: e }, p); } break; }
     }
   }
   // the defuser carrier is gone (dead, or left): it drops where they were
@@ -341,10 +357,18 @@ class HostRoom {
 }
 async function startHosting(code, snap) {
   const me = rid();
-  await api('/api/host', { room: code, id: me, takeover: snap ? 1 : 0 });
-  net.mode = 'host'; net.host = new HostRoom(snap); net.code = code; net.hostId = me;
-  const ping = () => { const H = net.host; if (!H) return; api('/api/ping', { room: code, id: me, pub: H.cfg.pub ? 1 : 0, open: H.R && H.R.ph === 'lobby' ? 1 : 0, n: H.players.size, name: H.cfg.name, mode: H.cfg.mode, ph: H.R ? H.R.ph : 'lobby', max: H.cfg.max }).catch(() => {}); };
+  // (the room's key: everyone who joins is given it, and only someone holding it can take the room over if this host goes)
+  const tk = snap && snap.tk ? snap.tk : rid() + rid();
+  await api('/api/host', { room: code, id: me, takeover: snap ? 1 : 0, tk });
+  net.mode = 'host'; net.tk = tk; S.roomTk = tk; net.host = new HostRoom(snap); net.code = code; net.hostId = me;
+  let lost = 0;
+  const ping = () => { const H = net.host; if (!H) return; api('/api/ping', { room: code, id: me, pub: H.cfg.pub ? 1 : 0, open: H.R && H.R.ph === 'lobby' ? 1 : 0, n: H.players.size, name: H.cfg.name, mode: H.cfg.mode, ph: H.R ? H.R.ph : 'lobby', max: H.cfg.max }).then(j => {
+    // (someone else is hosting this room now: this one has nobody left in it)
+    if (j && j.own === false && net.host === H && ++lost >= 2) { leave(); $('err').textContent = 'Your room was taken over by another player after you lost connection.'; } else if (j && j.own) lost = 0;
+  }).catch(() => {}); };
   ping(); net.timers.push(setInterval(ping, 5000));
+  // the round as it stands, every couple of seconds, so whoever takes over if this host goes carries on from now
+  net.timers.push(setInterval(() => { const H = net.host; if (H && net.mode === 'host') H.broadcast({ t: 'rsync', r: H.rMsg() }, H.self); }, 2000));
   let after = 0, busy = false;
   net.timers.push(setInterval(async () => {
     if (busy || net.mode !== 'host') return; busy = true;
@@ -381,8 +405,15 @@ async function acceptPeer(code, me, src, sdp) {
 // carry the round on from where it was; everyone else reconnects to them and keeps their place, side and score.
 async function migrate(code, why) {
   if (S.migrating) return;
-  S.migrating = true; const oldHost = S.hostPid, snap = { myId: S.myId, ids: [S.myId, ...[...S.remotes.keys()].filter(i => i !== oldHost)], r: S.lastR || {}, age: performance.now() - (S.lastRT || performance.now()), tm: S.team[S.myId], alive: P.alive, life: S.life };
-  const rest = snap.ids.slice().sort((a, b) => a - b), heir = rest[0];
+  S.migrating = true; const oldHost = S.hostPid, LR = S.lastR || {};
+  // (who was in the room is what the host last said, so everyone works out the same next host; the host's own sync keeps it
+  // fresh)
+  const hostIds = LR.tm && typeof LR.tm === 'object' ? Object.keys(LR.tm).map(Number).filter(i => Number.isInteger(i) && i !== oldHost) : [];
+  const ids = [...new Set([S.myId, ...(hostIds.length ? hostIds : [...S.remotes.keys()].filter(i => i !== oldHost))])];
+  const pl = {}; for (const id of ids) { const r = S.remotes.get(id), sc = S.score[id] || {}; pl[id] = { tm: S.team[id], alive: id === S.myId ? P.alive : !!(r && r.alive), k: sc.k | 0, d: sc.d | 0 }; }
+  const snap = { myId: S.myId, ids, pl, r: LR, age: performance.now() - (S.lastRT || performance.now()), tm: S.team[S.myId], alive: P.alive, life: S.life, tk: S.roomTk };
+  const rest = ids.slice().sort((a, b) => a - b); let hi = 0, fails = 0; const heirNow = () => rest[Math.min(hi, rest.length - 1)];
+  let heir = heirNow();
   if (S.remotes.has(oldHost)) { S.remotes.get(oldHost).dispose(); S.remotes.delete(oldHost); }
   for (const pc of net.pcs) try { pc.close(); } catch (e) {} net.pcs = []; net.rel = net.unr = null; net.mode = 'migrating';
   roundBanner('<b>HOST LEFT</b><small>' + (heir === S.myId ? 'You are the new host' : 'Moving the lobby to ' + esc(S.names[heir] || 'P' + heir)) + '</small>', 4000);
@@ -394,7 +425,11 @@ async function migrate(code, why) {
       if (heir === S.myId) { S.cfg = Object.assign({}, S.cfgIn || {}); await startHosting(code, snap); }
       else { await sleep(2500); await joinPeer(code, true); }
       S.migrating = false; return;
-    } catch (e) { await sleep(2000); }
+    } catch (e) {
+      // (the next host never came up, it left too: after a few tries the one after it takes over)
+      if (++fails >= 4 && hi < rest.length - 1) { fails = 0; hi++; heir = heirNow(); if (heir === S.myId) roundBanner('<b>HOST LEFT</b><small>You are the new host</small>', 3000); }
+      await sleep(2000);
+    }
   }
 }
 async function joinPeer(code, mig) {
@@ -438,7 +473,7 @@ async function joinPeer(code, mig) {
 function onNet(m) {
   switch (m.t) {
     case 'welcome':
-      S.hostPid = m.host; S.cfgIn = m.cfg && typeof m.cfg === 'object' ? m.cfg : {};
+      S.hostPid = m.host; S.cfgIn = m.cfg && typeof m.cfg === 'object' ? m.cfg : {}; if (typeof m.tk === 'string') S.roomTk = m.tk.slice(0, 64);
       if (m.mig || (S.welcomed && S.migrating)) {
         // carrying on after the host left: same world, same round; the player list is brought up to date
         S.myId = m.id; const ids = new Set(m.players.map(pl => pl.id));
@@ -456,16 +491,20 @@ function onNet(m) {
       if (m.r && (m.r.ph === 'live' || m.r.ph === 'post')) $('deathmsg').textContent = 'ROUND IN PROGRESS · YOU SPAWN NEXT ROUND';
       break;
     case 'round': roundRx(m); break;
+    case 'rsync': if (net.mode !== 'host' && m.r && typeof m.r === 'object' && S.lastR && (m.r.n | 0) === (S.lastR.n | 0)) { S.lastR = m.r; S.lastRT = performance.now(); } break;
     case 'sg': siegeRx(m); break;
     case 'env': if (net.mode !== 'host') envApply(m); break;
     case 'chat': if (m.id !== S.myId && typeof m.s === 'string') feed(teamName(m.id) + ': ' + esc(m.s.slice(0, 120))); break;
     case 'join': if (m.id !== S.myId) { if (m.tm) S.team[m.id] = m.tm; addRemote(m.id, m.name); feed(teamName(m.id) + ' joined');
       // the doors as they are now go to the one joining, from whoever has been in the room longest (lowest id)
       // (a moment later, so whatever was on its way to us about the doors has come; in pieces, to stay small)
-      if (S.welcomed && [...S.remotes.keys()].every(id => id === m.id || id > S.myId)) { const to = m.id; setTimeout(() => { if (!S.remotes.has(to)) return; const s = doorSnap(); for (let i = 0; i < s.length; i += 12) net.send({ t: 'dsnap', to, s: s.slice(i, i + 12) }); }, 300); } }
+      if (S.welcomed && [...S.remotes.keys()].every(id => id === m.id || id > S.myId)) { const to = m.id; setTimeout(() => { if (!S.remotes.has(to)) return; const s = doorSnap(); for (let i = 0; i < s.length; i += 12) net.send({ t: 'dsnap', to, s: s.slice(i, i + 12) });
+        // (and the walls: their holes, and what has come down)
+        setTimeout(() => { if (!S.remotes.has(to)) return; for (const w of damageSnap()) net.send({ t: 'wsnap', to, s: w }); }, 900); }, 300); } }
       break;
     case 'door': doorRx(m); break;
     case 'dsnap': doorApplySnap(m.s); break;
+    case 'wsnap': damageApply(m.s); break;
     case 'leave': { const r = S.remotes.get(m.id); if (r) { feed(teamName(m.id) + ' left'); r.dispose(); S.remotes.delete(m.id); } delete S.team[m.id]; doorLeft(m.id); break; }
     case 's': { const r = S.remotes.get(m.id); if (r) r.setState(m); break; }
     case 'shot': remoteShot(m); break;
