@@ -44,7 +44,8 @@ const PITCH_MIN = -1.05;
 function playerWoundMasks(an) { return (an.hitPts || []).map(h => ({ frame: h.frame, p: h.e.clone(), n: h.d.clone().negate(), tear: 0 })); }
 // your own body gets the same wound marks anyone else's does (seen in third person, in mirrors of it, on your arms and legs)
 function selfWound(frame, e, d, w) {
-  for (const hum of [localBody, fpBody]) {
+  // (only the body others see and your shadow: none on the arms and legs you look down at)
+  for (const hum of [localBody]) {
     const m = hum && hum.hitMeshes && hum.hitMeshes.find(x => x.userData.frame === frame); if (!m) continue;
     try { addWound(hum, frame, m.parent, e.clone(), d.clone().normalize().negate(), 'rim', (CAL[w] || CAL[0])[0] * 5.2); } catch (er) {}
   }

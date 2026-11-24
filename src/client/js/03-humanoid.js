@@ -124,6 +124,19 @@ class Humanoid {
       const lens = new THREE.Mesh(SL_GEO.lens, new THREE.MeshStandardMaterial({ color: 0xdde8ff, emissive: 0xfff1dc, emissiveIntensity: 0, roughness: 0.2 })); lens.rotation.y = Math.PI; lens.position.z = -0.056; sl.add(lens);
       for (const o of [body, clip, lens]) { o.userData.keep = true; o.castShadow = true; }
       this.slLens = lens;
+      // what they wear on their head (night vision on its mount, or a gas mask) and a grenade for the throwing hand
+      const hm = new THREE.MeshStandardMaterial({ color: 0x1c1f1c, roughness: 0.7, metalness: 0.2 }), gl = new THREE.MeshStandardMaterial({ color: 0x10261a, emissive: 0x1a6a2a, emissiveIntensity: 0, roughness: 0.15 });
+      const nv = new THREE.Group(); nv.position.set(0, 0.13, -0.1); this.head.add(nv);
+      const mount = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.05), hm); mount.position.set(0, 0.02, -0.01); nv.add(mount);
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.02, 0.075, 10), hm); tube.rotation.x = Math.PI / 2; tube.position.set(0, -0.035, -0.06); nv.add(tube);
+      const nl = new THREE.Mesh(new THREE.CircleGeometry(0.016, 10), gl); nl.rotation.y = Math.PI; nl.position.set(0, -0.035, -0.098); nv.add(nl);
+      const mk = new THREE.Group(); mk.position.set(0, 0.03, -0.1); this.head.add(mk);
+      const face = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.13, 0.04), hm); face.position.set(0, 0.04, -0.005); mk.add(face);
+      for (const sx of [-1, 1]) { const lz = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.012, 12), new THREE.MeshStandardMaterial({ color: 0x223038, roughness: 0.1, metalness: 0.5 })); lz.rotation.x = Math.PI / 2; lz.position.set(sx * 0.037, 0.06, -0.028); mk.add(lz); }
+      const can = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.055, 12), hm); can.rotation.x = Math.PI / 2; can.position.set(0.05, -0.02, -0.045); mk.add(can);
+      const nd = new THREE.Mesh(new THREE.SphereGeometry(0.032, 10, 8), new THREE.MeshStandardMaterial({ color: 0x3d4a2c, roughness: 0.8 })); nd.position.set(0, -0.06, 0); this.hdL.add(nd);
+      for (const g of [nv, mk, nd]) g.traverse(o => { if (o.isMesh) { o.userData.keep = true; o.castShadow = true; } });
+      nv.visible = mk.visible = nd.visible = false; this.hgNvg = nv; this.hgMask = mk; this.hgLens = nl; this.handNade = nd;
     }
     this.hitMeshes = []; this.root.traverse(o => { if (o.isMesh && o.userData.frame) this.hitMeshes.push(o); });
     this._t = new V3(); this._p1 = new V3(); this._p2 = new V3();
@@ -162,7 +175,11 @@ class Humanoid {
     else if (/R$/.test(frame)) { V.sy -= 4 * r(); V.sz -= 2 * k; V.nx += 1.5 * k; }
   }
   update(dt) {
-    const a = this.anim, pr = a.prone, c = a.crouch * (1 - pr), s = a.sprint * (1 - pr), air = a.air;
+    const a = this.anim, pr = a.prone, s = a.sprint * (1 - pr), air = a.air;
+    // an action on top of the rest (a.act = kind + progress): 1 throwing a grenade, 2 putting something down on the floor
+    const act = a.act || 0, aK = Math.floor(act), aP = act - aK, place = aK === 2 ? Math.sin(Math.min(1, aP * 1.6) * Math.PI / 2) * (aP > 0.8 ? (1 - aP) / 0.2 : 1) : 0, thr = aK === 1 ? Math.sin(aP * Math.PI) : 0;
+    const c = Math.max(a.crouch, place) * (1 - pr);
+    if (this.hgNvg) { const hg = a.hg | 0; this.hgMask.visible = hg === 1; this.hgNvg.visible = hg >= 2; this.hgNvg.rotation.x = hg === 3 ? 0 : -1.2; this.hgLens.material.emissiveIntensity = hg === 3 ? 0.6 : 0; this.handNade.visible = aK === 1 && aP < 0.5; }
     const med = a.weapon === MEDKIT_W, pistol = !med && isPistol(a.weapon), rifleish = !med && !pistol;
     this.wb = damp(this.wb, rifleish ? 0 : 1, 12, dt || 1);
     const bb = a.bb || 0, ah = a.ah || 0, ls = a.ls || 0;
@@ -186,7 +203,7 @@ class Humanoid {
     this.hips.rotation.set(0, sw * amp * 0.15, 0);
     const stance = -0.45 * rifleK * (1 - s) * (1 - pr);
     const sx = (-0.12 * c - 0.25 * s + a.pitch * 0.25 * (1 - s)) * (1 - pr);
-    this.spine.rotation.set(sx, stance - sw * amp * 0.08, -a.lean * 0.42 * (1 - pr));
+    this.spine.rotation.set(sx + 0.5 * place, stance - sw * amp * 0.08 + (aK === 1 ? (aP < 0.45 ? 0.5 * Math.sin(aP / 0.45 * Math.PI / 2) : 0.5 - 1.1 * Math.sin(Math.min(1, (aP - 0.45) / 0.3) * Math.PI / 2) * (aP > 0.75 ? 1 - (aP - 0.75) / 0.25 : 1)) : 0), -a.lean * 0.42 * (1 - pr));
     this.neck.rotation.set(clamp(a.pitch * (1 - s) - sx, -0.8, 0.8) * 0.75 * (1 - pr) - 0.12 * a.ads * rifleK + pr * (1.25 + a.pitch * 0.5), -stance, a.lean * 0.15 * (1 - pr));
     // hit flinch: each round gives the part it hits a shove (springs that settle in a fraction of a second)
     if (this.fl) {
@@ -220,6 +237,7 @@ class Humanoid {
     this.rPiv.position.lerp(this._t.set(0.06, 0.36, -0.12), s);
     let gx = lerp(P, -0.75, s), gy = -stance + lerp(0, 0.85, s), gz = 0;
     if (r > 0) { const b = Math.sin(r * Math.PI); gz = (pistol ? 0.3 : 0.6) * b; gx -= 0.35 * b; }
+    gx -= 0.8 * thr + 0.6 * place + (aK === 3 ? 0.7 * Math.sin(aP * Math.PI) : 0);   // (the gun lowered on its sling while the free hand works)
     if ((ah & 2) || (ls & 12)) gx -= 0.5;
     this.rPiv.rotation.set(gx, gy, gz);
     this.pPiv.rotation.set(lerp(P, -0.9, s) - (r > 0 ? 0.3 * Math.sin(r * Math.PI) : 0) - (med ? 0.35 : 0), lerp(0, 0.5, s), 0);
@@ -241,6 +259,12 @@ class Humanoid {
       const keys = [[0, tL], [0.16, well], [0.26, well], [0.45, pouch], [0.62, well], [0.78, well], [0.92, tL], [1, tL]];
       for (let i = 0; i < keys.length - 1; i++) if (r <= keys[i + 1][0]) { tL = keys[i][1].clone().lerp(keys[i + 1][1], smooth((r - keys[i][0]) / (keys[i + 1][0] - keys[i][0]))); break; }
     }
+    // throwing: the free hand goes back over the shoulder with the grenade, then forward; putting down: to the floor in front
+    if (aK === 1) {
+      const sp = this.spine, K = [[0, null], [0.12, [-0.12, 0.6, 0.28]], [0.45, [-0.1, 0.66, 0.3]], [0.62, [-0.05, 0.55, -0.6]], [0.85, [-0.1, 0.35, -0.35]], [1, null]];
+      for (let i = 0; i < K.length - 1; i++) if (aP <= K[i + 1][0]) { const A = K[i][1] ? sp.localToWorld(_bv.fromArray(K[i][1])).clone() : tL.clone(), B2 = K[i + 1][1] ? sp.localToWorld(_cv.fromArray(K[i + 1][1])).clone() : tL.clone(); tL = A.lerp(B2, smooth((aP - K[i][0]) / (K[i + 1][0] - K[i][0]))); break; }
+    } else if (place > 0.01) tL = tL.clone().lerp(this.root.localToWorld(_bv.set(-0.08, 0.06, -0.55)), place);
+    else if (aK === 3) { const w = Math.sin(Math.min(1, aP * 5) * Math.PI / 2) * Math.min(1, (1 - aP) * 6); tL = tL.clone().lerp(this.root.localToWorld(_bv.set(-0.05, 1.25 + 0.06 * Math.sin(aP * 40), -0.55)), w); }   // (nailing boards up)
     // hurt: the free hand presses the wound, or steadies the body against a wall
     a.clutchW = damp(a.clutchW || 0, (a.clutchT || 0) > 0 && a.clutchF && !a.downedPose ? 1 : 0, 6, dt || 0.016); if (a.clutchT > 0) a.clutchT -= dt || 0.016;
     a.braceW = damp(a.braceW || 0, a.braceP && !(a.clutchT > 0) ? 1 : 0, 4, dt || 0.016);

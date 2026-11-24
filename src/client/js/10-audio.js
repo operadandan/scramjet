@@ -7,6 +7,7 @@ import { S_ } from './05-anatomy.js';
 import { WEAPONS } from './06-weapons.js';
 import { P, S } from './17-dummies.js';
 import { PITCH_MIN } from './18-player.js';
+import { aiClear } from './32-ai.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- audio
 let actx = null, noiseBuf = null, aMaster = null;
@@ -90,6 +91,8 @@ function shotSound(wi, dist, sup, pos) {
 const STEP = { concrete: [1900, 0.05, 0.9], wood: [700, 0.07, 1.1], metal: [2600, 0.08, 0.8], dirt: [420, 0.06, 0.8], glass: [3800, 0.05, 0.6] };
 function footSound(pos, surf, k, dist) {
   if (k < 0.02) return;
+  // (someone else's steps with a wall between: much quieter, and lost altogether past a few metres)
+  if (dist > 0.8 && typeof aiClear === 'function' && !aiClear(camera.position, new V3(pos.x, pos.y + 0.4, pos.z))) { if (dist > 7) return; k *= 0.28; }
   const a = audio(), t = a.currentTime, S_ = spatial(a, t, pos, dist || 0, 'step'), st = STEP[surf] || STEP.concrete, att = 1 / (1 + (dist || 0) * 0.25);
   const src = a.createBufferSource(); src.buffer = noiseBuf; const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = st[0] * rnd(0.85, 1.15); f.Q.value = st[2];
   const g = a.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.setValueAtTime(0.22 * k * att, S_.start); g.gain.exponentialRampToValueAtTime(0.0006, S_.start + st[1] * (1 + k * 0.4));

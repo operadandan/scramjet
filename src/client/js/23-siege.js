@@ -188,7 +188,7 @@ function siegeCandidate() {
     for (const s of TOWN.sites) {
       if (Math.abs(s.p.y - P.pos.y) > 1.2 || Math.hypot(s.p.x - P.pos.x, s.p.z - P.pos.z) > 2) continue;
       if (SG.carrier === S.myId && !SG.plant) return P.defOut ? { key: 'pl' + s.id, label: 'Plant the defuser on bomb ' + s.id, time: 5, ring: s.p, go: () => net.send({ t: 'sg', a: 'plant', site: s.id }) }
-        : { key: 'pq' + s.id, label: 'Take out the defuser (5), then plant it', time: Infinity, ring: s.p, go: () => {} };
+        : { key: 'pq' + s.id, label: 'Take out the defuser (7), then plant it', time: Infinity, ring: s.p, go: () => {} };
       if (my === DEF_TEAM && SG.plant && SG.plant.site === s.id) return { key: 'ds' + s.id, label: 'Disable the defuser', time: 6, ring: s.p, go: () => net.send({ t: 'sg', a: 'disable' }) };
     }
   }

@@ -8,21 +8,22 @@ import { hurtLevel } from './03-humanoid.js';
 import { _Y, freeRag, setHelmet } from './04-ragdoll.js';
 import { Anatomy, PART_OF_REGION } from './05-anatomy.js';
 import { WEAPONS, flashMat, pelletDirs } from './06-weapons.js';
-import { footSound, inside, shotSound, surfaceAt } from './10-audio.js';
+import { footSound, inside, noiseHit, shotSound, surfaceAt } from './10-audio.js';
 import { fx } from './11-fx.js';
 import { smoke } from './12-blood.js';
 import { nz } from './12b-gore.js';
 import { clearWounds } from './14-wounds.js';
-import { gridOpenW } from './15-destruction.js';
+import { gridOpenW, pick } from './15-destruction.js';
 import { DOOR_H, DOOR_OPEN, DOOR_W, addDoor, doorNet, doors } from './15b-doors.js';
 import { bullets, ejectShell, spawnBullet } from './16-ballistics.js';
 import { Dummy, P, S, arteryRate, dummies } from './17-dummies.js';
 import { flashMsg } from './18-player.js';
 import { net } from './19-network.js';
-import { NADES, explode, r3, r4x } from './19b-explosives.js';
+import { FRAG_V, NADES, explSeq, explode, r3, r4x, throwNade } from './19b-explosives.js';
 import { last } from './22-menu-loop.js';
+import { ENV } from './24-env.js';
 import { SL, lightLevel } from './26-lights.js';
-import { GD, gadgetRemove, sledgeBody, smokeAt } from './27-gadgets.js';
+import { GADGETS, GD, gadgetAdd, gadgetRemove, sledgeBody, smokeAt } from './27-gadgets.js';
 import { floorUnder } from './30-structure.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- AI defenders (raid mode, the CQC course, "spawn ai")
@@ -166,12 +167,18 @@ class AIBot extends Dummy {
     this.errY = 0; this.errP = 0; this.fireT = 0; this.burst = 0; this.reloadT = 0; this.err = 0.15; this.engT = 0; this.recoil = 0; this.crouchK = 0; this.strafe = 0; this.strafeT = 0;
     this.lean = 0; this.leanK = 0; this.vel = new V3(); this.speedNow = 0; this.stepD = 0; this.lookYaw = this.yaw; this.lookP = 0; this.waitT = 0; this.sendT = 0; this.callT = 0; this.defuseT = 0;
     this.camp = null; this.campT = 0; this.wb = null; this.dodgeT = 0; this.visited = [];
+    // its kit (what it picked): gadget and how many, a throwable and how many, what it wears on its head
+    this.lo = o.lo || aiLoadout(0, false, this.w); this.gN = this.lo.gN; this.tN = this.lo.tN;
+    this.stance = 0; this.proneK = 0; this.yawV = 0; this.seeT = 0; this.reactD = rnd(0.16, 0.32); this.act = null; this.myNades = []; this.throwCD = rnd(2, 5); this.avert = null; this.shieldCamp = null; this.proneFor = 0;
     this.hum.root.position.copy(this.pos); this.hum.root.rotation.y = this.yaw;
     AIS.push(this);
   }
   // the eye, out to the side when leaning
-  get eye() { const r = this.leanK * LEAN_D; return new V3(this.pos.x + Math.cos(this.ayaw) * r, this.pos.y + 1.62 - 0.55 * this.crouchK - Math.abs(this.leanK) * 0.05, this.pos.z - Math.sin(this.ayaw) * r); }
-  eyeAt(side) { const r = side * LEAN_D; return new V3(this.pos.x + Math.cos(this.ayaw) * r, this.pos.y + 1.62 - 0.55 * this.crouchK, this.pos.z - Math.sin(this.ayaw) * r); }
+  get eyeH() { return 1.62 - 0.55 * this.crouchK * (1 - this.proneK) - 1.27 * this.proneK; }
+  get eye() { const r = this.leanK * LEAN_D * (1 - this.proneK), f = this.proneK * 0.55; return new V3(this.pos.x + Math.cos(this.ayaw) * r - Math.sin(this.ayaw) * f, this.pos.y + this.eyeH - Math.abs(this.leanK) * 0.05, this.pos.z - Math.sin(this.ayaw) * r - Math.cos(this.ayaw) * f); }
+  eyeAt(side) { const r = side * LEAN_D * (1 - this.proneK); return new V3(this.pos.x + Math.cos(this.ayaw) * r, this.pos.y + this.eyeH, this.pos.z - Math.sin(this.ayaw) * r); }
+  // an action with the free hand: throwing (1) or putting something down (2); fn runs at the moment of release
+  startAct(k, dur, fn) { this.act = { k, t: 0, dur, fn, rel: k === 1 ? 0.55 : 0.72, done: false }; this.path = null; }
   inA(p) { const A = this.area; return !A || (p.x > A.x0 && p.x < A.x1 && p.z > A.z0 && p.z < A.z1); }
   // ---- the body: turning, walking, leaning, the gun; the thinking runs ten times a second
   aiTick(dt, a, root) {
@@ -181,18 +188,27 @@ class AIBot extends Dummy {
     const blind = (this.flashT || 0) > 0;
     let ty = this.lookYaw, tp = this.lookP;
     const T = this.tgt && this.know.get(this.tgt.id);
-    if (live && this.tgt && T && T.vis && !blind) {
+    if (live && T && T.vis) this.seeT += dt; else this.seeT = 0;
+    if (live && this.tgt && T && T.vis && !blind && this.seeT > this.reactD) {
       const d = this.aimPoint(this.tgt).sub(this.eye);
       ty = Math.atan2(-d.x, -d.z) + this.errY; tp = Math.atan2(d.y, Math.hypot(d.x, d.z)) + this.errP;
     } else if (live && this.wb) { const d = this.wb.p.clone().sub(this.eye); ty = Math.atan2(-d.x, -d.z); tp = Math.atan2(d.y, Math.hypot(d.x, d.z)); }
-    const turn = (blind ? 1.5 : 9) * dt, k = Math.min(1, dt * 14 + 0.15);
-    this.ayaw += clamp(angWrap(ty - this.ayaw), -turn, turn) * k; this.apitch += clamp(tp - this.apitch, -turn, turn) * k;
+    // turning like a body: it speeds up into a turn and slows onto the mark (quick once it is fighting, unhurried on patrol,
+    // never a snap); a flashbang leaves it groping
+    if (this.avert) { ty = Math.atan2(this.avert.x - this.pos.x, this.avert.z - this.pos.z); }
+    const fight = !!(this.tgt && T && T.vis) || !!this.wb, maxV = blind ? 1.2 : fight ? 6.5 : this.state === 'patrol' || this.state === 'camp' ? 2.4 : 3.8, acc = fight ? 30 : 12;
+    const want = clamp(angWrap(ty - this.ayaw) * 7, -maxV, maxV); this.yawV += clamp(want - this.yawV, -acc * dt, acc * dt); this.ayaw = angWrap(this.ayaw + this.yawV * dt);
+    this.apitch += clamp((tp - this.apitch) * Math.min(1, dt * 9), -3 * dt, 3 * dt);
     this.recoil = Math.max(0, this.recoil - dt * 0.45);
     this.yaw = this.ayaw; this.pitch = this.apitch + this.recoil;
     // walking: along the path, looking where the danger is rather than at its feet
     let sp = 0, mv = null;
     const engaged = this.tgtVis() || !!this.wb;
-    if (live && this.path && this.path.length && !engaged && this.dodgeT <= 0 || (live && this.dodgeT > 0 && this.path && this.path.length)) {
+    // the hands busy: standing (or kneeling) still till it is done
+    if (this.act) { const A = this.act; A.t += dt; if (!A.done && A.t / A.dur >= A.rel) { A.done = true; try { A.fn(); } catch (er) {} } if (A.t >= A.dur) this.act = null; }
+    for (const n of this.myNades.slice()) { n.t -= dt; if (n.t <= 0) { this.myNades.splice(this.myNades.indexOf(n), 1); this.nadeBoom(n); } }
+    if (this.avert) { this.avert.t -= dt; if (this.avert.t <= 0) this.avert = null; }
+    if (!this.act && (live && this.path && this.path.length && !engaged && this.dodgeT <= 0 || (live && this.dodgeT > 0 && this.path && this.path.length))) {
       const n = this.path[0], dx = n.x - this.pos.x, dz = n.z - this.pos.z, L = Math.hypot(dx, dz);
       if (L < 0.25) this.path.shift();
       else { sp = this.moveSpeed(); mv = new V3(dx / L, 0, dz / L); }
@@ -201,31 +217,42 @@ class AIBot extends Dummy {
     if (live && engaged && this.strafeT > 0) { this.strafeT -= dt; const s = new V3(Math.cos(this.ayaw), 0, -Math.sin(this.ayaw)).multiplyScalar(this.strafe); const q = this.pos.clone().addScaledVector(s, 0.4); if (this.inA(q)) { mv = s; sp = 2; } }
     if (this.anat.legBroken('L') || this.anat.legBroken('R')) sp *= 0.45;
     if (Math.abs(this.leanK) > 0.3) sp = Math.min(sp, 1.2);
+    // (lying down: up first; walking backwards or sideways to keep its eyes on the threat is slower)
+    if (this.proneK > 0.3) sp = 0; else if (this.crouchK > 0.5) sp = Math.min(sp, 1.5);
+    if (mv && sp > 0) { const fd = -(mv.x * Math.sin(this.ayaw) + mv.z * Math.cos(this.ayaw)); if (fd < -0.3) sp *= 0.55; else if (fd < 0.5) sp *= 0.75; }
     this.speedNow = damp(this.speedNow, sp, 10, dt);
     if (mv && this.speedNow > 0.05) {
       const nx = this.pos.x + mv.x * this.speedNow * dt, nz = this.pos.z + mv.z * this.speedNow * dt, y = this.pos.y;
       const fy = floorUnder(nx, nz, y + 0.6);
-      if (!navBlocked(nx, fy + 0.45, nz, 1.25, 0.15) && !this.doorShut(nx, nz)) { this.vel.set((nx - this.pos.x) / dt, 0, (nz - this.pos.z) / dt); this.pos.set(nx, fy, nz); }
-      else { this.vel.set(0, 0, 0); if (!this.doorShut(nx, nz)) this.path = null; }
+      const ok = (x, z) => { const y = floorUnder(x, z, this.pos.y + 0.6); return !navBlocked(x, y + 0.45, z, 1.25, 0.15) && !this.doorShut(x, z) ? y : null; };
+      let y2 = ok(nx, nz), qx = nx, qz = nz;
+      // (caught on a corner: slide along it; only properly stuck for a while does it give up the path)
+      if (y2 === null) { y2 = ok(nx, this.pos.z); qz = this.pos.z; if (y2 === null) { y2 = ok(this.pos.x, nz); qx = this.pos.x; qz = nz; } }
+      if (y2 !== null) { this.vel.set((qx - this.pos.x) / dt, 0, (qz - this.pos.z) / dt); this.pos.set(qx, y2, qz); this.stuckT = 0; }
+      else { this.vel.set(0, 0, 0); this.stuckT = (this.stuckT || 0) + dt; if (this.stuckT > 1.2 && !this.doorShut(nx, nz)) { this.stuckT = 0; this.path = null; } }
     } else this.vel.set(0, 0, 0);
     { const fy = floorUnder(this.pos.x, this.pos.z, this.pos.y + 0.6); if (this.pos.y > fy + 0.02) this.pos.y = Math.max(fy, this.pos.y - 6 * dt); else this.pos.y = fy; }
     if (this.speedNow > 0.5) { this.stepD += this.speedNow * dt; const stride = this.speedNow > 3.5 ? 0.95 : 0.7; if (this.stepD > stride) { this.stepD = 0; const dd = camera.position.distanceTo(this.pos); if (dd < 40) footSound(this.pos, surfaceAt(this.pos), this.crouchK > 0.5 ? 0.3 : this.speedNow > 3.5 ? 1.1 : 0.6, dd); } }
     // leaning: only standing still (or nearly)
-    this.leanK = damp(this.leanK, this.speedNow < 1.3 ? this.lean : 0, 7, dt);
+    this.leanK = damp(this.leanK, this.speedNow < 1.3 && this.stance < 2 && !this.act ? this.lean : 0, 7, dt);
     if (this.reloadT > 0) { this.reloadT -= dt; if (this.reloadT <= 0) this.mag = WEAPONS[this.w].cap; }
-    this.fireT -= dt; if (live && !blind && this.reloadT <= 0) this.tryFire(dt);
-    const wantC = live && ((this.tgtVis() && this.dist > 9 && this.speedNow < 1) || (this.state === 'camp' && this.speedNow < 0.5 && this.campCrouch)) ? 1 : 0;
-    this.crouchK = damp(this.crouchK, wantC, 6, dt);
+    this.fireT -= dt; if (live && !blind && this.reloadT <= 0 && !this.act && !(this.proneK > 0.15 && this.proneK < 0.85)) this.tryFire(dt);
+    // standing, kneeling or lying: what decide() asked for (lying takes a second to get down and up)
+    const st = live ? this.stance : 0;
+    this.proneK = damp(this.proneK, st === 2 && this.speedNow < 0.3 ? 1 : 0, 2.6, dt);
+    this.crouchK = damp(this.crouchK, st === 1 || (this.act && this.act.k === 2) ? 1 : 0, 6, dt);
     root.position.copy(this.pos); root.rotation.y = this.yaw;
-    Object.assign(a, { speed: this.speedNow, crouch: this.crouchK, pitch: this.pitch, weapon: this.w, lean: this.leanK, ads: engaged ? 1 : 0.2, sprint: this.speedNow > 5 ? 1 : 0, reload: this.reloadT > 0 ? 1 - this.reloadT / 2.6 + 0.001 : 0 });
+    Object.assign(a, { speed: this.speedNow, crouch: this.crouchK, prone: this.proneK, pitch: this.pitch, weapon: this.w, lean: this.leanK, ads: engaged ? 1 : 0.2, sprint: this.speedNow > 5 ? 1 : 0, reload: this.reloadT > 0 ? 1 - this.reloadT / 2.6 + 0.001 : 0,
+      act: this.act ? this.act.k + Math.min(0.999, this.act.t / this.act.dur) : 0, hg: this.hgCode() });
   }
+  hgCode() { const h = this.lo.hg; return h === 'gasmask' ? 1 : h === 'nvg' ? ((P.envDay === undefined ? 1 : P.envDay) < 0.4 ? 3 : 2) : 0; }
   active() {
     if (S.mode === 'test') return true;
     if (!this.hostP || !this.hostP.alive) return false;
     const H = net.host; return !!H && H.R.ph === 'live' && !H.frozen();
   }
   tgtVis() { const T = this.tgt && this.know.get(this.tgt.id); return !!(T && T.vis); }
-  moveSpeed() { return this.state === 'hunt' ? 1.9 : this.state === 'rush' || this.state === 'defuse' || this.state === 'fall' || this.state === 'dodge' ? 4.6 : this.state === 'move' ? 3.4 : 1.7; }
+  moveSpeed() { return this.state === 'hunt' ? 1.9 : this.state === 'rush' || this.state === 'defuse' || this.state === 'fall' || this.state === 'dodge' ? 4.6 : this.state === 'move' ? 3 : 1.35; }
   aimPoint(t) {
     const h = t.dn ? 0.35 : t.pr > 0.5 ? 0.3 : 1.62 - 0.6 * (t.c || 0);
     // (head, or under the plate: the pelvis; the chest only when it has nothing better)
@@ -245,7 +272,7 @@ class AIBot extends Dummy {
   }
   // ---- seeing and hearing
   perceive(dt) {
-    const now = performance.now(), blind = (this.flashT || 0) > 0, smoke = (this.smokeK || 0) > 0.5;
+    const now = performance.now(), blind = (this.flashT || 0) > 0 || ((this.gasK || 0) > 0.45 && this.lo.hg !== 'gasmask'), smoke = (this.smokeK || 0) > 0.5;
     const e0 = this.eyeAt(0), eL = this.eyeAt(-1), eR = this.eyeAt(1), fwd = new V3(-Math.sin(this.ayaw), 0, -Math.cos(this.ayaw));
     const TG = aiTargets(); let leanVote = 0;
     for (const t of TG) {
@@ -259,7 +286,9 @@ class AIBot extends Dummy {
         else if (this.speedNow < 1.3 && d < 30) { if (aiSees(eR, hd)) { vis = true; side = 1; } else if (aiSees(eL, hd)) { vis = true; side = -1; } }
       }
       if (vis) {
-        const lit = t.fl ? 1.5 : clamp((lightLevel(new V3(t.pos.x, t.pos.y + 1, t.pos.z)) || 0) * 2.5, 0.35, 1);
+        let lit = t.fl ? 1.5 : clamp((lightLevel(new V3(t.pos.x, t.pos.y + 1, t.pos.z)) || 0) * 2.5, 0.35, 1);
+        // night vision down: the dark hides nobody, but a light shone at it whites the tube out
+        if (this.hgCode() === 3) lit = t.fl && cs > 0.7 && d < 18 ? 0.45 : Math.max(lit, 0.95);
         const rate = (7 / (1 + d * 0.1)) * (0.7 + Math.min(1, t.v / 3)) * lit * (0.6 + Math.max(0, cs)) * (t.c > 0.5 ? 0.75 : 1) + (d < 4 ? 10 : 0);
         K.aw = Math.min(1.5, K.aw + rate * dt * (K.seen && now - K.seen < 4000 ? 4 : 1));
       } else K.aw = Math.max(0, K.aw - dt * 0.25);
@@ -270,7 +299,7 @@ class AIBot extends Dummy {
       K.wasVis = K.vis;
       // footsteps: a sprint carries, a crouch-walk barely does (through walls, less)
       const fr = t.v > 5 ? 16 : t.v > 3 ? 10 : t.v > 0.6 ? (t.c > 0.5 ? 2.2 : 5.5) : 0;
-      if (fr && d < fr && !K.vis) { K.heard = now; K.heardP = t.pos.clone(); K.last = t.pos.clone().add(new V3(rnd(-0.6, 0.6), 0, rnd(-0.6, 0.6))); K.lastH = t.c > 0.5 ? 1.0 : 1.35; }
+      if (fr && d < fr * 0.45 + 1 || (fr && d < fr && aiClear(e0, new V3(t.pos.x, t.pos.y + 1, t.pos.z)))) if (!K.vis) { K.heard = now; K.heardP = t.pos.clone(); K.last = t.pos.clone().add(new V3(rnd(-0.6, 0.6), 0, rnd(-0.6, 0.6))); K.lastH = t.c > 0.5 ? 1.0 : 1.35; }
       K.t = t;
     }
     for (const id of [...this.know.keys()]) if (!TG.some(t => t.id === id)) this.know.delete(id);
@@ -311,24 +340,86 @@ class AIBot extends Dummy {
   }
   // ---- what to do now
   decide() {
+    this.throwCD -= 0.1;
+    // hands busy: carry on (a trap being put down is dropped if someone shows up)
+    if (this.act) { if (this.act.k !== 1 && this.tgtVis()) this.act = null; else return; }
+    this.decide0(); this.pickStance();
+  }
+  // standing, kneeling or lying down, for what it is doing
+  pickStance() {
+    let st = 0; const eng = this.tgtVis(), now = performance.now();
+    if (this.state === 'camp') st = this.campStance || 0;
+    else if (eng && this.speedNow < 0.5) {
+      if (this.proneFor === this.tgt.id && this.stance === 2) st = 2;
+      else if (this.dist > 14 && Math.abs(this.leanK) < 0.2 && (this.w === 2 || Math.random() < 0.03) && this.roomToLie(this.tgt.pos)) { this.proneFor = this.tgt.id; st = 2; }
+      else st = this.dist > 9 || this.w === 2 ? 1 : 0;
+    } else if (this.state === 'hunt' && this.goal && this.pos.distanceTo(this.goal) < 7 && !(this.pushT > now)) st = 1;
+    else if (this.reloadT > 0 && this.speedNow < 0.5) st = 1;
+    this.stance = st;
+  }
+  // room to lie down facing p (the legs go out behind) with the gun still on it
+  roomToLie(p) {
+    const y = Math.atan2(-(p.x - this.pos.x), -(p.z - this.pos.z)), fx = -Math.sin(y), fz = -Math.cos(y), b = this.pos;
+    for (const k of [-1.1, -0.55, 0.45]) if (navBlocked(b.x + fx * k, b.y + 0.08, b.z + fz * k, 0.38, 0.2)) return false;
+    return aiSees(new V3(b.x + fx * 0.55, b.y + 0.35, b.z + fz * 0.55), new V3(p.x, p.y + 0.9, p.z));
+  }
+  // ---- grenades: a frag onto someone it heard or just lost close by (never with one of its own near it), a flashbang ahead
+  // of going in after them or onto a doorway they are stacked at
+  handPos() { return this.eye.add(new V3(0, 0.18, 0)); }
+  tryThrow(now) {
+    if (this.tN <= 0 || this.throwCD > 0 || this.reloadT > 0) return false;
+    const kind = this.lo.t; let best = null;
+    for (const K of this.know.values()) { if (K.vis || !K.last || !K.t || K.t.dn) continue; const t = Math.max(K.seen || 0, K.heard || 0); if (now - t > 2500 || (K.seen && now - K.seen < 600)) continue; if (!best || t > best.t) best = { p: K.last.clone(), t }; }
+    // (or a shot or a call-out: where it came from)
+    if (this.noise && now - this.noise.t < 2500 && (!best || this.noise.t > best.t)) best = { p: this.noise.p.clone(), t: this.noise.t };
+    if (!best) return false;
+    const q = best.p, d = Math.hypot(q.x - this.pos.x, q.z - this.pos.z), atDoor = this.entries.some(e => Math.hypot(e.p.x - q.x, e.p.z - q.z) < 4.5);
+    if (kind === 'frag') { if (d < 6.5 || d > 20 || now - (AI_SQUAD.fragT || 0) < 3500 || (!this.inA(q) && !atDoor) || AIS.some(b => !b.dead && !b.out && b.pos.distanceTo(q) < 6.5)) return false; }
+    else if (d < 3.5 || d > 13 || now - (AI_SQUAD.flashT || 0) < 3000 || !(this.state === 'hunt' || atDoor)) return false;
+    const v = aiLob(this.handPos(), q.clone().setY(q.y + 0.1)); if (!v) return false;
+    // turned to it first
+    const ty = Math.atan2(-(q.x - this.pos.x), -(q.z - this.pos.z)); this.lookYaw = ty; this.lookP = 0.3; this.path = null; this.state = 'throw';
+    if (Math.abs(angWrap(ty - this.ayaw)) > 0.35) return true;
+    this.tN--; this.throwCD = kind === 'frag' ? rnd(6, 10) : rnd(5, 8); AI_SQUAD[kind === 'frag' ? 'fragT' : 'flashT'] = now;
+    this.startAct(1, 0.95, () => this.throwNade(kind, q));
+    if (kind === 'flash' && this.state === 'throw') this.pushT = now + 2800;
+    return true;
+  }
+  throwNade(kind, q) {
+    const o = this.handPos(), v = aiLob(o, q.clone().setY(q.y + 0.1)) || q.clone().sub(o).setY(0).normalize().multiplyScalar(9).setY(4);
+    const fuse = kind === 'frag' ? rnd(2.1, 2.7) : rnd(1.5, 1.9), id = explSeq++, w = new V3(rnd(-12, 12), rnd(-6, 6), rnd(-12, 12));
+    noiseHit(700, 0.12, 0.06);
+    if (kind === 'flash') this.avert = { x: q.x, z: q.z, t: fuse + 0.5 };
+    if (this.hostP && net.host) { net.host.onMessage(this.hostP, { t: 'x', a: 'nade', k: kind, i: id, p: o.toArray().map(r3), v: v.toArray().map(r3), f: r3(fuse), w: w.toArray().map(r3), c: 0 }); this.myNades.push({ id, kind, t: fuse, q: q.clone() }); }
+    else throwNade(-1 - (this.slot || 0), id, o, v, fuse, true, w, 0, kind);
+  }
+  // (in a raid the host's copy of its grenade is only for show: the bang is sent as the bot's, where the grenade has got to)
+  nadeBoom(n) {
+    if (!this.hostP || !net.host) return; const o = NADES.find(x => x.owner === this.pid && x.id === n.id), p = o ? o.p : n.q;
+    net.host.onMessage(this.hostP, { t: 'x', a: 'boom', k: n.kind, i: n.id, p: p.toArray().map(r3) });
+  }
+  decide0() {
     const now = performance.now(), an = this.anat, hurt = an.blood < 3200 || hurtLevel(an) > 0.6;
+    // gas without a mask: out of it
+    if ((this.gasK || 0) > 0.3 && this.lo.hg !== 'gasmask' && this.dodgeT <= 0) { this.dodgeT = 2; this.runFrom(this.pos.clone()); return; }
     // a grenade at its feet: get away from it; a flashbang in view: look away
     for (const n of (typeof NADES !== 'undefined' ? NADES : [])) {
       const d = n.p.distanceTo(this.pos);
       if (n.kind === 'frag' && d < 5.5 && this.dodgeT <= 0) { this.dodgeT = 1.4; this.runFrom(n.p); return; }
-      if (n.kind === 'flash' && d < 12 && aiSees(this.eye, n.p)) { this.lookYaw = Math.atan2(n.p.x - this.pos.x, n.p.z - this.pos.z); this.tgt = null; return; }
+      if (n.kind === 'flash' && d < 12 && n.owner !== this.pid && aiSees(this.eye, n.p)) { this.avert = { x: n.p.x, z: n.p.z, t: Math.max(0.3, n.fuse + 0.3) }; this.tgt = null; return; }
     }
     if (this.dodgeT > 0) return;
     if (this.tgtVis()) {
       this.state = 'engage'; this.path = null;
       // a small step aside now and then (never out of the building, never forward)
-      if (this.strafeT <= 0 && Math.random() < 0.05 && this.speedNow < 0.5 && !this.leanK) { this.strafe = Math.random() < 0.5 ? -1 : 1; this.strafeT = rnd(0.25, 0.6); }
+      if (this.strafeT <= 0 && Math.random() < 0.015 && this.speedNow < 0.5 && !this.leanK) { this.strafe = Math.random() < 0.5 ? -1 : 1; this.strafeT = rnd(0.25, 0.6); }
       if ((this.mag === 0 && this.dist < 12) || (hurt && Math.random() < 0.05) || (this.mag < 6 && this.dist < 7 && Math.random() < 0.2)) this.fallBack();
       return;
     }
     if (this.wb) { this.state = 'engage'; this.path = null; return; }
     // reload while nothing is in view
     if (this.mag < WEAPONS[this.w].cap * 0.4 && this.reloadT <= 0) this.reload();
+    if (this.tryThrow(now)) return;
     const site = this.plantSite();
     if (site) {
       if (this.pos.distanceTo(site) < 1.6) { this.state = 'defuse'; this.path = null; this.defuseT += 0.1; if (this.defuseT > 6.5) { this.defuseT = 0; this.disable(); } return; }
@@ -338,7 +429,7 @@ class AIBot extends Dummy {
     let lk = null, lt = 0; for (const K of this.know.values()) { const t = Math.max(K.seen || 0, K.heard || 0); if (K.last && t > lt) { lt = t; lk = K.last; } }
     if (this.noise && this.noise.t > lt) { lt = this.noise.t; lk = this.noise.p; }
     const sq = AI_SQUAD.last(); if (sq && sq.t > lt) { lt = sq.t; lk = sq.p; }
-    const age = now - lt;
+    const age = now - lt; if (lk) this.threat = { p: lk, t: lt };
     // inside, close and fresh: two of them go after it, carefully, guns on where it was; the rest cover the ways to them
     if (lk && age < 9000 && this.inA(lk)) {
       const hunters = AIS.filter(b => b !== this && b.state === 'hunt' && !b.dead && !b.out).length;
@@ -354,8 +445,12 @@ class AIBot extends Dummy {
     // nothing known yet: the traps and boards first
     const tr = this.traps.find(t => !t.done);
     if (tr) {
-      if (this.pos.distanceTo(tr.p) < 1.4 || (tr.k === 'bd' && Math.hypot(this.pos.x - tr.p.x, this.pos.z - tr.p.z) < 2.2)) { tr.done = true; this.placeTrap(tr); }
-      else if (this.goal && this.goal.distanceTo(tr.p) < 0.1 && !this.path) { tr.tries = (tr.tries || 0) + 1; this.goal = null; if (tr.tries > 3) tr.done = true; }
+      if (this.pos.distanceTo(tr.p) < (tr.k === 'shield' ? 0.9 : 1.1) || (tr.k === 'bd' && Math.hypot(this.pos.x - tr.p.x, this.pos.z - tr.p.z) < 2.2)) {
+        // facing it, then down on one knee to set it (or the boards nailed up at the window)
+        const ty = Math.atan2(-(tr.p.x - this.pos.x), -(tr.p.z - this.pos.z)); this.lookYaw = tr.k === 'shield' ? tr.f : ty; this.path = null; this.state = 'place';
+        if (Math.abs(angWrap(this.lookYaw - this.ayaw)) < 0.3) this.startAct(tr.k === 'bd' ? 3 : 2, tr.k === 'bd' ? 1.6 : tr.k === 'shield' ? 1.3 : 1.0, () => { tr.done = true; this.placeTrap(tr); });
+      }
+      else if (this.goal && this.goal.distanceTo(tr.p) < 0.1 && !this.path) { tr.tries = (tr.tries || 0) + 1; this.goal = null; if (tr.tries > 8) tr.done = true; }
       else this.goTo(tr.p, 'rush');
       return;
     }
@@ -367,17 +462,21 @@ class AIBot extends Dummy {
     this.camp = null; this.campLean = 0;
     if (this.path && this.path.length) { this.state = 'patrol'; this.lookAtWay(); return; }
     this.state = 'patrol'; this.waitT -= 0.1;
-    if (this.waitT > 0) { if (Math.random() < 0.12) { const en = this.entries[Math.floor(Math.random() * Math.max(1, this.entries.length))]; this.lookYaw = en && Math.random() < 0.6 ? Math.atan2(-(en.p.x - this.pos.x), -(en.p.z - this.pos.z)) : this.ayaw + rnd(-1.6, 1.6); } return; }
-    this.waitT = rnd(0.6, 2.4);
+    if (this.waitT > 0) { if (Math.random() < 0.025) { const en = this.entries[Math.floor(Math.random() * Math.max(1, this.entries.length))]; this.lookYaw = en && Math.random() < 0.6 ? Math.atan2(-(en.p.x - this.pos.x), -(en.p.z - this.pos.z)) : this.ayaw + rnd(-1.6, 1.6); } return; }
+    this.waitT = rnd(4, 10);
+    // (a good part of the time it stays put a while longer, watching a way in)
+    if (Math.random() < 0.35) { this.waitT += rnd(4, 9); return; }
     const N = navFor(this.post), cand = [];
-    for (let k = 0; k < 60 && cand.length < 12; k++) { const n = N.nodes[Math.floor(Math.random() * N.nodes.length)]; if (!n || !this.inA(n)) continue; const dp = Math.hypot(n.x - this.post.x, n.z - this.post.z), dm = Math.hypot(n.x - this.pos.x, n.z - this.pos.z);
-      if (dp < this.zone + 2 && dm > 2.5 && dm < 13 && !this.visited.some(v => Math.hypot(v.x - n.x, v.z - n.z) < 2)) cand.push(n); }
+    for (let k = 0; k < 60 && cand.length < 12; k++) { const n = N.nodes[Math.floor(Math.random() * N.nodes.length)]; if (!n || !this.inA(n) || Math.abs(n.y - this.post.y) > 0.6) continue; const dp = Math.hypot(n.x - this.post.x, n.z - this.post.z), dm = Math.hypot(n.x - this.pos.x, n.z - this.pos.z);
+      if (dp < this.zone + 2 && dm > 2.5 && dm < 9 && !this.visited.some(v => Math.hypot(v.x - n.x, v.z - n.z) < 2)) cand.push(n); }
     const n = cand[0] || N.nodes.find(q => this.inA(q) && Math.hypot(q.x - this.post.x, q.z - this.post.z) < this.zone);
     if (n) { this.visited.push({ x: n.x, z: n.z }); if (this.visited.length > 6) this.visited.shift(); this.goTo(new V3(n.x, n.y, n.z), 'patrol'); }
   }
   lookAtWay() {
     // (moving: eyes ahead, swinging onto any doorway or window it passes close to)
     const n = this.path[0]; let y = Math.atan2(-(n.x - this.pos.x), -(n.z - this.pos.z));
+    // (a threat it knows about: eyes and gun stay on it, wherever it walks)
+    const th = this.threat; if (th && performance.now() - th.t < 15000 && Math.hypot(th.p.x - this.pos.x, th.p.z - this.pos.z) < 30) { this.lookYaw = Math.atan2(-(th.p.x - this.pos.x), -(th.p.z - this.pos.z)); this.lookP = 0; return; }
     for (const en of this.entries) { const d = Math.hypot(en.p.x - this.pos.x, en.p.z - this.pos.z); if (d < 6 && d > 1 && aiSees(this.eyeAt(0), en.p.clone().setY(en.p.y + 1.3))) { y = Math.atan2(-(en.p.x - this.pos.x), -(en.p.z - this.pos.z)); break; } }
     this.lookYaw = y; this.lookP = 0;
   }
@@ -389,20 +488,26 @@ class AIBot extends Dummy {
     const taken = AIS.filter(b => b !== this && b.camp).map(b => b.camp.en);
     const ens = this.entries.slice().sort((a, b) => a.p.distanceTo(lk) - b.p.distanceTo(lk));
     let en = ens.find(x => !taken.includes(x)) || ens[(this.slot || 0) % ens.length];
+    // (its own shield, if it put one up covering one of the two ways in nearest the threat: behind that)
+    const SC = this.shieldCamp; if (SC && ens.slice(0, 2).includes(SC.en) && !AIS.some(b => b !== this && b.camp && b.camp.p.distanceTo(SC.p) < 1)) {
+      this.camp = { en: SC.en, p: SC.p.clone(), lk: lk.clone(), shield: true }; this.campT = now + rnd(14000, 22000); this.campWish = 1; this.goTo(this.camp.p, 'move'); return; }
+    const far = this.w === 2 ? 12 : 8.5;
     const N = navFor(this.pos); let best = null, bs = -1e9;
     const inDir = en.dir.clone().negate();
     for (let k = 0; k < 140; k++) {
       const n = N.nodes[Math.floor(Math.random() * N.nodes.length)]; if (!n || !this.inA(n) || Math.abs(n.y - en.p.y) > 0.6) continue;
-      const v = new V3(n.x - en.p.x, 0, n.z - en.p.z), d = v.length(); if (d < 3 || d > 8.5) continue;
+      const v = new V3(n.x - en.p.x, 0, n.z - en.p.z), d = v.length(); if (d < 3 || d > far) continue;
       const ang = v.normalize().dot(inDir); if (ang < 0.15) continue;   // (inside, in front of it)
       const eye = new V3(n.x, n.y + 1.1, n.z); if (!aiSees(eye, en.p.clone().setY(en.p.y + 1.1))) continue;
       // off the straight line in (not in plain view from outside), near a wall (cover), not on a trap, not on another bot
       const off = 1 - ang, cover = navBlocked(n.x + 0.45, n.y + 0.5, n.z, 0.8, 0.1) || navBlocked(n.x - 0.45, n.y + 0.5, n.z, 0.8, 0.1) || navBlocked(n.x, n.y + 0.5, n.z + 0.45, 0.8, 0.1) || navBlocked(n.x, n.y + 0.5, n.z - 0.45, 0.8, 0.1);
       if (AIS.some(b => b !== this && b.camp && Math.hypot(b.camp.p.x - n.x, b.camp.p.z - n.z) < 2)) continue;
-      const s = off * 2 + (cover ? 1.5 : 0) - Math.abs(d - 5) * 0.3 + Math.random() * 0.4; if (s > bs) { bs = s; best = n; }
+      const s = off * 2 + (cover ? 1.5 : 0) - Math.abs(d - (this.w === 2 ? 8 : this.w === 5 ? 3.5 : 5)) * 0.3 + Math.random() * 0.4; if (s > bs) { bs = s; best = n; }
     }
     if (!best) { this.patrol(now); return; }
-    this.camp = { en, p: new V3(best.x, best.y, best.z), lk: lk.clone() }; this.campT = now + rnd(9000, 16000); this.campCrouch = Math.random() < 0.6;
+    this.camp = { en, p: new V3(best.x, best.y, best.z), lk: lk.clone() }; this.campT = now + rnd(16000, 30000);
+    // (lying down covering it if it is far enough off and there is room; the sniper likes to; otherwise mostly kneeling)
+    this.campWish = (this.w === 2 ? 0.7 : best && Math.hypot(best.x - en.p.x, best.z - en.p.z) > 5.5 ? 0.3 : 0) > Math.random() ? 2 : Math.random() < 0.6 ? 1 : 0;
     // (which way to lean to look round its cover at the way in)
     this.campLean = 0;
     this.goTo(this.camp.p, 'move');
@@ -415,6 +520,7 @@ class AIBot extends Dummy {
     // can it see the way in from here, or only leaning out?
     const q = t.clone().setY(t.y + 1.2);
     this.campLean = aiSees(this.eyeAt(0), q) ? 0 : aiSees(this.eyeAt(1), q) ? 1 : aiSees(this.eyeAt(-1), q) ? -1 : 0;
+    this.campStance = this.campWish === 2 && !this.campLean && Math.abs(angWrap(this.lookYaw - this.ayaw)) < 0.3 ? (this.stance === 2 || this.roomToLie(t) ? 2 : 1) : this.campLean ? 0 : this.campWish === 2 ? 1 : this.campWish || 0;
   }
   goTo(p, st) {
     this.state = st; const now = performance.now();
@@ -448,7 +554,7 @@ class AIBot extends Dummy {
     for (const d of doors) {
       if (d.fallen || !d.leaf || Math.abs(d.a) > 0.6) continue; const c = d.g.position;
       if (Math.hypot(c.x - this.pos.x, c.z - this.pos.z) > 2.2 || !look.some(n => Math.hypot(n.x - c.x, n.z - c.z) < 0.9)) continue;
-      if (this.outsideDoor(d)) { this.path = null; continue; }
+      if (this.outsideDoor(d)) continue;   // (its paths never leave the building; a door out stays as it is)
       const L = d.leaf; L.updateMatrixWorld(true); const s = L.worldToLocal(this.pos.clone().setY(c.y + 1)).z >= 0 ? -1 : 1;
       d.lock = 0; d.tgt = s * DOOR_OPEN; d.w = s * 4;
       doorNet({ i: d.i, a: 'st', tg: d.tgt, w: d.w, an: d.a, h: 0, lk: 0 });
@@ -480,7 +586,7 @@ class AIBot extends Dummy {
     if (!T || !T.vis) return;
     this.engT += dt;
     // the first look is rough; it settles onto the target over about half a second (worse at range, moving, hurt, gassed)
-    const base = 0.008 * (1 + this.dist / 30) * (this.speedNow > 1 ? 1.8 : 1) * (1 + hurtLevel(this.anat)) * ((this.gasK || 0) > 0.3 ? 3 : 1);
+    const base = 0.008 * (1 + this.dist / 30) * (this.speedNow > 1 ? 1.8 : 1) * (1 - 0.35 * this.proneK) * (1 + hurtLevel(this.anat)) * ((this.gasK || 0) > 0.3 && this.lo.hg !== 'gasmask' ? 3 : 1);
     this.err = Math.max(base, this.err - dt * 0.28);
     if (Math.random() < dt * 4) { this.errY = rnd(-1, 1) * this.err; this.errP = rnd(-1, 1) * this.err * 0.6; }
     // looking at them: the line it is aiming along has to pass within a body's width of them (and it has had time to react)
@@ -510,17 +616,20 @@ class AIBot extends Dummy {
     if (this.hostP && net.host) net.host.broadcast({ t: 'shot', id: this.pid, o: o.toArray().map(r4x), d: dir.toArray().map(r4x), w: this.w, tr: tr ? 1 : 0, sp: 0, sd }, net.host.self);
   }
   placeTrap(T) {
-    if (S.mode !== 'online') return;   // (the course has its own fixed traps)
+    if (T.k !== 'bd') { if (this.gN <= 0) return; this.gN--; }
+    if (T.k === 'shield' && T.camp) this.shieldCamp = T.camp;
+    const id = (Math.random() * 1e6) | 0; noiseHit(420, 0.08, 0.06);
+    if (S.mode !== 'online') { if (T.k !== 'bd') gadgetAdd(-1 - (this.slot || 0), id, T.k, T.p, T.f || 0, 'b'); return; }
     if (!this.hostP || !net.host) return;
-    const H = net.host, id = (Math.random() * 1e6) | 0;
+    const H = net.host;
     if (T.k === 'bd') { H.sgMsg(this.hostP, { t: 'sg', a: 'bd', i: T.i }); return; }
     H.onMessage(this.hostP, { t: 'x', a: 'gd', k: T.k, i: id, p: [T.p.x, T.p.y, T.p.z].map(r3), f: T.f || 0, c: 2 });
   }
   // ---- the network (raid): its state as a player's, its hits and deaths through the room
   sendState() {
     const an = this.anat, a = this.hum.anim;
-    const m = { t: 's', lf: this.hostP.life, l: r4x(this.leanK || 0), p: [this.pos.x, this.pos.y, this.pos.z].map(r4x), y: r4x(this.yaw), pi: r4x(this.pitch), v: r4x(this.speedNow), c: r4x(this.crouchK), sp: this.speedNow > 5 ? 1 : 0, g: 1, a: r4x(a.ads || 0), w: this.w, r: r4x(a.reload || 0),
-      pr: 0, lm: an.legBroken('L') || an.legBroken('R') ? 0.5 : 0, hu: r4x(a.hurt || 0), sg: 0, su: 0, fl: 0, dv: 0, ar: an.helmetOn ? 0 : 1, dn: this.rag ? 1 : 0, bb: an.brokenMask(), ah: an.armHangMask(), ls: an.lostMask(), lc: an.cutArr(),
+    const m = { t: 's', lf: this.hostP.life, l: r4x(this.leanK || 0), ac: r4x(a.act || 0), hg: a.hg || 0, p: [this.pos.x, this.pos.y, this.pos.z].map(r4x), y: r4x(this.yaw), pi: r4x(this.pitch), v: r4x(this.speedNow), c: r4x(this.crouchK), sp: this.speedNow > 5 ? 1 : 0, g: 1, a: r4x(a.ads || 0), w: this.w, r: r4x(a.reload || 0),
+      pr: r4x(this.proneK), lm: an.legBroken('L') || an.legBroken('R') ? 0.5 : 0, hu: r4x(a.hurt || 0), sg: 0, su: 0, fl: 0, dv: 0, ar: an.helmetOn ? 0 : 1, dn: this.rag ? 1 : 0, bb: an.brokenMask(), ah: an.armHangMask(), ls: an.lostMask(), lc: an.cutArr(),
       bl: Math.round(an.bleedRate()), arr: Math.round(arteryRate(an)), bp: r4x(clamp(an.blood / 5000, 0.2, 1)), rx: 0, cl: 0 };
     net.host.onMessage(this.hostP, m);
   }
@@ -538,7 +647,7 @@ class AIBot extends Dummy {
     else if (m.t === 'spawn' && m.id === this.pid) {
       // (between matches the bots wait off the map)
       if (!net.host || net.host.R.ph === 'lobby') { this.hide(); if (this.hostP) this.hostP.alive = false; }
-      else this.respawn(TOWN.def && TOWN.def.length ? TOWN.def[this.slot % TOWN.def.length] : this.post);
+      else this.respawn(this.spawnP || (TOWN.def && TOWN.def.length ? TOWN.def[this.slot % TOWN.def.length] : this.post));
     }
     else if (m.t === 'round' && m.ph === 'lobby') this.hide();
   }
@@ -556,6 +665,7 @@ class AIBot extends Dummy {
     this.anat = new Anatomy(); this.pos.copy(p); this.post.copy(p); this.home = this.pos; this.hum.root.visible = true; this.hum.root.position.copy(p);
     this.lastBy = 0; this.downSent = false; this.camp = null; this.wb = null; this.lean = 0; this.leanK = 0; this.dodgeT = 0; this.visited = []; this.know.clear(); this.tgt = null; this.noise = null; this.path = null; this.mag = WEAPONS[this.w].cap; this.reloadT = 0; this.flashT = 0; this.deafT = 0; this.state = 'idle';
     for (const t of this.traps) { t.done = false; t.tries = 0; }
+    this.gN = this.lo.gN; this.tN = this.lo.tN; this.act = null; this.myNades = []; this.stance = 0; this.proneK = 0; this.crouchK = 0; this.yawV = 0; this.avert = null; this.shieldCamp = null; this.proneFor = 0; this.threat = null; this.throwCD = rnd(2, 5);
   }
   hide() { this.out = true; this.hum.root.visible = false; if (this.rag) { this.rag.keep = false; this.rag = null; } }
   update(dt) {
@@ -582,6 +692,64 @@ class AIBot extends Dummy {
   dispose() { super.dispose(); const i = AIS.indexOf(this); if (i >= 0) AIS.splice(i, 1); }
 }
 const angWrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+// ---- a defender's kit: a gun (M4, M870 or the .50), one gadget kind and all of them, frags or flashbangs, and headgear
+// (night vision after dark, a mask some of the time)
+function aiLoadout(i, night, w) {
+  const r = Math.random(), gun = w !== undefined ? w : r < 0.5 ? 0 : r < 0.8 ? 5 : 2;
+  const g = ['beartrap', 'wire', 'shield', 'alarm', 'beartrap', 'wire'][i % 6], t = Math.random() < 0.55 ? 'frag' : 'flash';
+  const hg = night ? (Math.random() < 0.7 ? 'nvg' : 'gasmask') : Math.random() < 0.4 ? 'gasmask' : 'none';
+  return { w: gun, g, gN: GADGETS[g].n, t, tN: GADGETS[t].n, hg };
+}
+// clear between two points (holes in walls let it through; smoke doesn't matter to a grenade)
+function aiClear(a, b) {
+  _aiV.subVectors(b, a); const L = _aiV.length(); if (L < 1e-3) return true; _aiV.multiplyScalar(1 / L); _aiR.set(a, _aiV); _aiR.far = L;
+  for (const h of _aiR.intersectObjects(worldMeshes, false)) { const u = h.object.userData; if (!u.box && !u.door) continue; if (u.grid && gridOpenW(h.object, h.point.clone().addScaledVector(_aiV, 0.01))) continue; if (h.object.visible === false) continue; return false; }
+  return true;
+}
+// a throw from o that comes down on q, if its arc gets there through the rooms (a few launch angles, flattest first)
+function aiLob(o, q) {
+  const d = Math.hypot(q.x - o.x, q.z - o.z), h = q.y - o.y, g = 9.81; if (d < 0.5) return null;
+  const hd = new V3(q.x - o.x, 0, q.z - o.z).normalize();
+  for (const th of [0.25, 0.45, 0.7, 0.95]) {
+    const c = Math.cos(th), den = d * Math.tan(th) - h; if (den <= 0.05) continue;
+    const v = Math.sqrt(g * d * d / (2 * c * c * den)) * 1.04; if (!(v < FRAG_V.over)) continue;
+    const vel = hd.clone().multiplyScalar(v * c).setY(v * Math.sin(th)), T = d / (v * c); let prev = o.clone(), ok = true;
+    for (let k = 1; k <= 12 && ok; k++) { const t = T * k / 12, p = new V3(o.x + vel.x * t, o.y + vel.y * t - 0.5 * g * t * t, o.z + vel.z * t); if (p.y > 5 + o.y || !aiClear(prev, p)) ok = false; prev = p; }
+    if (ok) return vel;
+  }
+  return null;
+}
+// ---- where each defender sets its own gadgets: wire across a door just inside, bear traps a step further in, alarms under
+// the windows, its shield a few metres back covering a door (and it camps behind it later); the boards on three windows are
+// shared out after
+function aiPlan(bots, entries) {
+  const used = new Map(), put = [], doorsE = entries.filter(e => !e.win), wins = entries.filter(e => e.win);
+  const free = p => !put.some(q => Math.hypot(q.x - p.x, q.z - p.z) < 0.7);
+  const pick = pool => pool.slice().sort((a, b) => (used.get(a) || 0) - (used.get(b) || 0) + rnd(-0.4, 0.4))[0];
+  const order = { wire: 0, shield: 1, alarm: 2, beartrap: 3 };
+  for (const b of bots.slice().sort((x, y) => (order[x.lo.g] || 0) - (order[y.lo.g] || 0))) {
+    const L = b.lo, T = [];
+    for (let k = 0; k < L.gN; k++) {
+      const e = pick(L.g === 'alarm' && wins.length ? wins : doorsE.length ? doorsE : entries); if (!e) break;
+      const inw = e.dir.clone().negate(), side = new V3(e.dir.z, 0, -e.dir.x); let p, f = 0, camp = null;
+      if (L.g === 'wire') { p = e.p.clone().addScaledVector(inw, 0.15); f = Math.atan2(-side.z, side.x); }
+      else if (L.g === 'beartrap') p = e.p.clone().addScaledVector(inw, rnd(0.75, 1.2)).addScaledVector(side, rnd(-0.35, 0.35));
+      else if (L.g === 'alarm') p = e.p.clone().addScaledVector(side, rnd(-0.4, 0.4));
+      else { // shield: a spot 3-5 m in with a clear view of the way in, facing it
+        const N = navFor(e.p); let best = null, bs = -1e9;
+        for (let t = 0; t < 120; t++) { const n = N.nodes[Math.floor(Math.random() * N.nodes.length)]; if (!n || !b.inA(n) || Math.abs(n.y - e.p.y) > 0.5) continue; const v = new V3(n.x - e.p.x, 0, n.z - e.p.z), dd = v.length(); if (dd < 3 || dd > 5.5) continue;
+          const ang = v.normalize().dot(inw); if (ang < 0.3 || !aiSees(new V3(n.x, n.y + 1, n.z), e.p.clone().setY(e.p.y + 1))) continue; const sc = (1 - ang) + Math.random() * 0.3; if (sc > bs) { bs = sc; best = n; } }
+        if (!best) continue; p = new V3(best.x, best.y, best.z); f = Math.atan2(-(e.p.x - p.x), -(e.p.z - p.z));
+        camp = { en: e, p: p.clone().add(new V3(Math.sin(f) * 0.75, 0, Math.cos(f) * 0.75)) };
+      }
+      p.y = floorUnder(p.x, p.z, e.p.y + 0.5);
+      if (!free(p) || !b.inA(p)) continue; used.set(e, (used.get(e) || 0) + 1); put.push(p);
+      T.push({ k: L.g, p, f, camp });
+    }
+    b.traps = T;
+  }
+  return put;
+}
 const distToSeg = (p, a, b) => { const ab = b.clone().sub(a), t = clamp(p.clone().sub(a).dot(ab) / Math.max(1e-6, ab.lengthSq()), 0, 1); return a.clone().addScaledVector(ab, t).distanceTo(p); };
 // only soft things between: drywall, plywood, a wooden door, boards (a round goes through those); at least one of them
 function aiSoftOnly(e, q) {
@@ -605,6 +773,18 @@ function raidTraps() {
   return T;
 }
 const inHouseFoot = (p, m) => typeof HOUSE !== 'undefined' && p.x > HOUSE.x0 - m && p.x < HOUSE.x1 + m && p.z > HOUSE.z0 - m && p.z < HOUSE.z1 + m;
+// where the defenders start: half on the ground floor, half upstairs, spread through the rooms
+function aiSpawns(area, n) {
+  const c = new V3((area.x0 + area.x1) / 2, 0, (area.z0 + area.z1) / 2), N = navFor(c), out = [];
+  const nodes = N.nodes.filter(q => q.x > area.x0 + 0.5 && q.x < area.x1 - 0.5 && q.z > area.z0 + 0.5 && q.z < area.z1 - 0.5 && q.y < 4.6 && q.e.length >= 12);
+  const floors = [nodes.filter(q => q.y < 1), nodes.filter(q => q.y > 2)];
+  for (let i = 0; i < n; i++) {
+    const L = floors[i % 2].length ? floors[i % 2] : nodes; let best = null, bs = -1;
+    for (let k = 0; k < 60; k++) { const q = L[Math.floor(Math.random() * L.length)]; if (!q) break; const d = out.length ? Math.min(...out.map(o => Math.hypot(o.x - q.x, o.z - q.z) + Math.abs(o.y - q.y) * 3)) : 99; if (d > bs) { bs = d; best = q; } }
+    if (best) out.push(new V3(best.x, best.y, best.z));
+  }
+  return out;
+}
 function raidAddBots(H) {
   if (!H || H.cfg.mode !== 'raid' || H.bots) return; H.bots = [];
   for (let i = 0; i < 6; i++) {
@@ -616,7 +796,7 @@ function raidAddBots(H) {
 function raidBodies() {
   const H = net.host; if (!H || !H.bots) return;
   for (const b of AIS.slice()) if (b.hostP) { b.dispose(); const k = dummies.indexOf(b); if (k >= 0) dummies.splice(k, 1); }
-  navClear(); AI_SQUAD.pts = []; const traps = raidTraps();
+  navClear(); AI_SQUAD.pts = []; const boards = raidTraps().filter(t => t.k === 'bd'), night = typeof ENV !== 'undefined' && (ENV.tod < 6.5 || ENV.tod > 19);
   // the house: where they stay, and the ways in they watch (the outside doors and the windows, from just inside)
   const area = { x0: HOUSE.x0 + 0.1, x1: HOUSE.x1 - 0.1, z0: HOUSE.z0 + 0.1, z1: HOUSE.z1 - 0.1 }, entries = [], ctr = new V3((HOUSE.x0 + HOUSE.x1) / 2, 0, (HOUSE.z0 + HOUSE.z1) / 2);
   if (typeof doors !== 'undefined') for (const d of doors) { const c = d.g.position, f = new V3(0, 0, 1).applyQuaternion(d.g.quaternion); const a = c.clone().addScaledVector(f, 0.9), b = c.clone().addScaledVector(f, -0.9);
@@ -624,13 +804,16 @@ function raidBodies() {
     if (ia !== ib) entries.push({ p: (ia ? a : b).setY(c.y), dir: ia ? f.clone().negate() : f.clone(), door: d.i }); }
   if (TOWN.windows) for (const w of TOWN.windows) if (w && w.p) { const out = new V3(w.p.x - ctr.x, 0, w.p.z - ctr.z), ax = Math.abs(out.x) / (HOUSE.x1 - HOUSE.x0) > Math.abs(out.z) / (HOUSE.z1 - HOUSE.z0); const dir = ax ? new V3(Math.sign(out.x), 0, 0) : new V3(0, 0, Math.sign(out.z));
     const p = new V3(w.p.x, 0, w.p.z).addScaledVector(dir, -0.7); p.y = floorUnder(p.x, p.z, (w.p.y || 0) - 0.3); entries.push({ p, dir, win: true }); }
+  const spots = aiSpawns(area, H.bots.length);
   H.bots.forEach((p, i) => {
-    const sp = TOWN.def && TOWN.def.length ? TOWN.def[i % TOWN.def.length] : new V3();
-    // (the traps first, then the boarding of the windows, shared out between them)
-    const b = new AIBot(sp, { pid: p.id, hostP: p, name: p.name, w: i === 2 || i === 5 ? 5 : 0, post: sp, zone: 7, area, entries, traps: [traps[i], traps[i + 6]].filter(Boolean) });
-    b.slot = i; p.bot = b; dummies.push(b);
+    const sp = spots[i] || (TOWN.def && TOWN.def.length ? TOWN.def[i % TOWN.def.length] : new V3());
+    const lo = aiLoadout(i, night), b = new AIBot(sp, { pid: p.id, hostP: p, name: p.name, w: lo.w, lo, post: sp, zone: 7, area, entries });
+    b.slot = i; b.spawnP = sp.clone(); p.bot = b; dummies.push(b);
     if (!p.alive) b.hide();
   });
+  // (each sets its own gadgets first, then the boarding of the windows is shared out to whoever has least to do)
+  const bots = H.bots.map(p => p.bot); aiPlan(bots, entries);
+  for (const t of boards) bots.slice().sort((a, b) => a.traps.length - b.traps.length)[0].traps.push(t);
 }
 
 // ---- the CQC course in the testing range: four rooms behind the door wall, four defenders that reset when cleared
@@ -661,15 +844,18 @@ function buildCqc() {
 function cqcReset() {
   for (const b of CQC.bots) { b.dispose(); const k = dummies.indexOf(b); if (k >= 0) dummies.splice(k, 1); }
   CQC.bots = []; navClear(); AI_SQUAD.pts = [];
+  for (const g of GD.slice()) if (g.team === 'b' && g.owner < 0) gadgetRemove(g);
   const area = { x0: -9.85, x1: 9.85, z0: 22.12, z1: 39.88 }, entries = [{ p: new V3(-4, 0, 22.9), dir: new V3(0, 0, -1) }, { p: new V3(5, 0, 22.9), dir: new V3(0, 0, -1) }, { p: new V3(-9.1, 0, 31), dir: new V3(-1, 0, 0) }];
   const posts = [[-6, 25, 0.5, 0], [6, 37, 2.5, 5], [-5, 31, 1.5, 0], [-6, 38, 2.2, 0]];
-  posts.forEach(([x, z, yaw, w], i) => { const b = new AIBot(new V3(x, 0, z), { yaw, w, post: new V3(x, 0, z), zone: 6, area, entries, name: 'CQC ' + (i + 1) }); b.slot = i; CQC.bots.push(b); dummies.push(b); });
+  const night = typeof ENV !== 'undefined' && (ENV.tod < 6.5 || ENV.tod > 19);
+  posts.forEach(([x, z, yaw, w], i) => { const lo = aiLoadout(i, night, w), b = new AIBot(new V3(x, 0, z), { yaw, w, lo, post: new V3(x, 0, z), zone: 6, area, entries, name: 'CQC ' + (i + 1) }); b.slot = i; CQC.bots.push(b); dummies.push(b); });
+  aiPlan(CQC.bots, entries);
 }
 // a bot wherever you are (console "spawn ai")
 function spawnAI(p) { const b = new AIBot(p.clone(), { post: p.clone(), zone: 4 }); dummies.push(b); return b; }
 function aiClearAll() { for (const b of AIS.slice()) { b.dispose(); const k = dummies.indexOf(b); if (k >= 0) dummies.splice(k, 1); } CQC.bots = []; navClear(); }
-function updateAI() { const now = performance.now(); while (AI_NOISE.length && now - AI_NOISE[0].t > 1500) AI_NOISE.shift(); }
+function updateAI() { const now = performance.now(); if (AIS.length && now - (updateAI.t || 0) > 500) { updateAI.t = now; navSkipDoors(); } while (AI_NOISE.length && now - AI_NOISE[0].t > 1500) AI_NOISE.shift(); }
 
 // ---- module exports: build.mjs strips this block ----
-export { AIBot, CQC, aiNoise, buildCqc, cqcReset, navClear, navDirty, raidAddBots, raidBodies, spawnAI, updateAI };
+export { AIBot, CQC, aiClear, aiNoise, buildCqc, cqcReset, navClear, navDirty, raidAddBots, raidBodies, spawnAI, updateAI };
 // ---- end module exports ----

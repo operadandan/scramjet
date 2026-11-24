@@ -76,7 +76,7 @@ function waitIce(pc) {
 }
 // in-browser game server, run by whoever created the room
 const MAX_P2P = 12;   // 6 v 6
-const GD_RULES = { claymore: ['r', 1], beartrap: ['b', 3], wire: ['b', 2], shield: ['b', 1], alarm: ['b', 2] };
+const GD_RULES = { beartrap: ['b', 3], wire: ['b', 2], shield: ['b', 1], alarm: ['b', 2] };
 class HostRoom {
   // snap: when a lobby moves to this player because its host left, what the round was (from their last round message): the
   // ids, teams and score carry on, and so does the round, timers included
@@ -646,7 +646,7 @@ function roundHud() {
   const line = R.ph === 'lobby' ? (R.end ? 'MATCH STARTS IN ' + left : 'INTERMISSION · waiting for a player on each team') : R.ph === 'load' ? 'ROUND ' + R.n + ' · LOADOUT · ' + left : R.ph === 'post' ? (R.over ? 'MATCH OVER' : 'NEXT ROUND IN ' + left) : (SG.plant ? 'ROUND ' + R.n + ' · OVERTIME' : 'ROUND ' + R.n + ' · ' + mm);
   const role = my ? (my === DEF_TEAM ? 'BLUE · DEFENDING' : 'RED · ATTACKING') : '';
   const pl = SG.plant ? Math.max(0, Math.ceil((SG.plant.end - performance.now()) / 1000)) : 0;
-  const dz = R.ph !== 'live' ? '' : SG.plant ? '<div class="out" style="color:#ff6a5a">DEFUSER PLANTED AT ' + SG.plant.site + ' · ' + pl + 's' + (my === DEF_TEAM ? ' · disable it!' : ' · protect it') + '</div>' : SG.carrier === S.myId ? '<div class="out">YOU HAVE THE DEFUSER (5) · find a bomb and plant it (hold F)</div>' : SG.drop && my === 'r' ? '<div class="out">The defuser was dropped · pick it up</div>' : '';
+  const dz = R.ph !== 'live' ? '' : SG.plant ? '<div class="out" style="color:#ff6a5a">DEFUSER PLANTED AT ' + SG.plant.site + ' · ' + pl + 's' + (my === DEF_TEAM ? ' · disable it!' : ' · protect it') + '</div>' : SG.carrier === S.myId ? '<div class="out">YOU HAVE THE DEFUSER (7) · find a bomb and plant it (hold F)</div>' : SG.drop && my === 'r' ? '<div class="out">The defuser was dropped · pick it up</div>' : '';
   const out = R.ph === 'live' && !P.alive ? '<div class="out">' + (SFX.spec && S.remotes.get(SFX.spec) ? 'Watching ' + esc(S.remotes.get(SFX.spec).name) + ' (click for the next) · ' : '') + 'You are out until the next round · ' + (my ? alive[my] : 0) + ' teammate' + ((my ? alive[my] : 0) === 1 ? '' : 's') + ' left</div>' : '';
   const html = '<div><b style="color:#6aa0ff">BLUE ' + R.sc.b + '</b> <span class="rl">' + line + '</span> <b style="color:#ff6a5a">' + R.sc.r + ' RED</b></div><div class="rs"><span style="color:' + (my === 'r' ? '#ff8a7a' : '#8ab4ff') + '">' + role + '</span>' + (R.ph === 'live' ? ' · alive: <span style="color:#8ab4ff">' + alive.b + '</span> v <span style="color:#ff8a7a">' + alive.r + '</span>' : '') + '</div>' + dz + out;
   if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; } el.style.display = 'block';
@@ -654,12 +654,18 @@ function roundHud() {
   if (leftT && performance.now() > leftT) { leftT = 0; $('teamleft').style.opacity = '0'; }
 }
 let sendAcc = 0;
+// what the hands are doing, for the others to see: throwing (1.x) or putting something down (2.x)
+function actCode() {
+  const N = P.nade; if (P.slot === 3 && N) { if (N.ph === 'pin') return 1.08; if (N.ph === 'ready') return 1.3; if (N.ph === 'throw') return 1.45 + Math.min(0.54, N.t / 0.6 * 0.54); }
+  if ((P.placeT || 0) > 0) return 2 + Math.min(0.99, 1 - P.placeT / 0.8);
+  return 0;
+}
 function netSend(dt) {
   if (S.mode !== 'online' || !net.ready() || !P.alive) return;
   sendAcc += dt; if (sendAcc < 0.05) return; sendAcc = 0;
   const r2 = v => Math.round(v * 100) / 100;
   net.send({
-    t: 's', lf: S.life, p: [r2(P.pos.x), r2(P.pos.y), r2(P.pos.z)], y: r2(P.yaw), pi: r2(P.pitch), l: r2(P.leanEff), c: r2(P.crouch),
+    t: 's', lf: S.life, ac: actCode(), hg: P.head === 'gasmask' ? 1 : P.head === 'nvg' ? (P.nvgOn ? 3 : 2) : 0, p: [r2(P.pos.x), r2(P.pos.y), r2(P.pos.z)], y: r2(P.yaw), pi: r2(P.pitch), l: r2(P.leanEff), c: r2(P.crouch),
     v: r2(P.speed), sp: P.sprinting ? 1 : 0, r: P.reloading ? Math.max(0.01, r2(P.reloadT / P.reloadDur)) : 0,
     w: P.slot === 2 || P.slot === 3 || P.slot === 5 ? MEDKIT_W : P.slot === 4 ? 7 : P.weapon, ...lightState(), ar: P.anat.helmetOn ? 0 : 1, su: P.slot < 2 && VMW[P.weapon].supp ? 1 : 0, a: r2(P.ads), dn: P.downed ? 1 : 0, bb: P.anat.brokenMask(), ah: P.anat.armHangMask(), ls: P.anat.lostMask(), lc: P.anat.cutArr(), g: P.onGround ? 1 : 0, pr: r2(P.prone), lm: P.anat.bothLegs() ? 1 : (P.anat.legBroken('L') || P.anat.legBroken('R')) ? 0.5 : 0, bl: Math.round(P.anat.bleedRate()), arr: Math.round(arteryRate(P.anat)), bp: r2(clamp(P.anat.blood / 5000, 0.2, 1)), hu: r2(localBody.anim.hurt || 0), sg: localBody.anim.stag || 0, rx: P.react && !P.downed ? reactPack(P.react) : 0, cl: localBody.anim.clutchT > 0 && localBody.anim.clutchW > 0.2 ? [localBody.anim.clutchF].concat(localBody.anim.clutchP.map(r2)) : 0
   }, true);

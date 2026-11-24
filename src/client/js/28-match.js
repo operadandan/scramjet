@@ -63,21 +63,22 @@ window.voteMap = voteMap;
 
 // ---- the loadout: primary, sidearm, a gadget, a throwable, headgear, and for attackers a breaching tool. In the testing
 // range everything is on the lists (both sides' gadgets, every breaching tool), opened with L.
-const LO_KEY = 'breach_lo3';
-const LO_DEF = { g2: { r: 'claymore', b: 'beartrap', t: 'shield' }, g3: { r: 'smoke', b: 'frag', t: 'frag' }, gb: { r: 'c4', t: 'c4' }, hg: { r: 'none', b: 'none', t: 'none' } };
+const LO_KEY = 'breach_lo4';
+const LO_DEF = { g2: { r: 'claymore', b: 'beartrap', t: 'shield' }, g3: { r: 'smoke', b: 'frag', t: 'frag' }, gb: { r: 'c4', t: 'c4' }, hg: { r: 'none', b: 'none', t: 'none' },
+  // the four equipment slots (keys 3 to 6): gadgets, breaching tools and throwables alike
+  eq: { r: ['c4', 'frag', 'flash', 'smoke'], b: ['beartrap', 'wire', 'frag', 'flash'], t: ['c4', 'sledge', 'frag', 'beartrap'] } };
 const LO = (() => { let o = {}; try { o = JSON.parse(localStorage.getItem(LO_KEY) || '{}') || {}; } catch (e) {} const r = {}; for (const k in LO_DEF) r[k] = Object.assign({}, LO_DEF[k], o[k] || {}); return r; })();
 function loSave() { try { localStorage.setItem(LO_KEY, JSON.stringify(LO)); } catch (e) {} }
 const loSide = () => S.mode === 'online' ? (S.team[S.myId] || 'r') : 't';
 const loOK = (k, slot, t) => GADGETS[k] && GADGETS[k].slot === slot && (t === 't' || GADGETS[k].team.includes(t));
 // the gadget, throwable, breaching tool and headgear of your side, and how many of each you carry
+const eqOK = (k, t) => !!GADGETS[k] && k !== 'bcharge' && k !== 'claymore' && (t === 't' || GADGETS[k].team.includes(t));
 function applyGadgets() {
-  const t = loSide();
-  P.tool2 = loOK(LO.g2[t], 2, t) ? LO.g2[t] : LO_DEF.g2[t] || 'beartrap';
-  P.tool3 = loOK(LO.g3[t], 3, t) ? LO.g3[t] : 'frag';
-  P.toolB = t === 'b' ? null : loOK(LO.gb[t], 'b', t) ? LO.gb[t] : 'c4';
+  const t = loSide(), eq = (LO.eq[t] || []).slice(0, 4);
+  P.eq = [0, 1, 2, 3].map(i => { const k = eq[i]; return eqOK(k, t) && eq.indexOf(k) === i ? { k, n: GADGETS[k].n } : null; });
   P.head = HEADGEAR[LO.hg[t]] ? LO.hg[t] : 'none'; P.nvgOn = false;
-  P.gN = GADGETS[P.tool2].n; P.fragN = GADGETS[P.tool3].n;
-  P.c4N = P.toolB === 'c4' ? GADGETS.c4.n : 0; P.bcN = P.toolB === 'bcharge' ? GADGETS.bcharge.n : 0;
+  P.eqSel = -1; P.tool2 = null; P.tool3 = null; P.toolB = null; P.gN = 0; P.fragN = 0; P.bcN = 0;
+  const c4 = P.eq.find(e => e && e.k === 'c4'); P.c4N = c4 ? c4.n : 0;
 }
 function loadoutUI(open) {
   const el = $('loadout'); S.loOpen = !!open;
@@ -88,9 +89,8 @@ function loadoutUI(open) {
   el.innerHTML = '<h3>LOADOUT · ' + side + '</h3><div id="lotime" class="ls"></div>' +
     '<h4>PRIMARY (1)</h4><div class="lrow">' + PRIMARIES.map(i => opt('lp', i, WEAPONS[i].name, P.loadout[0] === i)).join('') + '</div>' +
     '<h4>SIDEARM (2)</h4><div class="lrow">' + SECONDARIES.map(i => opt('ls2', i, WEAPONS[i].name, P.loadout[1] === i)).join('') + '</div>' +
-    '<h4>GADGET (3)</h4><div class="lrow">' + list(2).map(([k, g]) => opt('lg2', k, g.name, LO.g2[t] === k, g.desc + ' · x' + g.n)).join('') + '</div>' +
-    '<h4>THROWABLE (4)</h4><div class="lrow">' + list(3).map(([k, g]) => opt('lg3', k, g.name, LO.g3[t] === k, g.desc + ' · x' + g.n)).join('') + '</div>' +
-    (t !== 'b' ? '<h4>BREACHING (6)</h4><div class="lrow">' + list('b').map(([k, g]) => opt('lgb', k, g.name, LO.gb[t] === k, g.desc + (g.n ? ' · x' + g.n : ''))).join('') + '</div>' : '') +
+    [0, 1, 2, 3].map(i => '<h4>EQUIPMENT ' + (i + 1) + ' (' + (i + 3) + ')</h4><div class="lrow eqrow">' + opt('leq', i + ':', 'Nothing', !(LO.eq[t] || [])[i], '') +
+      Object.entries(GADGETS).filter(([k]) => eqOK(k, t)).map(([k, g]) => opt('leq', i + ':' + k, g.name, (LO.eq[t] || [])[i] === k, g.n ? 'x' + g.n : '').replace('<button', '<button title="' + g.desc + '"')).join('') + '</div>').join('') +
     '<h4>HEADGEAR</h4><div class="lrow">' + Object.entries(HEADGEAR).map(([k, g]) => opt('lhg', k, g.name, LO.hg[t] === k, g.desc)).join('') + '</div>' +
     '<button id="loready">' + (t === 't' ? 'DONE' : 'READY') + '</button>';
   el.style.display = 'block';
@@ -98,9 +98,8 @@ function loadoutUI(open) {
   const set = (key, v) => { LO[key][t] = v; loSave(); loApply(); loadoutUI(true); };
   el.querySelectorAll('.lp').forEach(b => b.onclick = () => { setLoadout(+b.dataset.v, P.loadout[1]); loApply(); loadoutUI(true); });
   el.querySelectorAll('.ls2').forEach(b => b.onclick = () => { setLoadout(P.loadout[0], +b.dataset.v); loApply(); loadoutUI(true); });
-  el.querySelectorAll('.lg2').forEach(b => b.onclick = () => set('g2', b.dataset.v));
-  el.querySelectorAll('.lg3').forEach(b => b.onclick = () => set('g3', b.dataset.v));
-  el.querySelectorAll('.lgb').forEach(b => b.onclick = () => set('gb', b.dataset.v));
+  // (picking something another slot already has swaps the two)
+  el.querySelectorAll('.leq').forEach(b => b.onclick = () => { const [i, k] = b.dataset.v.split(':'), a = (LO.eq[t] || []).slice(0, 4); while (a.length < 4) a.push(null); const j = k ? a.indexOf(k) : -1; if (j >= 0) a[j] = a[+i]; a[+i] = k || null; LO.eq[t] = a; loSave(); loApply(); loadoutUI(true); });
   el.querySelectorAll('.lhg').forEach(b => b.onclick = () => set('hg', b.dataset.v));
   $('loready').onclick = () => { loadoutUI(false); renderer.domElement.requestPointerLock(); };
 }

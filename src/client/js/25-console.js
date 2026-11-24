@@ -12,6 +12,7 @@ import { Dummy, P, S, dummies, keys, mouse } from './17-dummies.js';
 import { esc, feed, hurtFlash, localDeath } from './18-player.js';
 import { net, teamName } from './19-network.js';
 import { EXPL, explode } from './19b-explosives.js';
+import { eqSync } from './21-items-inventory.js';
 import { applyGfx, leave, setLoadout } from './22-menu-loop.js';
 import { siegeReset } from './23-siege.js';
 import { ENV, envClock, envCur, envSet, envShare, lampBreak } from './24-env.js';
@@ -96,10 +97,11 @@ const CMDS = {
     if (!conTest()) return conPrint('Testing mode only.', '#ff8a7a');
     const it = (a[0] || '').toLowerCase(), n = Math.max(1, Math.min(99, parseInt(a[1]) || 0)), G = GADGETS[it];
     if (G) {
-      if (G.slot === 2) { P.tool2 = it; P.gN = parseInt(a[1]) ? n : G.n; }
-      else if (G.slot === 3) { P.tool3 = it; P.fragN = parseInt(a[1]) ? n : G.n; }
-      else { P.toolB = it; if (it === 'c4') P.c4N = parseInt(a[1]) ? n : G.n; if (it === 'bcharge') P.bcN = parseInt(a[1]) ? n : G.n; }
-      return conPrint('Given: ' + G.name + (G.n || parseInt(a[1]) ? ' x' + (parseInt(a[1]) ? n : G.n) : '') + '  (slot ' + (G.slot === 2 ? 3 : G.slot === 3 ? 4 : 6) + ')');
+      // (into the slot that has it already, else the first empty one, else the last)
+      if (!P.eq) P.eq = [null, null, null, null]; eqSync(); const c = parseInt(a[1]) ? n : G.n;
+      let i = P.eq.findIndex(e => e && e.k === it); if (i < 0) i = P.eq.findIndex(e => !e); if (i < 0) i = 3;
+      P.eq[i] = { k: it, n: c }; if (it === 'c4') P.c4N = c; if (P.eqSel === i) P.eqSel = -1;
+      return conPrint('Given: ' + G.name + (c ? ' x' + c : '') + '  (key ' + (i + 3) + ')');
     }
     if (HEADGEAR[it]) { P.head = it; P.nvgOn = false; return conPrint('Wearing: ' + HEADGEAR[it].name); }
     if (it === 'ammo') { for (const g of P.guns || []) if (g) { g.mags = (g.mags || []).map(() => WEAPONS[g.w] ? WEAPONS[g.w].mag : 30); } return conPrint('Magazines refilled.'); }

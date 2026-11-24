@@ -36,7 +36,7 @@ const GADGETS = {
   c4: { name: 'C4 (M112)', team: 'r', slot: 'b', n: 2, desc: 'stick it, set it off: walls, doors, floors' },
   sledge: { name: 'Sledgehammer', team: 'r', slot: 'b', n: 0, desc: 'smash through boards, plywood, drywall, doors' },
   // gadgets (3)
-  claymore: { name: 'Claymore', team: 'r', slot: 2, n: 1, desc: 'laser tripwire, blasts forward' },
+  claymore: { name: 'Claymore', team: '', slot: 2, n: 1, desc: 'laser tripwire, blasts forward' },
   beartrap: { name: 'Bear trap', team: 'b', slot: 2, n: 3, desc: 'snaps on the leg and takes them down' },
   wire: { name: 'Barbed wire', team: 'b', slot: 2, n: 2, desc: 'slows, cuts and rattles' },
   shield: { name: 'Deployable shield', team: 'b', slot: 2, n: 1, desc: 'steel cover that stops rounds' },
@@ -183,7 +183,7 @@ function updateGadget(dt, kk) {
   if (ok && mouse.left && P.semiReady && P.switchT <= 0 && S.locked && !matchFrozen() && (S.mode !== 'online' || (S.R && S.R.ph === 'live'))) {
     P.semiReady = false;
     const id = explSeq++, team = S.mode === 'online' ? S.team[S.myId] : 'r';
-    gadgetAdd(S.myIdOr0(), id, k, at, yaw, team); if (k === 'bcharge') P.bcN--; else P.gN--; noiseHit(420, 0.08, 0.06);
+    gadgetAdd(S.myIdOr0(), id, k, at, yaw, team); if (k === 'bcharge') P.bcN--; else P.gN--; noiseHit(420, 0.08, 0.06); P.placeT = 0.8;
     if (S.mode === 'online') net.send({ t: 'x', a: 'gd', k, i: id, p: at.toArray().map(r3), f: r3(yaw), c: team === 'r' ? 1 : 2 });
   }
 }
@@ -283,7 +283,8 @@ function sledgeLand() {
 
 // ---- what the gadgets do (each player works out what happens to themselves)
 function updateGadgets(dt) {
-  const my = S.mode === 'online' ? S.team[S.myId] : null, now = performance.now();
+  if (P.placeT > 0) P.placeT -= dt;
+  const my = S.mode === 'online' ? S.team[S.myId] : 'r', now = performance.now();   // (in the testing range you are an attacker: the course's traps are for you)
   for (const o of GD.slice()) {
     o.t += dt; o.cd -= dt;
     if (o.k === 'alarm' && o.g.userData.led) o.g.userData.led.visible = (now / 500 | 0) % 2 === 0;

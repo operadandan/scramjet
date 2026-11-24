@@ -174,7 +174,7 @@ export default {
   }
 };
 
-export const GD_RULES = { claymore: ['r', 1], beartrap: ['b', 3], wire: ['b', 2], shield: ['b', 1], alarm: ['b', 2] };
+export const GD_RULES = { beartrap: ['b', 3], wire: ['b', 2], shield: ['b', 1], alarm: ['b', 2] };
 class GameRoom extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);

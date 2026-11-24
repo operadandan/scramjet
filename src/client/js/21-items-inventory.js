@@ -14,9 +14,9 @@ import { props } from './16-ballistics.js';
 import { P, S } from './17-dummies.js';
 import { flashMsg, magEstimate, rackNeeded, selectEmpty, switchWeapon } from './18-player.js';
 import { net } from './19-network.js';
-import { c4Mine, r3 } from './19b-explosives.js';
+import { c4Mine, nadeAbandon, nadeReset, r3 } from './19b-explosives.js';
 import { SG, siegeHint } from './23-siege.js';
-import { GADGETS } from './27-gadgets.js';
+import { GADGETS, gadgetGhostOff } from './27-gadgets.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- ground items, pickup (F), backpack
 const items = new Map(); let itemSeq = 1;
@@ -380,20 +380,29 @@ function pickUp() {
 const TOOL_NAME = { medkit: 'IFAK medkit', plate: 'Armor plate' };
 // number keys and the wheel pick a slot (0-3) whether or not anything is in it
 // the key of what is already in hand puts it away (empty hands); pressed again it comes back out
+// keys 1-2 the guns, 3-6 the four equipment slots, 7 the defuser (for whoever carries it). Each piece of equipment is held
+// in the hand-slot its kind uses (2 a gadget, 3 a throwable, 5 a breaching tool); what is left of it is kept in P.eq.
+const eqCat = k => !GADGETS[k] ? -1 : GADGETS[k].slot === 3 ? 3 : GADGETS[k].slot === 'b' ? 5 : 2;
+function eqHas(e) { if (!e) return false; if (e.k === 'sledge') return true; if (e.k === 'c4') return P.c4N > 0 || c4Mine().length > 0; return e.n > 0 || (eqCat(e.k) === 3 && P.nade && P.nade.ph !== 'idle' && P.tool3 === e.k); }
+function eqSync() { const e = P.eq && P.eqSel >= 0 ? P.eq[P.eqSel] : null; if (!e) return; const c = eqCat(e.k); if (e.k === 'c4') e.n = P.c4N; else if (c === 2 && P.tool2 === e.k) e.n = P.gN; else if (c === 3 && P.tool3 === e.k) e.n = P.fragN; }
+function eqLoad(i) { const e = P.eq[i], c = eqCat(e.k); P.eqSel = i; if (c === 2) { P.tool2 = e.k; P.gN = e.n; } else if (c === 3) { P.tool3 = e.k; P.fragN = e.n; } else P.toolB = e.k; }
+function backToGun() { if (P.activeLo[0] != null) switchWeapon(0); else if (P.activeLo[1] != null) switchWeapon(1); else selectEmpty(0); }
 function pressSlot(n) {
-  // 5: the defuser (out in empty hands), for whoever carries it
-  // 6: the breaching tool (attackers): C4, the sledgehammer or breach charges
-  if (n === 5) { P.defOut = false; if (!breachHas()) return; if (P.slot === 5) return selectEmpty(0); return switchWeapon(5); }
-  if (n === 4) { if (S.mode === 'online' && SG.carrier === S.myId) { const was = P.defOut; selectEmpty(0); P.defOut = !was; } return; }
-  P.defOut = false;
-  if (P.slot === n && P.slot !== 4) return selectEmpty(n);
-  if (n < 2) return switchWeapon(n);
-  const t = toolSlotIndex(n - 2); if (t >= 0) switchWeapon(t); else selectEmpty(n);
+  if (n === 6) { if (S.mode === 'online' && SG.carrier === S.myId) { const was = P.defOut; selectEmpty(0); P.defOut = !was; } return; }
+  P.defOut = false; eqSync();
+  if (n < 2) { if (P.slot === n) return selectEmpty(n); return switchWeapon(n); }
+  const i = n - 2, e = P.eq ? P.eq[i] : null, held = P.eqSel === i && e && P.slot === eqCat(e.k);
+  // the same key again puts it away: back to the gun
+  if (held || (P.slot === 4 && P.emptySel === n)) { if (P.nade && P.nade.ph !== 'idle' && P.nade.ph !== 'throw') nadeAbandon(); gadgetGhostOff(); return backToGun(); }
+  if (!eqHas(e)) return selectEmpty(n);
+  if (P.nade && P.nade.ph !== 'idle' && P.slot === 3) nadeAbandon();
+  eqLoad(i); const c = eqCat(e.k);
+  if (P.slot === c) { P.switchT = 0.35; if (c === 3) nadeReset(); blip(320, 0.05, 0.05); } else switchWeapon(c);
 }
-const curSlot = () => P.slot === 4 ? Math.max(0, P.emptySel) : P.slot;
+const curSlot = () => P.slot === 4 ? Math.max(0, P.emptySel) : P.slot < 2 ? P.slot : P.eqSel >= 0 ? 2 + P.eqSel : 0;
 // hotbar 3 is C4 (and its firing device while charges are out), hotbar 4 the M67
 function breachHas() { return !!P.toolB && (P.toolB === 'sledge' || (P.toolB === 'c4' ? P.c4N > 0 || c4Mine().length : P.bcN > 0)); }
-function toolSlotIndex(i) { return i === 0 ? (P.gN > 0 ? 2 : -1) : (P.fragN > 0 || (P.nade && P.nade.ph !== 'idle') ? 3 : -1); }
+function toolSlotIndex(i) { return eqHas(P.eq ? P.eq[i] : null) ? eqCat(P.eq[i].k) : -1; }
 function toolCount(t) { return t === 'medkit' ? P.medUses : t === 'plate' ? P.platesInv : 0; }
 let tbKey = '';
 function updateToolbar() {
@@ -401,12 +410,15 @@ function updateToolbar() {
   if (!S.mode || !P.alive || P.downed) { tb.style.display = 'none'; tbKey = ''; return; }
   tb.style.display = 'flex';
   const lo = P.activeLo, es = n => P.slot === 4 && P.emptySel === n, gr = i => lo[i] == null ? [i + 1, 'Empty', '', es(i)] : [i + 1, WEAPONS[lo[i]].name, attSummary(lo[i]), P.slot === i];
-  const rows = [gr(0), gr(1),
-    [3, P.gN > 0 && GADGETS[P.tool2] ? GADGETS[P.tool2].name : 'Empty', P.gN > 0 ? 'x' + P.gN : '', P.gN > 0 ? P.slot === 2 : es(2)],
-    [4, P.fragN > 0 ? GADGETS[P.tool3 || 'frag'].name : 'Empty', P.fragN > 0 ? 'x' + P.fragN : '', P.fragN > 0 || (P.nade && P.nade.ph !== 'idle') ? P.slot === 3 : es(3)]];
-  // the defuser, for whoever carries it (5)
-  if (S.mode === 'online' && SG.carrier === S.myId) rows.push([5, 'Defuser', 'plant on a bomb (hold F)', !!P.defOut]);
-  if (P.toolB && GADGETS[P.toolB]) { const c4 = P.toolB === 'c4', m = c4 ? c4Mine().length : 0; rows.push([6, GADGETS[P.toolB].name, P.toolB === 'sledge' ? 'LMB swing' : c4 ? 'x' + P.c4N + (m ? ', ' + m + ' set' : '') : 'x' + P.bcN, P.slot === 5]); }
+  eqSync();
+  const rows = [gr(0), gr(1)];
+  for (let i = 0; i < 4; i++) {
+    const e = P.eq ? P.eq[i] : null, has = eqHas(e), on = has && P.eqSel === i && P.slot === eqCat(e.k);
+    const sub = !e ? '' : e.k === 'sledge' ? 'LMB swing' : e.k === 'c4' ? 'x' + P.c4N + (c4Mine().length ? ', ' + c4Mine().length + ' set' : '') : 'x' + e.n;
+    rows.push([i + 3, has ? GADGETS[e.k].name : 'Empty', has ? sub : '', has ? on : es(i + 2)]);
+  }
+  // the defuser, for whoever carries it (7)
+  if (S.mode === 'online' && SG.carrier === S.myId) rows.push([7, 'Defuser', 'plant on a bomb (hold F)', !!P.defOut]);
   const key = JSON.stringify(rows);
   if (key === tbKey) return; tbKey = key;
   tb.innerHTML = rows.map(r => '<div class="tb' + (r[3] ? ' on' : '') + (r[1] === 'Empty' ? ' empty' : '') + '"><b>' + r[0] + '</b><div><span>' + (r[1] === 'Empty' && r[3] ? 'Fists' : r[1]) + '</span><small>' + r[2] + '</small></div></div>').join('');
@@ -461,5 +473,5 @@ const ATT_DESC = {
 };
 
 // ---- module exports: build.mjs strips this block ----
-export { breachHas, clearItems, closeInv, curSlot, drag, dragRotate, dropHeld, dropWeapon, hlMesh, items, openAttMenu, openInv, pickUp, pressSlot, removeItem, spawnItem, toolSlotIndex, updateInv, updatePickup, updateToolbar };
+export { breachHas, clearItems, closeInv, curSlot, drag, dragRotate, dropHeld, dropWeapon, eqSync, hlMesh, items, openAttMenu, openInv, pickUp, pressSlot, removeItem, spawnItem, toolSlotIndex, updateInv, updatePickup, updateToolbar };
 // ---- end module exports ----

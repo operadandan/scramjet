@@ -37,7 +37,7 @@ button:hover{filter:brightness(1.15)}
 #lobbyui h3,#loadout h3{margin:0 0 6px;letter-spacing:4px;font-size:15px}#lobbyui .ls,#loadout .ls{font-size:12px;color:#aab3bc;margin:6px 0}
 #lobbyui .mapc{width:100%;text-align:left;background:#1a2027;border:1px solid #39424c;border-radius:6px;padding:10px;color:#fff;cursor:pointer}#lobbyui .mapc.on{border-color:#ffd166}#lobbyui .mapc small{display:block;color:#9aa4ad;font-size:11px;margin-top:3px}#lobbyui .mapc i{display:block;font-style:normal;color:#ffd166;font-size:12px;margin-top:5px}
 #loadout{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(760px,92vw);max-height:86vh;overflow:auto;display:none;z-index:25;background:rgba(10,13,16,.94);border:1px solid #2c343d;border-radius:10px;padding:16px 18px;color:#e8ecef}
-#loadout h4{margin:12px 0 6px;font-size:11px;letter-spacing:3px;color:#9aa4ad}#loadout .lrow{display:flex;flex-wrap:wrap;gap:8px}#loadout .lrow button{flex:1 1 150px;text-align:left;background:#1a2027;border:1px solid #39424c;border-radius:6px;padding:8px 10px;color:#fff;cursor:pointer}#loadout .lrow button.on{border-color:#ffd166;background:#2a2a1c}#loadout .lrow small{display:block;color:#9aa4ad;font-size:11px;margin-top:3px}
+#loadout h4{margin:12px 0 6px;font-size:11px;letter-spacing:3px;color:#9aa4ad}#loadout .lrow{display:flex;flex-wrap:wrap;gap:8px}#loadout .eqrow{gap:5px}#loadout .eqrow button{flex:1 1 92px;padding:6px 8px}#loadout .eqrow button b{font-size:12px}#loadout .lrow button{flex:1 1 150px;text-align:left;background:#1a2027;border:1px solid #39424c;border-radius:6px;padding:8px 10px;color:#fff;cursor:pointer}#loadout .lrow button.on{border-color:#ffd166;background:#2a2a1c}#loadout .lrow small{display:block;color:#9aa4ad;font-size:11px;margin-top:3px}
 #loready{margin-top:14px;width:100%;padding:10px;background:#ffd166;color:#111;border:none;border-radius:6px;font-weight:700;letter-spacing:3px;cursor:pointer}
 #countdown{position:fixed;left:0;right:0;top:34%;text-align:center;font-size:84px;font-weight:800;color:#fff;text-shadow:0 3px 14px #000;display:none;pointer-events:none;z-index:11}
 #flashw{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:9}
@@ -295,7 +295,7 @@ button.go{background:#e8432d;border-radius:2px;letter-spacing:3px;font-weight:70
   </div>
   <div class="mpane" id="mp_train" style="display:none">
     <div class="card hero" id="test"><small>OFFLINE</small><b>TESTING RANGE</b><span>Every weapon and gadget · dummies · the close-quarters course with AI defenders</span><em>ENTER</em></div>
-    <div class="card"><div class="ch"><b>CONTROLS</b></div><div class="keys">WASD move · Shift sprint · Space jump · C crouch · X prone · Q / E lean · RMB aim<br>R reload · M check mag · V gun bash · F use · H flashlight · N night vision<br>1 primary · 2 sidearm · 3 gadget · 4 throwable · 5 defuser · 6 breaching tool<br>L loadout (testing range) · Tab scoreboard · Esc pause</div></div>
+    <div class="card"><div class="ch"><b>CONTROLS</b></div><div class="keys">WASD move · Shift sprint · Space jump · C crouch · X prone · Q / E lean · RMB aim<br>R reload · M check mag · V gun bash · F use · H flashlight · N night vision<br>1 primary · 2 sidearm · 3-6 equipment · 7 defuser<br>L loadout (testing range) · Tab scoreboard · Esc pause</div></div>
   </div>
   <div class="mpane" id="mp_opts" style="display:none"><div class="card"><div id="msetv"></div></div></div>
   <div class="mfoot">BREACH · build <span id="mbuild"></span></div>
@@ -356,7 +356,7 @@ button.go{background:#e8432d;border-radius:2px;letter-spacing:3px;font-weight:70
     <button class="attm1" data-i="0">Attachments</button><button class="attm1" data-i="1">Attachments</button></div>
   <div class="keys" id="lonote"></div>
   <label class="opt"><input type="checkbox" id="opt_target"> Show the condition panel of whoever you shoot</label>
-  <div class="keys">WASD move · Shift sprint · Space jump · C crouch · X prone · Q / E lean · RMB aim<br>R reload · M check mag · V gun bash · F use · H flashlight · N night vision · G inventory · B drop<br>1 primary · 2 sidearm · 3 gadget · 4 throwable · 5 defuser · 6 breaching · L loadout (range) · Tab scores</div>
+  <div class="keys">WASD move · Shift sprint · Space jump · C crouch · X prone · Q / E lean · RMB aim<br>R reload · M check mag · V gun bash · F use · H flashlight · N night vision · G inventory · B drop<br>1 primary · 2 sidearm · 3-6 equipment · 7 defuser · L loadout (range) · Tab scores</div>
   <div class="keys" id="pauseinfo"></div></div>
 </div><div id="setv" class="card"></div></div></div>
 
