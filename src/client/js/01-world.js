@@ -7,6 +7,7 @@ import { DOOR_FW, DOOR_H, DOOR_W, addDoor, clearDoors } from './15b-doors.js';
 import { P } from './17-dummies.js';
 import { seg } from './19c-toolvm.js';
 import { clearStructure } from './30-structure.js';
+import { buildCqc } from './32-ai.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- textures / materials
 function canvasTex(draw, size, repeat) {
@@ -180,6 +181,8 @@ function buildTest() {
     let x0 = -5; for (const x of xs) { addBox((x0 + x - op) / 2, 0, z, x - op - x0, H, T, 'drywall', 0xe6e2da); addBox(x, DOOR_H + 0.1, z, op * 2, H - DOOR_H - 0.1, T, 'drywall', 0xe6e2da); x0 = x + op; }
     addBox((x0 + 5) / 2, 0, z, 5 - x0, H, T, 'drywall', 0xe6e2da);
     addDoor(-2, z, 0, 'plywood', 1, 1); addDoor(2, z, 0, 'metal', -1, 0); }
+  // the close-quarters course with AI defenders, through those doors
+  buildCqc();
   spawns = [new V3(0, 0, 8)];
 }
 

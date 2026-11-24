@@ -28,6 +28,7 @@ import { lightState } from './26-lights.js';
 import { clearGadgets } from './27-gadgets.js';
 import { LOBBY_SP, goLobbyWorld, loadoutUI, lobbyStrip } from './28-match.js';
 import { damageApply, damageSnap, demolish } from './30-structure.js';
+import { raidAddBots, raidBodies } from './32-ai.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- transport (Durable Object websocket, or peer-to-peer WebRTC with the room creator as host)
 const net = {
@@ -82,7 +83,10 @@ class HostRoom {
   constructor(snap) {
     this.players = new Map(); this.nextId = snap ? snap.myId : 1; this.cfg = Object.assign({ name: 'BREACH server', mode: 'siege', win: 5, max: MAX_P2P, tod: 6.4, weather: 'rain', pub: 0 }, S.cfg || {}); this.rInit();
     this.self = this.add(null);
-    if (snap) { this.migT = Date.now(); this.nextId = Math.max(this.nextId, ...snap.ids.map(i => i + 1)); this.migIds = new Set(snap.ids.filter(i => i !== snap.myId)); this.migPl = snap.pl || {}; this.rResume(snap); }
+    raidAddBots(this);
+    if (snap) { this.migT = Date.now(); this.nextId = Math.max(this.nextId, ...snap.ids.map(i => i + 1)); this.migIds = new Set(snap.ids.filter(i => i !== snap.myId)); this.migPl = snap.pl || {}; this.rResume(snap);
+      // (the bots carry on too: back on their posts if a round is on)
+      if (this.bots) setTimeout(() => { if (net.host !== this) return; raidBodies(); if (this.R.ph === 'live' || this.R.ph === 'load') for (const p of this.bots) this.spawn(p); }, 0); }
   }
   rResume(sn) {
     const R = this.R, m = sn.r || {}, now = Date.now(), el = sn.age || 0;
@@ -107,6 +111,8 @@ class HostRoom {
   used(p) { const R = this.R; p.gdN = {}; for (const g of Object.values(R.gd || {})) if (g.o === p.id) p.gdN[g.k] = (p.gdN[g.k] || 0) + 1; p.rfN = (R.sgw || []).filter(e => e[0] === 'rf' && e[2] === p.id).length; }
   add(peer) { const p = { id: this.nextId++, peer, name: '', ready: false, alive: false, state: null, lastHit: 0, kills: 0, deaths: 0 }; this.players.set(p.id, p); return p; }
   deliver(p, s, fast) {
+    // (one of the raid's bots: its brain gets it, in order with what the host's own client gets)
+    if (p.ai) { const m = JSON.parse(s); queueMicrotask(() => { if (net.mode === 'host' && p.bot) p.bot.rx(m); }); return; }
     if (!p.peer) { const m = JSON.parse(s); queueMicrotask(() => { if (net.mode === 'host') onNet(m); }); return; }
     const ch = fast && p.peer.unr && p.peer.unr.readyState === 'open' ? p.peer.unr : p.peer.rel;
     if (ch && ch.readyState === 'open') try { ch.send(s); } catch (e) {}
@@ -239,7 +245,7 @@ class HostRoom {
   // teams a round starts: everyone spawns on their side, the dead stay dead until the next round. Attackers win by killing
   // every defender, defenders by killing every attacker or by holding out until the clock runs out.
   rInit() { if (this.R && this.R.pt) clearTimeout(this.R.pt); if (this.R && this.R.tm) clearTimeout(this.R.tm); this.R = { n: 0, ph: 'lobby', go: 0, votes: {}, map: 'house', end: 0, sc: { r: 0, b: 0 }, tm: null, pt: null, carrier: null, dz: null, plant: null, sgw: [], found: [] }; }
-  rTeam() { let r = 0, b = 0; for (const x of this.players.values()) if (x.ready && x.team) x.team === 'r' ? r++ : b++; return r < b ? 'r' : b < r ? 'b' : (Math.random() < 0.5 ? 'r' : 'b'); }
+  rTeam() { if (this.cfg.mode === 'raid') return 'r'; let r = 0, b = 0; for (const x of this.players.values()) if (x.ready && x.team) x.team === 'r' ? r++ : b++; return r < b ? 'r' : b < r ? 'b' : (Math.random() < 0.5 ? 'r' : 'b'); }
   rCount(alive) { const c = { r: 0, b: 0 }; for (const x of this.players.values()) if (x.ready && x.team && (!alive || (x.alive && !x.fatal))) c[x.team]++; return c; }
   rTeams() { const o = {}; for (const x of this.players.values()) if (x.ready && x.team) o[x.id] = x.team; return o; }
   rMsg(extra) { const R = this.R; return Object.assign({ t: 'round', n: R.n, ph: R.ph, left: Math.max(0, R.end - Date.now()), go: Math.max(0, (R.go || 0) - Date.now()), sc: R.sc, mv: Object.values(R.votes || {}).length, map: R.map, tm: this.rTeams(), dfz: R.carrier, dz: R.dz, pl: R.plant && { site: R.plant.site, left: Math.max(0, R.plant.end - Date.now()) }, sp: R.sp | 0, demo: R.demo ? 1 : 0, lo: typeof TOWN !== 'undefined' && TOWN.lampAll ? TOWN.lampAll.map((L, i) => L.out ? i : -1).filter(i => i >= 0) : [], sgw: R.sgw, gdw: Object.values(R.gd || {}).map(g => [g.o, g.i, g.k, g.p, g.f, g.team, g.sn ? 1 : 0]), fd: R.found, env: typeof envSnap === 'function' ? envSnap() : undefined }, extra || {}); }
@@ -253,7 +259,7 @@ class HostRoom {
     const R = this.R, c = this.rCount(false), now = Date.now();
     if (R.ph === 'lobby') {
       // everyone on one side: the newest crosses over, so a match can start
-      if (c.r + c.b >= 2 && !(c.r && c.b)) { const from = c.r ? 'r' : 'b', mv = [...this.players.values()].filter(x => x.ready && x.team === from).pop(); mv.team = from === 'r' ? 'b' : 'r'; c.r = c.r ? c.r - 1 : 1; c.b = c.b ? c.b - 1 : 1; this.broadcast(this.rMsg()); }
+      if (this.cfg.mode !== 'raid' && c.r + c.b >= 2 && !(c.r && c.b)) { const from = c.r ? 'r' : 'b', mv = [...this.players.values()].filter(x => x.ready && x.team === from).pop(); mv.team = from === 'r' ? 'b' : 'r'; c.r = c.r ? c.r - 1 : 1; c.b = c.b ? c.b - 1 : 1; this.broadcast(this.rMsg()); }
       if (c.r && c.b && !R.end) { R.end = now + 20000; this.broadcast(this.rMsg()); this.rTimer(20000, () => this.rMatch()); }
       else if (!(c.r && c.b) && R.end) { R.end = 0; if (R.tm) clearTimeout(R.tm); R.tm = null; this.broadcast(this.rMsg()); }
       return;
@@ -280,7 +286,7 @@ class HostRoom {
     if (this.migT && Date.now() - this.migT < 9000) { setTimeout(() => { if (net.host === this) this.rStart(); }, this.migT + 9050 - Date.now()); return; }
     const R = this.R; let c = this.rCount(false);
     // evens the teams up first (the newest to join moves)
-    while (Math.abs(c.r - c.b) > 1) { const from = c.r > c.b ? 'r' : 'b', mv = [...this.players.values()].filter(x => x.ready && x.team === from).pop(); mv.team = from === 'r' ? 'b' : 'r'; c = this.rCount(false); }
+    while (this.cfg.mode !== 'raid' && Math.abs(c.r - c.b) > 1) { const from = c.r > c.b ? 'r' : 'b', mv = [...this.players.values()].filter(x => x.ready && x.team === from).pop(); mv.team = from === 'r' ? 'b' : 'r'; c = this.rCount(false); }
     if (!c.r || !c.b) return this.rLobby();
     R.n++; R.ph = 'load'; R.end = Date.now() + 15000; R.go = 0;
     // the bombs move every round: another pair of sites
@@ -513,13 +519,7 @@ function onNet(m) {
     case 'x': onExplosiveMsg(m); break;
     case 'punched': onPunched(m); break;
     case 'demo': demolish(); break;
-    case 'hurt':
-      if (P.alive && P.anat && Array.isArray(m.p) && Array.isArray(m.d)) {
-        const an = P.anat; an.lastBy = m.by; an.lastDir.fromArray(m.wd || [0, 0, -1]); an.lastDist = m.dist || 0;
-        hurtClutch(localBody.anim, String(m.f), new V3().fromArray(m.p)); if (!m.ar) selfWound(String(m.f), new V3().fromArray(m.p), new V3().fromArray(m.d), WEAPONS[m.w] ? m.w : 0);
-        onSelfHurt(an.hit(String(m.f), new V3().fromArray(m.p), new V3().fromArray(m.d).normalize(), Number(m.v) || 0, WEAPONS[m.w] ? m.w : 0, m.ar || undefined, Number.isFinite(m.pd) ? m.pd : undefined));
-      }
-      break;
+    case 'hurt': applyHurt(m); break;
     case 'die': {
       const dir = new V3().fromArray(m.d || [0, 0, -1]).normalize();
       const killer = S.names[m.by] || ('P' + m.by), victim = S.names[m.id] || ('P' + m.id);
@@ -555,6 +555,8 @@ function onNet(m) {
 }
 function addRemote(id, name) {
   S.names[id] = name;
+  // (the host runs the raid's bots itself: no remote copy of them here)
+  if (net.mode === 'host' && net.host && net.host.players.get(id) && net.host.players.get(id).ai) return { alive: false, setState() {} };
   let r = S.remotes.get(id); if (r) return r;
   r = new Remote(id, name, S.team[id]); S.remotes.set(id, r); teamSync(); return r;
 }
@@ -571,6 +573,13 @@ function teamSync() {
     if (tm !== r.tm && !r.deadRag && !r.rag) { const n = new Remote(id, r.name, tm); n.alive = r.alive; if (r.st) n.setState(r.st); r.dispose(); S.remotes.set(id, n); }
     const R = S.remotes.get(id); R.label.visible = !!tm && tm === S.team[S.myId];
   }
+}
+// a round that hit us, as the one who fired it reported it
+function applyHurt(m) {
+  if (!(P.alive && P.anat && Array.isArray(m.p) && Array.isArray(m.d))) return;
+  const an = P.anat; an.lastBy = m.by; an.lastDir.fromArray(m.wd || [0, 0, -1]); an.lastDist = m.dist || 0;
+  hurtClutch(localBody.anim, String(m.f), new V3().fromArray(m.p)); if (!m.ar) selfWound(String(m.f), new V3().fromArray(m.p), new V3().fromArray(m.d), WEAPONS[m.w] ? m.w : 0);
+  onSelfHurt(an.hit(String(m.f), new V3().fromArray(m.p), new V3().fromArray(m.d).normalize(), Number(m.v) || 0, WEAPONS[m.w] ? m.w : 0, m.ar || undefined, Number.isFinite(m.pd) ? m.pd : undefined));
 }
 function roundRx(m, joining, moved) {
   const old = S.R || {}, now = performance.now();
@@ -607,6 +616,7 @@ function resetRoundWorld() {
   for (const p of props) scene.remove(p.m); props.length = 0; for (const L of limbBodies) L.dispose(); limbBodies.length = 0;
   while (bullets.length) removeBullet(bullets.length - 1);
   clearGadgets(); buildTown(S.R ? S.R.sp : 0); siegeReset(); S.world = 'town';
+  if (net.mode === 'host' && net.host && net.host.bots) raidBodies();
   // every round on the house map starts at dawn, in the rain
   // each round starts at the server's time of day and weather (dawn and rain unless the host set otherwise)
   { const c = (net.mode === 'host' && net.host ? net.host.cfg : S.cfgIn) || {}; ENV.tod = Number.isFinite(+c.tod) ? +c.tod : 6.4; envSet(c.weather || 'rain', true); if (+c.dayLen > 0) ENV.rate = 0.4 / +c.dayLen; }
@@ -625,7 +635,7 @@ function roundBanner(html, ms) { const el = $('rbanner'); el.innerHTML = html; e
 function roundHud() {
   const el = $('round'); if (S.mode !== 'online' || !S.R) { el.style.display = 'none'; return; }
   const R = S.R, my = S.team[S.myId], left = Math.max(0, Math.ceil((R.end - performance.now()) / 1000)), mm = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
-  let alive = { r: 0, b: 0 }; if (P.alive && my) alive[my]++; for (const [id, r] of S.remotes) if (r.alive && S.team[id]) alive[S.team[id]]++;
+  let alive = { r: 0, b: 0 }; if (P.alive && my) alive[my]++; for (const [id, r] of S.remotes) if (r.alive && S.team[id]) alive[S.team[id]]++; if (net.mode === 'host' && net.host && net.host.bots) for (const p of net.host.bots) if (p.alive) alive.b++;
   const line = R.ph === 'lobby' ? (R.end ? 'MATCH STARTS IN ' + left : 'INTERMISSION · waiting for a player on each team') : R.ph === 'load' ? 'ROUND ' + R.n + ' · LOADOUT · ' + left : R.ph === 'post' ? (R.over ? 'MATCH OVER' : 'NEXT ROUND IN ' + left) : (SG.plant ? 'ROUND ' + R.n + ' · OVERTIME' : 'ROUND ' + R.n + ' · ' + mm);
   const role = my ? (my === DEF_TEAM ? 'BLUE · DEFENDING' : 'RED · ATTACKING') : '';
   const pl = SG.plant ? Math.max(0, Math.ceil((SG.plant.end - performance.now()) / 1000)) : 0;
@@ -649,5 +659,5 @@ function netSend(dt) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { DEF_TEAM, api, joinPeer, net, netSend, onNet, roundHud, sleep, startHosting, teamName };
+export { DEF_TEAM, api, applyHurt, joinPeer, net, netSend, onNet, roundHud, sleep, startHosting, teamName };
 // ---- end module exports ----

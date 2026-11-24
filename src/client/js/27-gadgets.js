@@ -397,5 +397,5 @@ function flashBodies(p) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { GADGETS, GD, HEADGEAR, clearGadgets, flashBang, gadgetAdd, gadgetBlast, gadgetGhostOff, gadgetRemove, gadgetRx, gdKey, gdModel, sledgeDoorFx, sledgeK, smokeAt, smokeCloud, updateGadget, updateGadgets, updateSledge, wireDrag };
+export { GADGETS, GD, HEADGEAR, clearGadgets, flashBang, gadgetAdd, gadgetBlast, gadgetGhostOff, gadgetRemove, gadgetRx, gdKey, gdModel, sledgeBody, sledgeDoorFx, sledgeK, smokeAt, smokeCloud, updateGadget, updateGadgets, updateSledge, wireDrag };
 // ---- end module exports ----

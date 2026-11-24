@@ -275,12 +275,12 @@ function deathMasks(an) {
 }
 class Dummy {
   get baseYaw() { return Math.PI; }
-  constructor(x, z, anim, label) {
-    this.hum = new Humanoid({ shirt: 0xb8662a, vest: 0x5a5a56, vest2: 0x4e4e4a, helmet: 0x4a4a46, skin: SKINS[Math.floor(Math.random() * SKINS.length)] });
+  constructor(x, z, anim, label, pal) {
+    this.hum = new Humanoid(Object.assign({ shirt: 0xb8662a, vest: 0x5a5a56, vest2: 0x4e4e4a, helmet: 0x4a4a46, skin: SKINS[Math.floor(Math.random() * SKINS.length)] }, pal || {}));
     this.hum.dummy = this; scene.add(this.hum.root);
     // what was shown when it was built, so a respawn can put back anything a death hid (head included)
     this.vis0 = []; for (const k of ['head', 'neck']) if (this.hum[k]) this.hum[k].traverse(o => this.vis0.push([o, o.visible]));
-    this.hum.root.add(makeLabel(label, '#ffd166'));
+    if (label) this.hum.root.add(makeLabel(label, '#ffd166'));
     this.label = label;
     this.home = new V3(x, 0, z); this.anim = anim; this.anat = new Anatomy(); this.dead = false; this.respawnT = 0;
     this.t = Math.random() * 3; this.vel = new V3(); this.dripAcc = 0;
@@ -327,6 +327,7 @@ class Dummy {
       case 'crawl': a.prone = 1; a.speed = 0.8; break;
       case 'medkit': a.weapon = MEDKIT_W; break;
       case 'jump': { const ph = t % 1.4; if (ph < 0.7) { const u = ph / 0.7; root.position.y = 4 * 1.1 * u * (1 - u); a.air = 1; } break; }
+      case 'ai': if (this.aiTick) this.aiTick(dt, a, root); break;
       case 'patrol': {
         const ang = t * 0.5;
         root.position.set(this.home.x + Math.cos(ang) * 4, 0, this.home.z + Math.sin(ang) * 4);
@@ -339,7 +340,7 @@ class Dummy {
     if (downed) { a.prone = 1; a.limp = 1; }
     else if (this.anat.legBroken('L') || this.anat.legBroken('R')) { a.limp = 1; a.speed *= 0.5; }
     a.hurt = damp(a.hurt || 0, hurtLevel(this.anat), 2, dt); a.downedPose = downed; reClutch(a, this.anat, dt); updateBrace(this.hum, dt);
-    if (this.anim !== 'patrol' || downed) root.rotation.y = Math.PI;
+    if ((this.anim !== 'patrol' && this.anim !== 'ai') || downed) root.rotation.y = Math.PI;
     if (this.anim !== 'lean') a.lean = 0;
     this.hum.update(dt);
     bleedDrips(this, this.anat.bleedRate(), dt, arteryRate(this.anat), clamp(this.anat.blood / 5000, 0.2, 1));
@@ -392,7 +393,7 @@ class Dummy {
   // (which variant, timing, step length, sway, twist, which way it topples), so no two look the same.
   stanceKind() { return /^(prone|crawl)$/.test(this.anim) ? 'prone' : /^crouch/.test(this.anim) ? 'crouch' : 'stand'; }
   moveVel() {
-    if (this.anim === 'patrol') return this.vel.clone();
+    if (this.anim === 'patrol' || this.anim === 'ai') return this.vel.clone();
     const sp = { walk: 1.6, run: 4.3, sprint: 7.2, crouchwalk: 2, crawl: 0.8 }[this.anim] || 0;
     return new V3(0, 0, -1).applyQuaternion(this.hum.root.quaternion).multiplyScalar(sp);
   }

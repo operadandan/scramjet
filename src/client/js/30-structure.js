@@ -13,6 +13,7 @@ import { flashMsg, hurtFlash, localDeath } from './18-player.js';
 import { net } from './19-network.js';
 import { screenBlood } from './21b-screenfx.js';
 import { boardBreak } from './23-siege.js';
+import { navDirty } from './32-ai.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- what holds the building up
 // Every solid in and on the house is a structural piece: wall panels, floor and roof tiles, stairs, the furniture. A piece
@@ -76,7 +77,7 @@ function structCheck() {
 // (demolish takes out everything standing on the ground floor that could hold the house up: walls, posts, the stairs)
 // a piece with nothing under it comes down: out of the solids at once (so what it held is worked out again), then falling
 function structFall(m, st) {
-  const ud = m.userData, b = ud.box; ud.falling = true; if (TOWN.gone) TOWN.gone.push(boxKey(b));
+  const ud = m.userData, b = ud.box; ud.falling = true; if (typeof navDirty === 'function') navDirty(); if (TOWN.gone) TOWN.gone.push(boxKey(b));
   const i = worldMeshes.indexOf(m); if (i >= 0) worldMeshes.splice(i, 1);
   const j = colliders.indexOf(b); if (j >= 0) colliders.splice(j, 1);
   const w = b.max.x - b.min.x, h = b.max.y - b.min.y, d = b.max.z - b.min.z;
@@ -173,7 +174,7 @@ function boxHit(m, E, who) {
   boxBreak(m);
 }
 function boxBreak(m) {
-  const ud = m.userData, b = ud.box; if (TOWN.gone) TOWN.gone.push(boxKey(b));
+  const ud = m.userData, b = ud.box; if (typeof navDirty === 'function') navDirty(); if (TOWN.gone) TOWN.gone.push(boxKey(b));
   const i = worldMeshes.indexOf(m); if (i >= 0) worldMeshes.splice(i, 1); const j = colliders.indexOf(b); if (j >= 0) colliders.splice(j, 1);
   ud.falling = true; structLand({ m, b: { min: b.min.clone(), max: b.max.clone() }, kind: ud.kind, footY: b.min.y }); structDirty();
 }
@@ -229,5 +230,5 @@ function damageApply(s) {
 function clearStructure() { if (!STRUCT) return; STRUCT.fall.length = 0; STRUCT.dirty = false; }
 
 // ---- module exports: build.mjs strips this block ----
-export { blastBoxes, blastSlabs, boxBreakAt, boxHit, clearStructure, damageApply, damageSnap, demolish, structDirty, updateStructure };
+export { blastBoxes, blastSlabs, boxBreakAt, boxHit, clearStructure, damageApply, damageSnap, demolish, floorUnder, structDirty, updateStructure };
 // ---- end module exports ----

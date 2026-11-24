@@ -18,6 +18,7 @@ import { ENV, envClock, envCur, envSet, envShare, lampBreak } from './24-env.js'
 import { GADGETS, HEADGEAR } from './27-gadgets.js';
 import { loadoutUI } from './28-match.js';
 import { demolish } from './30-structure.js';
+import { cqcReset, spawnAI } from './32-ai.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- the command bar
 // ` (or /) opens it; Enter runs what is typed, Esc closes it, Up/Down go through what was typed before. "help" lists the
@@ -111,7 +112,7 @@ const CMDS = {
     const kind = (a[0] || 'dummy').toLowerCase(), n = Math.max(1, Math.min(12, parseInt(a[1]) || 1)), d = Math.max(2, Math.min(60, parseFloat(a[2]) || 6));
     const fw = new V3(-Math.sin(P.yaw), 0, -Math.cos(P.yaw));
     for (let i = 0; i < n; i++) { const p = P.pos.clone().addScaledVector(fw, d).add(new V3((i - (n - 1) / 2) * 1.4, 0, 0));
-      if (kind === 'ai' && typeof spawnAI === 'function') spawnAI(p, 'b'); else dummies.push(new Dummy(p.x, p.z, 'idle', 'Dummy')); }
+      if (kind === 'ai' && typeof spawnAI === 'function') spawnAI(p); else dummies.push(new Dummy(p.x, p.z, 'idle', 'Dummy')); }
     conPrint('Spawned ' + n + ' ' + (kind === 'ai' ? 'AI defender' : 'dumm') + (n > 1 ? (kind === 'ai' ? 's' : 'ies') : (kind === 'ai' ? '' : 'y')) + '.');
   }],
   explode: ['explode <c4 | frag | claymore | flash | smoke | teargas> [metres]  set one off where you look', a => {
@@ -140,6 +141,9 @@ const CMDS = {
   sound: ['sound <gun> <url>  play your own recording for a gun (m4, ak74, g17, m9, m870, m107)', a => {
     const id = (a[0] || '').toLowerCase(), url = a[1]; if (!(id in GUN_SOUNDS) || !url) return conPrint('sound <gun> <url>', '#ff8a7a');
     loadGunSound(id, url).then(ok => conPrint(ok ? 'Loaded the ' + id + ' sound.' : 'Could not load that file.', ok ? undefined : '#ff8a7a'));
+  }],
+  cqc: ['cqc  reset the close-quarters course and its four AI defenders (testing range)', () => {
+    if (S.mode !== 'test') return conPrint('Only in the testing range.', '#ff8a7a'); cqcReset(); conPrint('The course is reset: four defenders inside.');
   }],
   demolish: ['demolish  take out the house\'s supports and watch it come down (host or testing range)', () => {
     if (S.mode === 'test') { conPrint('Bringing it down: ' + demolish() + ' supports gone.'); return; }

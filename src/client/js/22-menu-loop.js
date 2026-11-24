@@ -34,6 +34,7 @@ import { freezeBegin, freezeEnd, loadoutUI, matchHud, queueUp } from './28-match
 import { eyeAfterRender, updateEyes } from './29-eyes.js';
 import { updateStructure } from './30-structure.js';
 import { deploy, serverCfg } from './31-menu.js';
+import { CQC, cqcReset, navClear, updateAI } from './32-ai.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- scoreboard
 S.score = {};
@@ -114,14 +115,14 @@ async function startOnline(code, create) {
   }
 }
 function startTest() {
-  buildTest(); spawnDummies(); enterGame('test'); respawnLocal(spawns[0]);
+  buildTest(); spawnDummies(); cqcReset(); enterGame('test'); respawnLocal(spawns[0]);
   // the loadout comes up first thing (L brings it back any time)
   setTimeout(() => { if (S.mode === 'test') loadoutUI(true); }, 250);
 }
 function leave() {
   S.migrating = false; net.close();
   for (const r of S.remotes.values()) r.dispose(); S.remotes.clear();
-  for (const d of dummies) d.dispose(); dummies.length = 0;
+  for (const d of dummies) d.dispose(); dummies.length = 0; CQC.bots = []; navClear();
   while (ragdolls.length) ragdolls.pop().dispose();
   clearItems(); drops.length = 0; hlMesh.visible = false; $('pickup').style.display = 'none';
   for (const d of decals) { scene.remove(d); if (d.geometry !== splatGeo) d.geometry.dispose(); } decals.length = 0; clearPools(); clearGore(); debris.length = 0; clearExplosives(); for (const P of DEB_POOLS) { P.im.count = 0; P.next = 0; P.slot.fill(null); } splatIM.count = 0; splatIM.userData.next = 0;
@@ -265,7 +266,7 @@ function frame(now, hidden) {
       d._acc = (d._acc || 0) + wdt;
       if (k === 1 || (frameN + i) % k === 0) { d.update(Math.min(d._acc, 0.12)); d._acc = 0; }
     }
-    netSend(dt); updateHUD(); updateToolbar(); updateInv(dt); updatePickup();
+    updateAI(); netSend(dt); updateHUD(); updateToolbar(); updateInv(dt); updatePickup();
   }
   updateBullets(wdt);
   for (const r of ragdolls) r.update(wdt);
@@ -293,5 +294,5 @@ function frame(now, hidden) {
 schedule();
 
 // ---- module exports: build.mjs strips this block ----
-export { CODE_CHARS, applyGfx, frame, leave, renderScore, scoreOf, setLoadout, settingsUI, startOnline };
+export { CODE_CHARS, applyGfx, frame, last, leave, renderScore, scoreOf, setLoadout, settingsUI, startOnline };
 // ---- end module exports ----

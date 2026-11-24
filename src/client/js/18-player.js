@@ -26,6 +26,7 @@ import { CON } from './25-console.js';
 import { gadgetGhostOff, updateGadget, updateSledge } from './27-gadgets.js';
 import { applyGadgets } from './28-match.js';
 import { eyeReset } from './29-eyes.js';
+import { aiNoise } from './32-ai.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- physics helpers
 function blocked(pos, h, r) {
@@ -550,6 +551,7 @@ function fire(w) {
   const tracer = w.tracerEvery > 0 && P.shots % w.tracerEvery === 0;
   const seed = (Math.random() * 4294967295) >>> 0;
   const shot = { hits: new Map() };
+  aiNoise(origin, VMW[P.weapon] && VMW[P.weapon].supp ? 15 : 70, S.myId || 1);
   if (w.pellets) for (const d of pelletDirs(dir, P.weapon, seed)) spawnBullet(origin, d, P.weapon, false, true, S.myId, shot);
   else spawnBullet(origin, dir, P.weapon, tracer, true, S.myId);
   muzzleLight.position.copy(origin).addScaledVector(dir, 0.3);
@@ -600,7 +602,7 @@ function remoteShot(m) {
   if (!Array.isArray(m.o) || !Array.isArray(m.d)) return;
   const o = new V3().fromArray(m.o), dir = new V3().fromArray(m.d).normalize();
   const wi = WEAPONS[m.w] ? m.w : 0;
-  const shot = { hits: new Map() };
+  const shot = { hits: new Map() }; aiNoise(o, m.sp ? 15 : 70, m.id);
   if (WEAPONS[wi].pellets) for (const d of pelletDirs(dir, wi, (Number(m.sd) >>> 0) || 1)) spawnBullet(o, d, wi, false, false, m.id, shot);
   else spawnBullet(o, dir, wi, !!m.tr, false, m.id);
   if (!m.sp) { const f = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.25), flashMat); f.position.copy(o); f.lookAt(camera.position);

@@ -15,7 +15,7 @@ import { DESTR_OF, holePass, markPlate, packHit, ragHitInfo, wallGrid } from './
 import { doorPartHit, doorShotgun } from './15b-doors.js';
 import { P, S, dummies, localBody } from './17-dummies.js';
 import { pointBlocked } from './18-player.js';
-import { net } from './19-network.js';
+import { applyHurt, net } from './19-network.js';
 import { seg } from './19c-toolvm.js';
 import { frame } from './22-menu-loop.js';
 import { lampBreak } from './24-env.js';
@@ -107,6 +107,13 @@ function spawnBullet(origin, dir, wi, tracer, local, ownerId, shot) {
   bullets.push({ pos: origin.clone(), vel: dir.clone().multiplyScalar(w.vel), w: wi, drag: w.drag, dist: 0, life: 0, tracer, local, ownerId, mesh, streak, glow, shot });
 }
 function removeBullet(i) { const b = bullets[i]; scene.remove(b.mesh); scene.remove(b.streak); if (b.glow) scene.remove(b.glow); bullets.splice(i, 1); }
+// a round one of the AI bots fired that hit a player: through the room in a raid (as that bot's hit), straight onto us in the
+// testing range; anyone else's hit report goes to the host as always
+function aiHitOr(b, m) {
+  if (!b.ai) { net.send(m); return; }
+  if (S.mode === 'online' && net.mode === 'host' && net.host && b.aiBot && b.aiBot.hostP) net.host.hit(b.aiBot.hostP, m);
+  else if (S.mode === 'test' && m.id === (S.myId || 1)) applyHurt(Object.assign({ t: 'hurt', by: 0 }, m));
+}
 function bulletTargets() {
   const arr = worldMeshes.slice();
   for (const rg of ragdolls) if (rg !== P.rag && rg.owner) rg.group.traverse(o => { if (o.isMesh && !o.userData.keep && !o.userData.organ && !o.userData.inner && !o.userData.tube && o.visible) arr.push(o); });
@@ -114,7 +121,7 @@ function bulletTargets() {
   for (const d of dummies) if (!d.dead && !d.rag) for (const m of d.hum.hitMeshes) if (m.visible) arr.push(m);
   // your own body takes other players' rounds the same way any body does (holes, bits, blood, flinch); the damage itself
   // still comes from the shooter's report. Your own rounds pass through it.
-  if (P.alive && !P.downed && localBody && bullets.some(b => !b.local)) for (const m of localBody.hitMeshes) if (m.visible) arr.push(m);
+  if (P.alive && !P.downed && localBody && bullets.some(b => !b.local || b.ai)) for (const m of localBody.hitMeshes) if (m.visible) arr.push(m);
   return arr;
 }
 function updateBullets(dt) {
@@ -130,7 +137,7 @@ function updateBullets(dt) {
     b.pos.addScaledVector(b.vel, dt);
     _bd.subVectors(b.pos, _bp); const len = _bd.length(); if (len > 0) _bd.multiplyScalar(1 / len);
     bray.set(_bp, _bd); bray.far = len;
-    const hit = len > 0 ? (b.local ? bray.intersectObjects(targets, false).find(h => h.object.userData.hum !== localBody) : bray.intersectObjects(targets, false)[0]) || null : null;
+    const hit = len > 0 ? (b.local && !b.ai ? bray.intersectObjects(targets, false).find(h => h.object.userData.hum !== localBody) : b.ai ? bray.intersectObjects(targets, false).find(h => !(b.aiBot && h.object.userData.hum === b.aiBot.hum)) : bray.intersectObjects(targets, false)[0]) || null : null;
     b.life += dt;
     if (!b.local && !b.whizz && S.mode && P.alive && len > 0) {
       const tc = clamp(_a.subVectors(camera.position, _bp).dot(_bd), 0, hit ? hit.distance : len), dd = _a.copy(_bp).addScaledVector(_bd, tc).distanceTo(camera.position);
@@ -290,7 +297,7 @@ function onBulletHit(b, hit, dir, dist) {
     { const dp = (WEAPONS[b.w].mass || 0.004) * v * (cont ? 0.35 : 1); rag.kick(dir, clamp(dp / (RAG_MASS[ni] * 2.2), 0.04, 14), ni); }
     if (!b.local) return cont;
     if (own.dummy) { own.dummy.shot(info, v, b.w, dir, dist); if (own.dummy.anat.gibHead && rag.headG.visible) rag.gibHead(dir); }
-    else if (own.remote) net.send({ t: 'hit', id: own.remote, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
+    else if (own.remote) aiHitOr(b, { t: 'hit', id: own.remote, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
     else if (own.anat) {
       const res = own.anat.hit(info.frame, info.e, info.d, v, b.w, info.armor, info.pd);
       if (own.anat.gibHead && rag.headG.visible) rag.gibHead(dir);
@@ -324,7 +331,8 @@ function onBulletHit(b, hit, dir, dist) {
       if (b.w === 2 && !b.shot) { const cr = chunkShot(ud.hum.root, hit.point, dir, info.frame, ud.hum.pal && ud.hum.pal.skin); if (cr && cr.h) { ud.hum._skullOpen = true; b.headDone = ud.hum; } }
     }
     if (!b.local) return cont;
-    if (ud.hum.remote) net.send({ t: 'hit', id: ud.hum.remote.id, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
+    if (ud.hum.remote) aiHitOr(b, { t: 'hit', id: ud.hum.remote.id, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
+    else if (ud.hum === localBody && b.ai) aiHitOr(b, { t: 'hit', id: S.myId || 1, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
     else if (ud.hum.dummy) {
       const d0 = ud.hum.dummy;
       // heavy hits into the neck add up: one .50 or a few close blasts tear it through and the head is left hanging (rifle and

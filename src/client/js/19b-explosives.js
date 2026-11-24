@@ -24,6 +24,7 @@ import { WARMING } from './22b-warm.js';
 import { siegeBlast } from './23-siege.js';
 import { GADGETS, GD, flashBang, gadgetBlast, gadgetRemove, gadgetRx, gdKey, gdModel, smokeCloud } from './27-gadgets.js';
 import { blastBoxes, blastSlabs, boxBreakAt } from './30-structure.js';
+import { aiNoise } from './32-ai.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- explosives: M112 C4 (slot 3) and the M67 fragmentation grenade (slot 4)
 // Charges are rated in kilograms of TNT. Blast effects scale with Hopkinson's scaled distance Z = d / W^(1/3) (m / kg^1/3):
@@ -482,6 +483,7 @@ function fragHit(h, fd, v, L, shot, p) {
 function ragMeshes(r) { const out = []; r.group.traverse(o => { if (o.isMesh && o.visible && o.userData.rag) out.push(o); }); return out; }
 // ---------------------------------------------------------------- the explosion
 function explode(p, kind, owner, isOwner, n, onBody) {
+  aiNoise(p, 90, 0);
   // smoke and flash don't blow anything up
   if (kind === 'smoke') return smokeCloud(p);
   if (kind === 'teargas') return smokeCloud(p, true);

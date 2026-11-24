@@ -449,5 +449,5 @@ function doorApplySnap(list) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { DOOR_FW, DOOR_H, DOOR_W, addDoor, clearDoors, doorApplySnap, doorAt, doorBlast, doorDent, doorHint, doorKeyDown, doorKeyUp, doorLaunch, doorLeft, doorNet, doorPartHit, doorQuiet, doorRx, doorShotgun, doorSnap, doors, hingeOff, knobOff, updateDoors };
+export { DOOR_FW, DOOR_H, DOOR_OPEN, DOOR_W, addDoor, clearDoors, doorApplySnap, doorAt, doorBlast, doorDent, doorHint, doorKeyDown, doorKeyUp, doorLaunch, doorLeft, doorNet, doorPartHit, doorQuiet, doorRx, doorShotgun, doorSnap, doors, hingeOff, knobOff, updateDoors };
 // ---- end module exports ----
