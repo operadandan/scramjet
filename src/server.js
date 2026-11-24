@@ -282,7 +282,7 @@ class GameRoom extends DurableObject {
     if (m.a === 'mw') {
       p.mwT = (p.mwT || []).filter(t => t > now - 1000);
       if (!p.alive || !at || !fin(m.p) || !near(m.p, 2.6) || p.mwT.length >= 3 || (R.ph !== 'live' && R.ph !== 'lobby')) return false;
-      p.mwT.push(now); m.n = Math.max(0, Math.min(9, m.n | 0)); m.w = Math.max(0, Math.min(3000, Number(m.w) || 0)); m.f = Math.max(0, Math.min(0.2, Number(m.f) || 0)); return true;
+      p.mwT.push(now); m.n = Math.max(0, Math.min(16, m.n | 0)); m.w = Math.max(0, Math.min(4500, Number(m.w) || 0)); m.f = Math.max(0, Math.min(0.35, Number(m.f) || 0)); return true;
     }
     if (m.a === 'gdx' || (m.a === 'boom' && m.k === 'claymore')) {
       const key = m.tg + ':' + (Number(m.i) || 0), g = Object.hasOwn(R.gd, key) ? R.gd[key] : null;

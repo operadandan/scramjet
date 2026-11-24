@@ -34,7 +34,7 @@ function wallState(m) {
 }
 function structCheck() {
   const els = [];
-  for (const m of worldMeshes) { const ud = m.userData, b = ud.box; if (!b || ud.door || ud.doorFrame || ud.falling || ud.lamp !== undefined || ud.board !== undefined || !inHouseArea(b)) continue; const st = wallState(m); els.push({ m, b, st, failed: st.left < 0.22, up: false, direct: false }); }
+  for (const m of worldMeshes) { const ud = m.userData, b = ud.box; if (!b || !ud.town || !m.visible || ud.door || ud.doorFrame || ud.falling || ud.lamp !== undefined || ud.board !== undefined || !inHouseArea(b)) continue; const st = wallState(m); els.push({ m, b, st, failed: st.left < 0.22, up: false, direct: false }); }
   // on the ground
   const q = [];
   for (const e of els) if (e.b.min.y <= 0.03 && !e.failed && e.st.foot > 0.12) { e.up = true; e.direct = true; q.push(e); }
@@ -61,7 +61,7 @@ function structCheck() {
   for (const e of els) if (!e.up && !e.failed) { structFall(e.m, e.st); n++; }
   // a door whose wall is gone round it: the frame breaks out and the door falls with it
   for (const d of doors) {
-    if (d.fly || d.fallen || !d.frame.length || !d.frame[0].parent) continue; const fb = d.frame[0].userData.box; if (!fb || !inHouseArea(fb)) continue;
+    if (d.fly || d.fallen || !d.frame.length || !d.frame[0].userData.town || !d.frame[0].parent) continue; const fb = d.frame[0].userData.box; if (!fb || !inHouseArea(fb)) continue;
     const c = d.g.position, hold = els.some(e => e.up && !e.failed && !e.m.userData.slab && e.b.max.y > c.y + 0.5 && e.b.min.y < c.y + 2.2 && e.b.max.x > c.x - 0.75 && e.b.min.x < c.x + 0.75 && e.b.max.z > c.z - 0.75 && e.b.min.z < c.z + 0.75);
     if (hold) continue;
     for (const f of d.frame) { const k = worldMeshes.indexOf(f); if (k >= 0) worldMeshes.splice(k, 1); const j = colliders.indexOf(f.userData.box); if (j >= 0) colliders.splice(j, 1); f.visible = false; }
@@ -191,7 +191,7 @@ function blastBoxes(p, W) {
 // rest comes down by itself (the same on every machine: same order, same timing)
 function demolish() {
   if (TOWN.demolished) return 0; TOWN.demolished = true;
-  const walls = worldMeshes.filter(m => { const u = m.userData, b = u.box; return b && !u.door && !u.doorFrame && u.lamp === undefined && b.min.y < 0.05 && ((u.house === 0 && !u.slab && b.max.y > 0.5) || b.max.y > 1.5 && (b.min.x >= HOUSE.x0 - 3 && b.max.x <= HOUSE.x1 + 3 && b.min.z >= HOUSE.z0 - 3 && b.max.z <= HOUSE.z1 + 3)); })
+  const walls = worldMeshes.filter(m => { const u = m.userData, b = u.box; return b && u.town && !u.door && !u.doorFrame && u.lamp === undefined && b.min.y < 0.05 && ((u.house === 0 && !u.slab && b.max.y > 0.5) || b.max.y > 1.5 && (b.min.x >= HOUSE.x0 - 3 && b.max.x <= HOUSE.x1 + 3 && b.min.z >= HOUSE.z0 - 3 && b.max.z <= HOUSE.z1 + 3)); })
     .sort((a, b) => (a.userData.box.min.x - b.userData.box.min.x) || (a.userData.box.min.z - b.userData.box.min.z));
   noiseHit(70, 2.5, 0.8); noiseHit(140, 1.8, 0.5);
   walls.forEach((m, i) => setTimeout(() => { if (!m.userData.falling && m.parent && worldMeshes.includes(m)) { structFall(m, null); structDirty(); if (i % 6 === 0) noiseHit(rnd(60, 110), 0.8, 0.4); } }, 300 + i * 45));

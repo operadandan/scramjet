@@ -842,7 +842,7 @@ function onExplosiveMsg(m) {
   else if (m.a === 'chk') chunkRx(m);
   else if (m.a === 'gd') gadgetRx(m);
   else if (m.a === 'bx' && ok(m.p)) boxBreakAt(new V3().fromArray(m.p));
-  else if (m.a === 'mw' && ok(m.p) && ok(m.v)) meleeWall(new V3().fromArray(m.p), new V3().fromArray(m.v).normalize(), clamp(Number(m.w) || 0, 0, 3000), clamp(m.n | 0, 0, 9), clamp(Number(m.f) || 0, 0, 0.2), (Number(m.i) >>> 0) || 1, false);
+  else if (m.a === 'mw' && ok(m.p) && ok(m.v)) meleeWall(new V3().fromArray(m.p), new V3().fromArray(m.v).normalize(), clamp(Number(m.w) || 0, 0, 4500), clamp(m.n | 0, 0, 16), clamp(Number(m.f) || 0, 0, 0.35), (Number(m.i) >>> 0) || 1, false);
   else if (m.a === 'boom') {
     const kind = Object.hasOwn(EXPL, m.k) ? m.k : 'frag';
     // (a claymore is set off by whoever walks into it, but it is its owner's blast)

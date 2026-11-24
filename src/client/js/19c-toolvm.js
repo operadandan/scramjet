@@ -13,7 +13,7 @@ import { impactFx } from './11-fx.js';
 import { addWound } from './14-wounds.js';
 import { DESTR_OF, gridOpenW, wallDamage, wallGrid } from './15-destruction.js';
 import { P, S, dummies, localBody, mouse } from './17-dummies.js';
-import { PITCH_MIN, flashMsg, hurtFlash, selectEmpty } from './18-player.js';
+import { PITCH_MIN, flashMsg, hurtFlash, localDeath, selectEmpty } from './18-player.js';
 import { net } from './19-network.js';
 import { c4Mine, makeC4, makeFrag, makeRemote, r4x, ragMeshes } from './19b-explosives.js';
 import { breachHas, pressSlot, toolSlotIndex } from './21-items-inventory.js';
@@ -333,15 +333,15 @@ function meleeWall(p, d, E, n, spread, seed, local) {
   if (local && S.mode === 'online') { const now = performance.now(); meleeWall.t = (meleeWall.t || []).filter(t => t > now - 1000);
     if (!P.alive || (S.R && S.R.ph !== 'live' && S.R.ph !== 'lobby') || matchFrozen() || meleeWall.t.length >= 3) return; meleeWall.t.push(now); }
   // (the one who swung uses exactly what everyone else will get over the network)
-  if (local) { p = new V3().fromArray(p.toArray().map(r4x)); d = new V3().fromArray(d.toArray().map(r4x)).normalize(); E = Math.round(Math.min(3000, E)); seed = (seed >>> 0) || 1; }
+  if (local) { p = new V3().fromArray(p.toArray().map(r4x)); d = new V3().fromArray(d.toArray().map(r4x)).normalize(); E = Math.round(Math.min(4500, E)); seed = (seed >>> 0) || 1; }
   _pr.set(p.clone().addScaledVector(d, -0.25), d); _pr.far = 0.6; const h = _pr.intersectObjects(worldMeshes, false).find(x => x.object.userData.box && !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(d, 0.01)))); if (!h) return;
   const ud = h.object.userData;
-  if (!ud.grid && !wallGrid(h.object)) { boxHit(h.object, E * n * 0.5); if (local && S.mode === 'online') net.send({ t: 'x', a: 'mw', p: p.toArray().map(r4x), v: d.toArray().map(r4x), n: Math.min(9, n), w: Math.round(Math.min(3000, E)), i: seed >>> 0, f: spread }); return; }
+  if (!ud.grid && !wallGrid(h.object)) { boxHit(h.object, E * n * 0.5); if (local && S.mode === 'online') net.send({ t: 'x', a: 'mw', p: p.toArray().map(r4x), v: d.toArray().map(r4x), n: Math.min(16, n), w: Math.round(Math.min(4500, E)), i: seed >>> 0, f: spread }); return; }
   if (!DESTR_OF[ud.kind]) return;
   const nrm = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : d.clone().negate();
   let r = seed >>> 0; const rr = () => { r = (r * 1664525 + 1013904223) >>> 0; return r / 4294967296 * 2 - 1; };
   for (let i = 0; i < n; i++) { const q = h.point.clone().add(new V3(rr() * spread, rr() * spread, rr() * spread).projectOnPlane(nrm)); wallDamage(h.object, q, nrm, d, E, 2, 1, true); }
-  if (local && S.mode === 'online') net.send({ t: 'x', a: 'mw', p: p.toArray().map(r4x), v: d.toArray().map(r4x), n: Math.min(9, n), w: Math.round(Math.min(3000, E)), i: seed >>> 0, f: spread });
+  if (local && S.mode === 'online') net.send({ t: 'x', a: 'mw', p: p.toArray().map(r4x), v: d.toArray().map(r4x), n: Math.min(16, n), w: Math.round(Math.min(4500, E)), i: seed >>> 0, f: spread });
 }
 // a board (and the one next to it, half the time) splinters off the window
 function bashBoard(m, d, two) {
@@ -357,7 +357,10 @@ function onPunched(m) {
   const an = P.anat, pw = clamp(Number(m.pw) || 0.6, 0, 1.2); an.lastBy = m.by; if (Array.isArray(m.wd)) an.lastDir.fromArray(m.wd);
   const res = an.blunt(String(m.f), new V3().fromArray(m.p), pw);
   // a sledgehammer, not a fist: a second, far heavier blow on the same spot
-  if (m.sl) { an.blunt(String(m.f), new V3().fromArray(m.p), String(m.f) === 'head' ? 3 : 2.2); screenBlood(0.8); P.stun = Math.max(P.stun || 0, 1); }
+  if (m.sl) { const f = String(m.f), e = new V3().fromArray(m.p); an.blunt(f, e, f === 'head' ? 6 : 4.5); an.blunt(f, e, f === 'head' ? 4 : 3); an.pain = Math.min(100, (an.pain || 0) + 60); an.blood -= f === 'head' ? 500 : 250;
+    screenBlood(1.4); P.stun = Math.max(P.stun || 0, 1.4);
+    // (a full swing to the head caves the skull in)
+    if (f === 'head' && !an.dead) { an.kill('brain'); localDeath(); return; } }
   hurtFlash(); noiseHit(rnd(150, 260), 0.07, 0.45 * pw);
   P.pitch = clamp(P.pitch + rnd(0.05, 0.12) * pw, PITCH_MIN, 1.5); P.yaw += rnd(-0.12, 0.12) * pw; P.kick += 0.9 * pw; P.recShake = Math.min(0.08, (P.recShake || 0) + 0.03 * pw); noiseHit(rnd(90, 140), 0.12, 0.6 * pw);
   { const mm = localBody.hitMeshes && localBody.hitMeshes.find(x => x.userData.frame === String(m.f)); if (mm) punchMark(localBody, mm.parent, new V3().fromArray(m.p), String(m.f), pw); }

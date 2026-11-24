@@ -280,6 +280,8 @@ function buildTown(pair) {
       const v = (b.max.x - b.min.x) * (b.max.y - b.min.y) * (b.max.z - b.min.z); if (v < bv) { bv = v; best = w; } }
     if (best) best.attach(m);
   }
+  // (only the house and its street can come down: the structure code leaves every other world alone)
+  for (const m of worldMeshes) m.userData.town = true;
 }
 
 // ---- module exports: build.mjs strips this block ----

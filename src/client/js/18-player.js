@@ -244,7 +244,18 @@ function updatePlayer(dt) {
   P.pos.y += P.vel.y * dt; P.onGround = false;
   if (P.pos.y <= 0) { P.pos.y = 0; P.vel.y = 0; P.onGround = true; }
   let c = blocked(P.pos, h, PR);
-  if (c) { if (P.vel.y <= 0) { P.pos.y = c.max.y; P.onGround = true; } else P.pos.y = c.min.y - h - 1e-4; P.vel.y = 0; }
+  // landing on something, or a head against a ceiling; anything else we are inside of (a door swinging into us, a piece of wall
+  // that moved) pushes us out sideways, never up onto whatever is on top of it (that was the jump to the floor above)
+  if (c) {
+    const up = c.max.y - P.pos.y;
+    if (P.vel.y <= 0 && up <= Math.max(0.45, -P.vel.y * dt + 0.1)) { P.pos.y = c.max.y; P.onGround = true; P.vel.y = 0; }
+    else if (P.vel.y > 0 && c.min.y >= P.pos.y + h * 0.5) { P.pos.y = c.min.y - h - 1e-4; P.vel.y = 0; }
+    else {
+      const o4 = [[c.min.x - PR - 1e-3 - P.pos.x, 'x'], [c.max.x + PR + 1e-3 - P.pos.x, 'x'], [c.min.z - PR - 1e-3 - P.pos.z, 'z'], [c.max.z + PR + 1e-3 - P.pos.z, 'z']].sort((a, b) => Math.abs(a[0]) - Math.abs(b[0]));
+      for (const [dv, ax] of o4) { const t = P.pos.clone(); t[ax] += dv; if (!blocked(t, h, PR)) { P.pos[ax] += dv; P.vel[ax] = 0; break; } }
+      if (P.pos.y <= 0.001) { P.pos.y = 0; P.onGround = true; P.vel.y = Math.min(0, P.vel.y); }
+    }
+  }
   // stay glued to the ground walking down a small step instead of floating off it
   if (!P.onGround && wasGround && vy <= 0 && P.vel.y <= 0) { const g = new V3(P.pos.x, P.pos.y - 0.36, P.pos.z), cb = blocked(g, 0.36, PR); if (cb && cb.max.y <= P.pos.y + 0.01) { P.pos.y = cb.max.y; P.onGround = true; P.vel.y = 0; } else if (P.pos.y - 0.36 <= 0 && P.pos.y > 0) { P.pos.y = 0; P.onGround = true; P.vel.y = 0; } }
   if (P.onGround && !wasGround && vy < -2) { const imp = clamp((-vy - 2) / 6, 0, 1); P.landK = 0.25 + imp * 0.5; P.landImp = imp; P.jumpCD = Math.max(P.jumpCD, 0.35); P.landKick = (P.landKick || 0) + 0.4 + imp; }

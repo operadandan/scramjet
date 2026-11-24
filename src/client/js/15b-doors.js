@@ -11,6 +11,7 @@ import { P, S } from './17-dummies.js';
 import { PR, standHeight } from './18-player.js';
 import { net } from './19-network.js';
 import { CHARGES, chargePos } from './19b-explosives.js';
+import { sledgeDoorFx } from './27-gadgets.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- doors
 // A door hangs in a wooden frame on 3 hinges and has a knob. Looking at it (within reach) lights it up; F swings it open
@@ -408,6 +409,7 @@ function doorRx(m) {
       const L = d.leaf, v = new V3().fromArray(m.v).clampLength(0, 30), w = new V3().fromArray(m.w).clampLength(0, 20);
       doorLaunch(d, v, w); L.position.fromArray(m.p); L.quaternion.fromArray(m.q).normalize(); doorBoxes(d);
     }
+    else if (m.a === 'sd' && ok3(m.p)) sledgeDoorFx(d, new V3().fromArray(m.p), dir, (Number(m.s) >>> 0) || 1);
     else if (m.a === 'kn') knobOff(d, dir);
     else if (m.a === 'hg') hingeOff(d, m.n | 0, dir);
   } finally { DOOR_RX = false; }

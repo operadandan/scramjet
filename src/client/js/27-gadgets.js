@@ -3,11 +3,14 @@ import * as THREE from 'three';
 import { V3, camera, clamp, lerp, rnd, scene } from './00-setup.js';
 import { canvasTex, colliders, worldGroup, worldMeshes } from './01-world.js';
 import { decoMat } from './01b-town.js';
+import { destroyChunks, headCrater } from './02b-chunks.js';
 import { STRUCTS, hitToFrame } from './05-anatomy.js';
 import { laserBeam } from './09-attachments.js';
 import { blip, noiseHit } from './10-audio.js';
-import { impactFx } from './11-fx.js';
-import { DESTR_OF, gridOpenW } from './15-destruction.js';
+import { PMAT, impactFx, particles } from './11-fx.js';
+import { spawnGore } from './12b-gore.js';
+import { blowSpatter } from './14-wounds.js';
+import { DESTR, DESTR_OF, dust, gridOpenW, wallDamage, wallGrid } from './15-destruction.js';
 import { doorDent, doorLaunch, doorNet, hingeOff, knobOff } from './15b-doors.js';
 import { P, S, dummies, mouse } from './17-dummies.js';
 import { PITCH_MIN, flashMsg, hurtFlash, selectEmpty } from './18-player.js';
@@ -200,13 +203,41 @@ function updateSledge(dt) {
   if (Sg.t > 1.3) { Sg.ph = 'idle'; Sg.t = 0; Sg.whoosh = false; }
 }
 function sledgeK() { const Sg = P.sledge; if (!Sg || Sg.ph !== 'swing') return 0; const t = Sg.t; return t < 0.45 ? -Math.sin(t / 0.45 * Math.PI / 2) : t < 0.56 ? -1 + (t - 0.45) / 0.11 * 2.3 : 1.3 - (t - 0.56) / 0.74 * 1.3; }
+// what a sledge does to a body: bones under it shatter, a head caves in, and the blow throws them (the same on our own body
+// when someone else's lands, see onPunched)
+function sledgeBody(hum, info, d, wp) {
+  const root = hum.root, skin = hum.pal && hum.pal.skin;
+  // the body caves in where it landed: a crater in the skull, or the flesh and bone under the head of it smashed out
+  try {
+    if (info.frame === 'head' || info.frame === 'neck') { headCrater(root, wp.clone().addScaledVector(d, 0.02), 0.075, d, skin, true); spawnGore(wp, d, 'skull', 4, 3, 0.5, 0.03, skin); spawnGore(wp, d, 'brain', 3, 2.5, 0.5, 0.024); hum._skullOpen = true; }
+    else { destroyChunks(root, c => c.p.distanceTo(wp) < 0.11, d, skin); spawnGore(wp, d, 'flesh', 6, 3, 0.5, 0.02, skin); spawnGore(wp, d, 'bone', 3, 3.5, 0.5, 0.014, skin); }
+    blowSpatter(wp.clone().addScaledVector(d, 0.1), d, 0.7, true);
+  } catch (er) {}
+  const dm = hum.dummy, an = dm && dm.anat; if (!an) return;
+  try {
+    an.blunt(info.frame, info.e, info.frame === 'head' ? 6 : 4.5); an.blunt(info.frame, info.e, info.frame === 'head' ? 4 : 3);
+    an.pain = Math.min(100, (an.pain || 0) + 60); an.blood -= info.frame === 'head' ? 500 : 250;
+    if ((info.frame === 'head' || hum._skullOpen) && !an.dead) { an.kill('brain'); if (dm.die && !dm.dead) dm.die(); }
+  } catch (er) {}
+}
+function sledgeDoorFx(D, p, dir, seed) {
+  const L = D.leaf; if (!L || D.fly) return; L.updateMatrixWorld(true);
+  const nrm = new V3(0, 0, L.worldToLocal(p.clone().addScaledVector(dir, -0.3)).z >= 0 ? 1 : -1).transformDirection(L.matrixWorld);
+  let r = seed || 1; const rr = () => { r = (r * 1664525 + 1013904223) >>> 0; return r / 4294967296 * 2 - 1; };
+  if (D.kind === 'metal') { impactFx(p, nrm, 'metal'); noiseHit(700, 0.2, 0.6); return; }
+  // a wooden leaf caves in round the blow: a splintered crater and cracks out from it
+  if (wallGrid(L)) for (let i = 0; i < 10; i++) { const q = p.clone().add(new V3(rr() * 0.16, rr() * 0.16, rr() * 0.16).projectOnPlane(nrm)); wallDamage(L, q, nrm, dir, 3000, 2, 1, true); }
+  particles(p.clone().addScaledVector(nrm, 0.03), 26, PMAT.chip, 4, 0.03, 1.2, 1, nrm);
+  noiseHit(260, 0.2, 0.9); noiseHit(1700, 0.06, 0.35);
+}
 function sledgeLand() {
   const q = camera.quaternion, d = new V3(0, 0, -1).applyQuaternion(q), o = camera.position.clone();
   const tg = worldMeshes.slice();
   for (const dm of dummies) { if (!dm.rag && dm.hum.root.visible) { dm.hum.root.updateMatrixWorld(true); tg.push(...dm.hum.hitMeshes.filter(m => m.visible)); } }
   if (S.remotes) for (const r of S.remotes.values()) if (r.hum && r.hum.root.visible && r.alive) tg.push(...r.hum.hitMeshes.filter(m => m.visible));
   _gdRay.set(o, d); _gdRay.far = 1.7;
-  const h = _gdRay.intersectObjects(tg, false).find(x => !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(d, 0.01))));
+  // (a door is hit even where it is already broken through: the blow lands on the leaf round the hole)
+  const h = _gdRay.intersectObjects(tg, false).find(x => x.object.userData.door || !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(d, 0.01))));
   P.kick += 2; P.recShake = Math.min(0.08, (P.recShake || 0) + 0.07);
   if (!h) return;
   // the jolt of it landing comes back up the handle
@@ -217,23 +248,30 @@ function sledgeLand() {
     if (hum.flinch && hum.root.visible) hum.flinch(info.frame, info.d, 5);
     punchMark(hum, h.object.parent, h.object.parent.worldToLocal(h.point.clone()), info.frame, 2.5);
     // a 10 lb sledge: bones break, skulls crack (several blows are as good as a bullet)
-    if (hum.dummy) { hum.dummy.punched(info, d, 3.5); try { hum.dummy.anat.blunt(info.frame, info.e, info.frame === 'head' ? 3 : 2.2); } catch (er) {} }
-    else net.send({ t: 'punch', id: hum.remote.id, f: info.frame, p: info.e.toArray().map(r4x), wd: d.toArray().map(r4x), pw: 1.2, sl: 1 });
+    if (hum.dummy) hum.dummy.punched(info, d, 3.5);
+    sledgeBody(hum, info, d, h.point);
+    if (!hum.dummy) net.send({ t: 'punch', id: hum.remote.id, f: info.frame, p: info.e.toArray().map(r4x), wd: d.toArray().map(r4x), pw: 1.2, sl: 1 });
     return;
   }
   noiseHit(rnd(90, 130), 0.25, 1); noiseHit(rnd(1400, 1900), 0.05, 0.25);
   if (ud.board !== undefined) { bashBoard(h.object, d, true); return; }
-  if (ud.door && !ud.door.fly) {
-    const D = ud.door; D.sgDmg = (D.sgDmg || 0) + 0.7;
-    D.sgDmg += 0.5;
-    if (D.kind === 'metal') { const s = D.leaf.worldToLocal(o.clone()).z >= 0 ? 1 : -1; doorDent(D, h.point, 0.7, -s); doorNet({ i: D.i, a: 'dn', p: h.point.toArray().map(r3), k: 0.7, s: -s }); if (D.sgDmg >= 3 && !D.fallen) { for (const hg of [...D.hinges]) hingeOff(D, hg.userData.n, d); } }
-    else if (D.sgDmg >= 1.4) doorLaunch(D, d.clone().setY(0).normalize().multiplyScalar(3).add(new V3(0, 1, 0)), new V3(0, 1, 0).cross(d).multiplyScalar(2));
+  // a door: two blows and a wooden one is off its hinges, three and a metal one goes down
+  const D = ud.door || (ud.doorPart && ud.doorPart.d);
+  if (D && !D.fly) {
+    D.sgHits = (D.sgHits || 0) + 1; const seed = (Math.random() * 1e9) >>> 0;
+    sledgeDoorFx(D, h.point, d, seed); doorNet({ i: D.i, a: 'sd', p: h.point.toArray().map(r3), d: d.toArray().map(r3), s: seed });
+    if (D.kind === 'metal') {
+      const sd = D.leaf.worldToLocal(o.clone()).z >= 0 ? 1 : -1; doorDent(D, h.point, 0.7, -sd); doorNet({ i: D.i, a: 'dn', p: h.point.toArray().map(r3), k: 0.7, s: -sd });
+      if (D.sgHits >= 3 && !D.fallen) for (const hg of [...D.hinges]) hingeOff(D, hg.userData.n, d);
+    } else if (D.sgHits >= 2) doorLaunch(D, d.clone().setY(0).normalize().multiplyScalar(4.5).add(new V3(0, 1.2, 0)), new V3(0, 1, 0).cross(d).multiplyScalar(3));
     else { const kn = D.knob; if (kn && kn.parent && kn.getWorldPosition(new V3()).distanceTo(h.point) < 0.35) knobOff(D, d); }
     return;
   }
   if (DESTR_OF[ud.kind]) {
     const masonry = DESTR_OF[ud.kind] === 'brick' || DESTR_OF[ud.kind] === 'concrete';
-    meleeWall(h.point, d, 3000, 9, masonry ? 0.12 : 0.2, (Math.random() * 1e9) | 0, true);
+    meleeWall(h.point, d, 4500, 16, masonry ? 0.16 : 0.3, (Math.random() * 1e9) | 0, true);
+    // (it knocks a chunk clean out, and the dust and splinters of it fly)
+    particles(h.point.clone().addScaledVector(d, -0.04), 30, PMAT.chip, 4.5, 0.035, 1.3, 1, d.clone().negate()); dust(h.point, d.clone().negate(), DESTR[DESTR_OF[ud.kind]].dust, 0.9, 0.5, 3);
     if (masonry) impactFx(h.point, d.clone().negate(), 'concrete');
     return;
   }
@@ -359,5 +397,5 @@ function flashBodies(p) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { GADGETS, GD, HEADGEAR, clearGadgets, flashBang, gadgetAdd, gadgetBlast, gadgetGhostOff, gadgetRemove, gadgetRx, gdKey, gdModel, sledgeK, smokeAt, smokeCloud, updateGadget, updateGadgets, updateSledge, wireDrag };
+export { GADGETS, GD, HEADGEAR, clearGadgets, flashBang, gadgetAdd, gadgetBlast, gadgetGhostOff, gadgetRemove, gadgetRx, gdKey, gdModel, sledgeDoorFx, sledgeK, smokeAt, smokeCloud, updateGadget, updateGadgets, updateSledge, wireDrag };
 // ---- end module exports ----
