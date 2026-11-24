@@ -20,6 +20,7 @@ import { seg } from './19c-toolvm.js';
 import { frame } from './22-menu-loop.js';
 import { lampBreak } from './24-env.js';
 import { boxHit } from './30-structure.js';
+import { AIBot } from './32-ai.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- props: shells, mags, dropped guns
 const props = [];
@@ -118,7 +119,7 @@ function bulletTargets() {
   const arr = worldMeshes.slice();
   for (const rg of ragdolls) if (rg !== P.rag && rg.owner) rg.group.traverse(o => { if (o.isMesh && !o.userData.keep && !o.userData.organ && !o.userData.inner && !o.userData.tube && o.visible) arr.push(o); });
   for (const r of S.remotes.values()) if (r.alive && r.st && !r.rag) for (const m of r.hum.hitMeshes) if (m.visible) arr.push(m);
-  for (const d of dummies) if (!d.dead && !d.rag) for (const m of d.hum.hitMeshes) if (m.visible) arr.push(m);
+  for (const d of dummies) if (!d.dead && !d.rag && !d.out && d.hum.root.visible) for (const m of d.hum.hitMeshes) if (m.visible) arr.push(m);
   // your own body takes other players' rounds the same way any body does (holes, bits, blood, flinch); the damage itself
   // still comes from the shooter's report. Your own rounds pass through it.
   if (P.alive && !P.downed && localBody && bullets.some(b => !b.local || b.ai)) for (const m of localBody.hitMeshes) if (m.visible) arr.push(m);
@@ -137,7 +138,7 @@ function updateBullets(dt) {
     b.pos.addScaledVector(b.vel, dt);
     _bd.subVectors(b.pos, _bp); const len = _bd.length(); if (len > 0) _bd.multiplyScalar(1 / len);
     bray.set(_bp, _bd); bray.far = len;
-    const hit = len > 0 ? (b.local && !b.ai ? bray.intersectObjects(targets, false).find(h => h.object.userData.hum !== localBody) : b.ai ? bray.intersectObjects(targets, false).find(h => !(b.aiBot && h.object.userData.hum === b.aiBot.hum)) : bray.intersectObjects(targets, false)[0]) || null : null;
+    const hit = len > 0 ? (b.local && !b.ai ? bray.intersectObjects(targets, false).find(h => h.object.userData.hum !== localBody) : b.ai ? bray.intersectObjects(targets, false).find(h => { const hm = h.object.userData.hum; return !(hm && hm.dummy instanceof AIBot); }) : bray.intersectObjects(targets, false)[0]) || null : null;
     b.life += dt;
     if (!b.local && !b.whizz && S.mode && P.alive && len > 0) {
       const tc = clamp(_a.subVectors(camera.position, _bp).dot(_bd), 0, hit ? hit.distance : len), dd = _a.copy(_bp).addScaledVector(_bd, tc).distanceTo(camera.position);
@@ -296,7 +297,7 @@ function onBulletHit(b, hit, dir, dist) {
     // throws a limb. No film-style flying back.
     { const dp = (WEAPONS[b.w].mass || 0.004) * v * (cont ? 0.35 : 1); rag.kick(dir, clamp(dp / (RAG_MASS[ni] * 2.2), 0.04, 14), ni); }
     if (!b.local) return cont;
-    if (own.dummy) { own.dummy.shot(info, v, b.w, dir, dist); if (own.dummy.anat.gibHead && rag.headG.visible) rag.gibHead(dir); }
+    if (own.dummy) { if (!b.ai) own.dummy.lastBy = S.myId; own.dummy.shot(info, v, b.w, dir, dist); if (own.dummy.anat.gibHead && rag.headG.visible) rag.gibHead(dir); }
     else if (own.remote) aiHitOr(b, { t: 'hit', id: own.remote, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
     else if (own.anat) {
       const res = own.anat.hit(info.frame, info.e, info.d, v, b.w, info.armor, info.pd);
@@ -334,7 +335,7 @@ function onBulletHit(b, hit, dir, dist) {
     if (ud.hum.remote) aiHitOr(b, { t: 'hit', id: ud.hum.remote.id, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
     else if (ud.hum === localBody && b.ai) aiHitOr(b, { t: 'hit', id: S.myId || 1, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
     else if (ud.hum.dummy) {
-      const d0 = ud.hum.dummy;
+      const d0 = ud.hum.dummy; if (!b.ai) d0.lastBy = S.myId;
       // heavy hits into the neck add up: one .50 or a few close blasts tear it through and the head is left hanging (rifle and
       // pistol rounds never take the head off)
       d0.shot(info, v, b.w, dir, dist);

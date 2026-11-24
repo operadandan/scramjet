@@ -240,7 +240,7 @@ function updatePlayer(dt) {
     if (P.onGround && up > 0 && up <= 0.36 && !blocked(new V3(P.pos.x, c.max.y + 0.01, P.pos.z), h, PR)) { P.pos.y = c.max.y; P.stepDip = (P.stepDip || 0) + up; return; }
     P.pos[axis] = v > 0 ? c.min[axis] - PR - 1e-4 : c.max[axis] + PR + 1e-4; P.vel[axis] = 0;
   };
-  stepX('x', P.vel.x); stepX('z', P.vel.z);
+  const posPre = P.pos.clone(); stepX('x', P.vel.x); stepX('z', P.vel.z);
   const wasGround = P.onGround, vy = P.vel.y;
   P.pos.y += P.vel.y * dt; P.onGround = false;
   if (P.pos.y <= 0) { P.pos.y = 0; P.vel.y = 0; P.onGround = true; }
@@ -253,7 +253,9 @@ function updatePlayer(dt) {
     else if (P.vel.y > 0 && c.min.y >= P.pos.y + h * 0.5) { P.pos.y = c.min.y - h - 1e-4; P.vel.y = 0; }
     else {
       const o4 = [[c.min.x - PR - 1e-3 - P.pos.x, 'x'], [c.max.x + PR + 1e-3 - P.pos.x, 'x'], [c.min.z - PR - 1e-3 - P.pos.z, 'z'], [c.max.z + PR + 1e-3 - P.pos.z, 'z']].sort((a, b) => Math.abs(a[0]) - Math.abs(b[0]));
-      for (const [dv, ax] of o4) { const t = P.pos.clone(); t[ax] += dv; if (!blocked(t, h, PR)) { P.pos[ax] += dv; P.vel[ax] = 0; break; } }
+      // (only a short shove: if that doesn't free us, back to where we were this frame)
+      let freed = false; for (const [dv, ax] of o4) { if (Math.abs(dv) > 0.5) break; const t = P.pos.clone(); t[ax] += dv; if (!blocked(t, h, PR)) { P.pos[ax] += dv; P.vel[ax] = 0; freed = true; break; } }
+      if (!freed) { P.pos.x = posPre.x; P.pos.z = posPre.z; P.vel.x = 0; P.vel.z = 0; }
       if (P.pos.y <= 0.001) { P.pos.y = 0; P.onGround = true; P.vel.y = Math.min(0, P.vel.y); }
     }
   }

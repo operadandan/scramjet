@@ -19,10 +19,10 @@ import { bullets, ejectShell, spawnBullet } from './16-ballistics.js';
 import { Dummy, P, S, arteryRate, dummies } from './17-dummies.js';
 import { flashMsg } from './18-player.js';
 import { net } from './19-network.js';
-import { r3, r4x } from './19b-explosives.js';
+import { explode, r3, r4x } from './19b-explosives.js';
 import { last } from './22-menu-loop.js';
 import { SL, lightLevel } from './26-lights.js';
-import { sledgeBody, smokeAt } from './27-gadgets.js';
+import { GD, gadgetRemove, sledgeBody, smokeAt } from './27-gadgets.js';
 import { floorUnder } from './30-structure.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- AI defenders (raid mode, the CQC course, "spawn ai")
@@ -161,8 +161,8 @@ class AIBot extends Dummy {
   aiTick(dt, a, root) {
     if (this.out) return;
     const live = this.active();
-    this.thinkT -= dt; if (live && this.thinkT <= 0) { this.thinkT = 0.1; this.perceive(0.1); this.decide(); }
-    const blind = (this.flashT || 0) > 0; if (this.flashT > 0) this.flashT -= dt;
+    this.thinkT -= dt; if (live && this.thinkT <= 0) { this.thinkT = 0.1; this.perceive(0.1); this.decide(); if (this.path && this.path.length) this.doorAhead(); this.claymores(); }
+    const blind = (this.flashT || 0) > 0;
     // aim: turns fast but not instantly, onto where it means to look
     let ty = this.lookYaw, tp = 0;
     const T = this.tgt && this.know.get(this.tgt.id);
@@ -201,8 +201,6 @@ class AIBot extends Dummy {
     this.crouchK = damp(this.crouchK, wantC, 6, dt);
     root.position.copy(this.pos); root.rotation.y = this.yaw;
     Object.assign(a, { speed: this.speedNow, crouch: this.crouchK, pitch: this.pitch, weapon: this.w, ads: this.tgtVis() ? 1 : 0.2, sprint: this.speedNow > 5 ? 1 : 0, reload: this.reloadT > 0 ? 1 - this.reloadT / 2.6 + 0.001 : 0 });
-    // in a raid the others see it as a player
-    if (this.hostP) { this.sendT -= dt; if (this.sendT <= 0) { this.sendT = 0.066; this.sendState(); } }
   }
   active() {
     if (S.mode === 'test') return true;
@@ -247,7 +245,7 @@ class AIBot extends Dummy {
     }
     for (const id of [...this.know.keys()]) if (!TG.some(t => t.id === id)) this.know.delete(id);
     // shots and blasts
-    const deaf = (this.deafT || 0) > 0; if (this.deafT > 0) this.deafT -= dt;
+    const deaf = (this.deafT || 0) > 0;
     if (!deaf) for (const n of AI_NOISE) { if (now - n.t > 400 || n.heardBy && n.heardBy.has(this)) continue; (n.heardBy || (n.heardBy = new Set())).add(this);
       const d = n.p.distanceTo(this.pos); if (d > n.r || (n.by && AIS.some(b => b.pid && b.pid === n.by))) continue;
       this.noise = { p: n.p.clone().add(new V3(rnd(-1.5, 1.5) * d / 20, 0, rnd(-1.5, 1.5) * d / 20)), t: now }; }
@@ -331,6 +329,18 @@ class AIBot extends Dummy {
       doorNet({ i: d.i, a: 'st', tg: d.tgt, w: d.w, an: d.a, h: 0, lk: 0 });
     }
   }
+  // an attacker's claymore in front of it goes off, the same as for a player walking into it
+  claymores() {
+    if (typeof GD === 'undefined') return;
+    for (const o of GD.slice()) {
+      if (o.k !== 'claymore' || o.sprung || !(o.t > 1.5) || o.team === 'b') continue;
+      const dx = this.pos.x - o.p.x, dz = this.pos.z - o.p.z, dy = this.pos.y - o.p.y, f = new V3(-Math.sin(o.yaw), 0, -Math.cos(o.yaw)), d = Math.hypot(dx, dz);
+      if (!(d < 2.7 && Math.abs(dy) < 1.2 && (dx * f.x + dz * f.z) / Math.max(d, 1e-3) > 0.6)) continue;
+      o.sprung = true; const p = o.p.clone().setY(o.p.y + 0.15), m = { t: 'x', a: 'boom', k: 'claymore', i: o.id, tg: o.owner, p: p.toArray().map(r3) };
+      if (this.hostP && net.host) net.host.onMessage(this.hostP, m);
+      gadgetRemove(o); explode(p, 'claymore', o.owner, true);
+    }
+  }
   // ---- the gun
   tryFire(dt) {
     const T = this.tgt && this.know.get(this.tgt.id); if (!T || !T.vis || this.fireT > 0) return;
@@ -376,8 +386,8 @@ class AIBot extends Dummy {
   // ---- the network (raid): its state as a player's, its hits and deaths through the room
   sendState() {
     const an = this.anat, a = this.hum.anim;
-    const m = { t: 's', p: [this.pos.x, this.pos.y, this.pos.z].map(r4x), y: r4x(this.yaw), pi: r4x(this.pitch), v: r4x(this.speedNow), c: r4x(this.crouchK), l: 0, sp: this.speedNow > 5 ? 1 : 0, g: 1, a: r4x(a.ads || 0), w: this.w, r: r4x(a.reload || 0),
-      pr: 0, lm: an.legBroken('L') || an.legBroken('R') ? 0.5 : 0, hu: r4x(a.hurt || 0), sg: 0, su: 0, fl: 0, dv: 0, ar: an.helmetOn ? 0 : 1, dn: 0, bb: an.brokenMask(), ah: an.armHangMask(), ls: an.lostMask(), lc: an.cutArr(),
+    const m = { t: 's', lf: this.hostP.life, p: [this.pos.x, this.pos.y, this.pos.z].map(r4x), y: r4x(this.yaw), pi: r4x(this.pitch), v: r4x(this.speedNow), c: r4x(this.crouchK), l: 0, sp: this.speedNow > 5 ? 1 : 0, g: 1, a: r4x(a.ads || 0), w: this.w, r: r4x(a.reload || 0),
+      pr: 0, lm: an.legBroken('L') || an.legBroken('R') ? 0.5 : 0, hu: r4x(a.hurt || 0), sg: 0, su: 0, fl: 0, dv: 0, ar: an.helmetOn ? 0 : 1, dn: this.rag ? 1 : 0, bb: an.brokenMask(), ah: an.armHangMask(), ls: an.lostMask(), lc: an.cutArr(),
       bl: Math.round(an.bleedRate()), arr: Math.round(arteryRate(an)), bp: r4x(clamp(an.blood / 5000, 0.2, 1)), rx: 0, cl: 0 };
     net.host.onMessage(this.hostP, m);
   }
@@ -411,12 +421,14 @@ class AIBot extends Dummy {
     if (this.rag) { this.rag.keep = false; freeRag(this.rag); this.rag = null; }
     for (const [o, v] of this.vis0) o.visible = v; chunkReset(this.hum.root); clearWounds(this.hum); this.hum.setLost(0); setHelmet(this.hum, true);
     this.anat = new Anatomy(); this.pos.copy(p); this.post.copy(p); this.home = this.pos; this.hum.root.visible = true; this.hum.root.position.copy(p);
-    this.know.clear(); this.tgt = null; this.noise = null; this.path = null; this.mag = WEAPONS[this.w].cap; this.reloadT = 0; this.flashT = 0; this.deafT = 0; this.state = 'idle';
+    this.lastBy = 0; this.know.clear(); this.tgt = null; this.noise = null; this.path = null; this.mag = WEAPONS[this.w].cap; this.reloadT = 0; this.flashT = 0; this.deafT = 0; this.state = 'idle';
     for (const t of this.traps) { t.done = false; t.tries = 0; }
   }
   hide() { this.out = true; this.hum.root.visible = false; if (this.rag) { this.rag.keep = false; this.rag = null; } }
   update(dt) {
     super.update(dt);
+    // in a raid the others see it as a player (down or on its feet), a bit less often when nobody is near
+    if (this.hostP && this.hostP.alive && !this.out) { this.sendT -= dt; if (this.sendT <= 0) { this.sendT = this.tgt || this.state === 'hunt' ? 0.08 : 0.14; this.sendState(); } }
     // out of the fight: dead, or down for good (no one is coming to drag it out)
     if (!this.dead && !this.out && (this.anat.paralyzed || this.anat.bothLegs() || (this.anat.isDowned() && !(this.anat.koT > 0)))) { if (!this.anat.dead) this.anat.kill(this.anat.paralyzed ? 'spinal' : 'bleed'); this.die(); }
   }
@@ -425,7 +437,7 @@ class AIBot extends Dummy {
     super.die(); this.respawnT = 1e12; this.tgt = null; this.path = null;
     if (this.hostP && net.host) {
       const an = this.anat, d = an.lastDir.clone();
-      net.host.died(this.hostP, { t: 'died', by: this.lastBy || 0, part: PART_OF_REGION(an.lastRegion), head: an.cause === 'brain', d: d.toArray().map(r4x), dist: Math.round(an.lastDist || 0), cause: an.cause || 'bleed', gib: an.gibHead ? 1 : 0, lf: this.hostP.life });
+      net.host.died(this.hostP, { t: 'died', by: this.lastBy || an.lastBy || 0, part: PART_OF_REGION(an.lastRegion), head: an.cause === 'brain', d: d.toArray().map(r4x), dist: Math.round(an.lastDist || 0), cause: an.cause || 'bleed', gib: an.gibHead ? 1 : 0, lf: this.hostP.life });
     }
     if (S.mode === 'test' && CQC.bots.includes(this) && CQC.bots.every(b => b.dead)) { flashMsg('COURSE CLEARED<small>It resets in 8 s.</small>', 3000); setTimeout(() => { if (S.mode === 'test') cqcReset(); }, 8000); }
   }
@@ -502,5 +514,5 @@ function aiClearAll() { for (const b of AIS.slice()) { b.dispose(); const k = du
 function updateAI() { const now = performance.now(); while (AI_NOISE.length && now - AI_NOISE[0].t > 1500) AI_NOISE.shift(); }
 
 // ---- module exports: build.mjs strips this block ----
-export { CQC, aiNoise, buildCqc, cqcReset, navClear, navDirty, raidAddBots, raidBodies, spawnAI, updateAI };
+export { AIBot, CQC, aiNoise, buildCqc, cqcReset, navClear, navDirty, raidAddBots, raidBodies, spawnAI, updateAI };
 // ---- end module exports ----

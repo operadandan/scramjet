@@ -303,7 +303,8 @@ class Dummy {
       if (canReact && this.react !== undefined) { this.reactStep(dt); return; }
       this.react = undefined; this.stag = undefined; this.forceDown = true; this.goLimp();
     }
-    else if (this.rag && !down) { freeRag(this.rag); this.rag = null; this.hum.root.visible = true; this.stag = undefined; this.reactDone = false; }
+    else if (this.rag && !down) { if (this.anim === 'ai' && this.pos && this.rag.p && this.rag.p[0]) { this.pos.x = this.rag.p[0].x; this.pos.z = this.rag.p[0].z; }   // (an AI gets up where it fell)
+      freeRag(this.rag); this.rag = null; this.hum.root.visible = true; this.stag = undefined; this.reactDone = false; }
     if (this.rag) { bleedDrips(this, this.anat.bleedRate(), dt, arteryRate(this.anat), clamp(this.anat.blood / 5000, 0.2, 1)); return; }
     this.t += dt; const t = this.t, a = this.hum.anim, root = this.hum.root;
     Object.assign(a, { speed: 0, crouch: 0, pitch: 0, reload: 0, sprint: 0, air: 0, weapon: 0, ads: 0, prone: 0, limp: 0 });

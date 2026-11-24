@@ -409,7 +409,7 @@ function doorRx(m) {
       const L = d.leaf, v = new V3().fromArray(m.v).clampLength(0, 30), w = new V3().fromArray(m.w).clampLength(0, 20);
       doorLaunch(d, v, w); L.position.fromArray(m.p); L.quaternion.fromArray(m.q).normalize(); doorBoxes(d);
     }
-    else if (m.a === 'sd' && ok3(m.p)) sledgeDoorFx(d, new V3().fromArray(m.p), dir, (Number(m.s) >>> 0) || 1);
+    else if (m.a === 'sd' && ok3(m.p)) sledgeDoorFx(d, new V3().fromArray(m.p), dir.lengthSq() > 1e-6 ? dir.normalize() : new V3(0, 0, 1), (Number(m.s) >>> 0) || 1);
     else if (m.a === 'kn') knobOff(d, dir);
     else if (m.a === 'hg') hingeOff(d, m.n | 0, dir);
   } finally { DOOR_RX = false; }

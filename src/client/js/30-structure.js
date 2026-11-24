@@ -209,6 +209,10 @@ function damageSnap() {
     for (let k = 0; k < n;) { if (c[k]) { let e = k; while (e < n && c[e]) e++; runs.push(k, e - k); k = e; if (runs.length >= 160) { out.push(['w', key, runs]); runs = []; } } else k++; }
     if (runs.length) out.push(['w', key, runs]);
   }
+  // (and the doors' leaves: shot through, sledged)
+  if (typeof doors !== 'undefined') for (const d of doors) { const G = d.leaf && d.leaf.userData.grid; if (!G || !G.any || d.fly) continue; let runs = [];
+    for (let k = 0, n = G.cell.length; k < n;) { if (G.cell[k]) { let e = k; while (e < n && G.cell[e]) e++; runs.push(k, e - k); k = e; if (runs.length >= 160) { out.push(['d', d.i, runs]); runs = []; } } else k++; }
+    if (runs.length) out.push(['d', d.i, runs]); }
   const g = (TOWN.gone || []).slice(); for (let i = 0; i < g.length; i += 60) out.push(['g', g.slice(i, i + 60)]);
   return out.slice(0, 600);
 }
@@ -221,6 +225,12 @@ function damageApply(s) {
     const data = G.tex.image.data;
     for (let r = 0; r + 1 < s[2].length; r += 2) { const a = s[2][r] | 0, L = s[2][r + 1] | 0; for (let k = Math.max(0, a); k < Math.min(G.cell.length, a + L); k++) { G.cell[k] = 1; G.dmg[k] = 1; data[k] = 255; } }
     G.any = true; G.tex.needsUpdate = true; structDirty();
+  } else if (s[0] === 'd' && Number.isInteger(s[1]) && Array.isArray(s[2]) && typeof doors !== 'undefined' && doors[s[1]] && !doors[s[1]].fly) {
+    const m = doors[s[1]].leaf, G = wallGrid(m), D = DESTR[DESTR_OF[m.userData.kind]]; if (!G || !D) return;
+    if (m.userData.holeN === undefined) holeify(m, SLOTS, D.inner); m.userData.holeMax = SLOTS; wallMask(m);
+    const data = G.tex.image.data;
+    for (let r = 0; r + 1 < s[2].length; r += 2) { const a = s[2][r] | 0, L = s[2][r + 1] | 0; for (let k = Math.max(0, a); k < Math.min(G.cell.length, a + L); k++) { G.cell[k] = 1; G.dmg[k] = 1; data[k] = 255; } }
+    G.any = true; G.tex.needsUpdate = true;
   } else if (s[0] === 'g' && Array.isArray(s[1])) {
     for (const k of s[1]) { if (!fin(k)) continue; const m = byKey(k, o => !o.userData.door && !o.userData.bomb && o.userData.lamp === undefined && o.userData.board === undefined); if (!m) continue;
       const i = worldMeshes.indexOf(m); worldMeshes.splice(i, 1); const j = colliders.indexOf(m.userData.box); if (j >= 0) colliders.splice(j, 1); m.userData.falling = true; m.visible = false; if (TOWN.gone) TOWN.gone.push(k); }

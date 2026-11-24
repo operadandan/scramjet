@@ -246,7 +246,7 @@ class GameRoom extends DurableObject {
       case "itake": { if (p.ready) this.broadcast({ t: "itake", iid: Number(m.iid) || 0 }, p); break; }
       // explosives: a C4 charge set, a grenade thrown, a charge or grenade going off (each client works out its own damage)
       // doors: what a player did to one goes to everyone else; the doors as they are, from one player to one joining
-      case "door": { if (p.ready && Number.isInteger(m.i) && m.i >= 0 && m.i < 64 && raw.length < 300) { m.id = p.id; this.broadcast(m, p); } break; }
+      case "door": { if (p.ready && Number.isInteger(m.i) && m.i >= 0 && m.i < 64 && raw.length < 300) { if (m.a === "sd") { if (p.team !== "r" || !p.alive || Date.now() - (p.sdT || 0) < 1100) break; p.sdT = Date.now(); } m.id = p.id; this.broadcast(m, p); } break; }
       case "wsnap": { const tg = this.players.get(m.to); if (p.ready && tg && tg !== p && Array.isArray(m.s) && raw.length < 1900) this.send(tg, { t: "wsnap", s: m.s }); break; }
       case "dsnap": { const tg = this.players.get(m.to); if (p.ready && tg && tg !== p && Array.isArray(m.s) && raw.length < 1900) this.send(tg, { t: "dsnap", s: m.s }); break; }
       case "vote": if (p.ready && this.R.ph === "lobby" && m.map === "house") { this.R.votes[p.id] = "house"; this.broadcast(this.rMsg()); } break;

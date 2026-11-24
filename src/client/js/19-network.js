@@ -13,7 +13,7 @@ import { drops, killNotice } from './12-blood.js';
 import { clearGore } from './12b-gore.js';
 import { clearPools, clearWounds, splatIM } from './14-wounds.js';
 import { DEB_POOLS, debris } from './15-destruction.js';
-import { doorApplySnap, doorLeft, doorRx, doorSnap } from './15b-doors.js';
+import { doorApplySnap, doorLeft, doorRx, doorSnap, doors } from './15b-doors.js';
 import { bullets, props, removeBullet } from './16-ballistics.js';
 import { P, Remote, S, arteryRate, localBody, reactPack } from './17-dummies.js';
 import { esc, feed, localDeath, onSelfHurt, remoteShot, respawnLocal, selfWound } from './18-player.js';
@@ -83,10 +83,11 @@ class HostRoom {
   constructor(snap) {
     this.players = new Map(); this.nextId = snap ? snap.myId : 1; this.cfg = Object.assign({ name: 'BREACH server', mode: 'siege', win: 5, max: MAX_P2P, tod: 6.4, weather: 'rain', pub: 0 }, S.cfg || {}); this.rInit();
     this.self = this.add(null);
-    raidAddBots(this);
-    if (snap) { this.migT = Date.now(); this.nextId = Math.max(this.nextId, ...snap.ids.map(i => i + 1)); this.migIds = new Set(snap.ids.filter(i => i !== snap.myId)); this.migPl = snap.pl || {}; this.rResume(snap);
+    if (snap) { this.migT = Date.now(); this.nextId = Math.max(this.nextId, ...snap.ids.map(i => i + 1), ...((snap.r && Array.isArray(snap.r.ai)) ? snap.r.ai.map(i => (i | 0) + 1) : [])); this.migIds = new Set(snap.ids.filter(i => i !== snap.myId && !(snap.r && Array.isArray(snap.r.ai) && snap.r.ai.includes(i)))); this.migPl = snap.pl || {}; this.rResume(snap);
       // (the bots carry on too: back on their posts if a round is on)
-      if (this.bots) setTimeout(() => { if (net.host !== this) return; raidBodies(); if (this.R.ph === 'live' || this.R.ph === 'load') for (const p of this.bots) this.spawn(p); }, 0); }
+      raidAddBots(this);
+      if (this.bots) setTimeout(() => { if (net.host !== this) return; raidBodies(); if (this.R.ph === 'live' && this.bots.length) for (const p of this.bots) if (p.bot) for (const t of p.bot.traps) t.done = true; if (this.R.ph === 'live' || this.R.ph === 'load') for (const p of this.bots) this.spawn(p); }, 0); }
+    else raidAddBots(this);
   }
   rResume(sn) {
     const R = this.R, m = sn.r || {}, now = Date.now(), el = sn.age || 0;
@@ -112,7 +113,7 @@ class HostRoom {
   add(peer) { const p = { id: this.nextId++, peer, name: '', ready: false, alive: false, state: null, lastHit: 0, kills: 0, deaths: 0 }; this.players.set(p.id, p); return p; }
   deliver(p, s, fast) {
     // (one of the raid's bots: its brain gets it, in order with what the host's own client gets)
-    if (p.ai) { const m = JSON.parse(s); queueMicrotask(() => { if (net.mode === 'host' && p.bot) p.bot.rx(m); }); return; }
+    if (p.ai) { if (fast || !/^\{"t":"(hurt|punched|spawn|round)"/.test(s)) return; const m = JSON.parse(s); queueMicrotask(() => { if (net.mode === 'host' && p.bot) p.bot.rx(m); }); return; }
     if (!p.peer) { const m = JSON.parse(s); queueMicrotask(() => { if (net.mode === 'host') onNet(m); }); return; }
     const ch = fast && p.peer.unr && p.peer.unr.readyState === 'open' ? p.peer.unr : p.peer.rel;
     if (ch && ch.readyState === 'open') try { ch.send(s); } catch (e) {}
@@ -150,7 +151,10 @@ class HostRoom {
       }
       case 'idrop': { const s = JSON.stringify(m); if (p.ready && s.length < 600 && m.it && typeof m.it === 'object') this.broadcast({ t: 'idrop', it: m.it, p: m.p, v: m.v }, p); break; }
       case 'itake': if (p.ready) this.broadcast({ t: 'itake', iid: Number(m.iid) || 0 }, p); break;
-      case 'door': if (p.ready && Number.isInteger(m.i) && m.i >= 0 && m.i < 64 && JSON.stringify(m).length < 300) { m.id = p.id; this.broadcast(m, p); } break;
+      case 'door': if (p.ready && Number.isInteger(m.i) && m.i >= 0 && m.i < 64 && JSON.stringify(m).length < 300) {
+        // (a sledge blow on a door: attackers only, no faster than the swing)
+        if (m.a === 'sd') { const at = p.state && p.state.p, dc = typeof doors !== 'undefined' && doors[m.i] && doors[m.i].g.position; if (p.team !== 'r' || !p.alive || this.frozen() || this.R.ph !== 'live' || !at || !dc || Math.hypot(at[0] - dc.x, at[2] - dc.z) > 3 || Date.now() - (p.sdT || 0) < 1100) break; p.sdT = Date.now(); }
+        m.id = p.id; this.broadcast(m, p); } break;
       case 'wsnap': { const tg = this.players.get(m.to); if (p.ready && tg && tg !== p && Array.isArray(m.s) && JSON.stringify(m).length < 1900) this.send(tg, { t: 'wsnap', s: m.s }); break; }
       case 'dsnap': { const tg = this.players.get(m.to); if (p.ready && tg && tg !== p && Array.isArray(m.s) && JSON.stringify(m).length < 1900) this.send(tg, { t: 'dsnap', s: m.s }); break; }
       case 'vote': if (p.ready && this.R.ph === 'lobby' && m.map === 'house') { this.R.votes[p.id] = 'house'; this.broadcast(this.rMsg()); } break;
@@ -248,7 +252,7 @@ class HostRoom {
   rTeam() { if (this.cfg.mode === 'raid') return 'r'; let r = 0, b = 0; for (const x of this.players.values()) if (x.ready && x.team) x.team === 'r' ? r++ : b++; return r < b ? 'r' : b < r ? 'b' : (Math.random() < 0.5 ? 'r' : 'b'); }
   rCount(alive) { const c = { r: 0, b: 0 }; for (const x of this.players.values()) if (x.ready && x.team && (!alive || (x.alive && !x.fatal))) c[x.team]++; return c; }
   rTeams() { const o = {}; for (const x of this.players.values()) if (x.ready && x.team) o[x.id] = x.team; return o; }
-  rMsg(extra) { const R = this.R; return Object.assign({ t: 'round', n: R.n, ph: R.ph, left: Math.max(0, R.end - Date.now()), go: Math.max(0, (R.go || 0) - Date.now()), sc: R.sc, mv: Object.values(R.votes || {}).length, map: R.map, tm: this.rTeams(), dfz: R.carrier, dz: R.dz, pl: R.plant && { site: R.plant.site, left: Math.max(0, R.plant.end - Date.now()) }, sp: R.sp | 0, demo: R.demo ? 1 : 0, lo: typeof TOWN !== 'undefined' && TOWN.lampAll ? TOWN.lampAll.map((L, i) => L.out ? i : -1).filter(i => i >= 0) : [], sgw: R.sgw, gdw: Object.values(R.gd || {}).map(g => [g.o, g.i, g.k, g.p, g.f, g.team, g.sn ? 1 : 0]), fd: R.found, env: typeof envSnap === 'function' ? envSnap() : undefined }, extra || {}); }
+  rMsg(extra) { const R = this.R; return Object.assign({ t: 'round', n: R.n, ph: R.ph, left: Math.max(0, R.end - Date.now()), go: Math.max(0, (R.go || 0) - Date.now()), sc: R.sc, mv: Object.values(R.votes || {}).length, map: R.map, tm: this.rTeams(), dfz: R.carrier, dz: R.dz, pl: R.plant && { site: R.plant.site, left: Math.max(0, R.plant.end - Date.now()) }, sp: R.sp | 0, demo: R.demo ? 1 : 0, ai: this.bots ? this.bots.map(p => p.id) : undefined, lo: typeof TOWN !== 'undefined' && TOWN.lampAll ? TOWN.lampAll.map((L, i) => L.out ? i : -1).filter(i => i >= 0) : [], sgw: R.sgw, gdw: Object.values(R.gd || {}).map(g => [g.o, g.i, g.k, g.p, g.f, g.team, g.sn ? 1 : 0]), fd: R.found, env: typeof envSnap === 'function' ? envSnap() : undefined }, extra || {}); }
   rTimer(ms, f) { if (this.R.tm) clearTimeout(this.R.tm); this.R.tm = setTimeout(() => { if (net.host !== this) return; this.R.tm = null; f(); }, ms); }
   // ---- the match: a lobby on the baseplate (voting for the map) until there is someone on each team, then rounds to 5 wins.
   // A round: 15 s to pick a loadout (everyone at their start, held there), then the round itself, the first 5 s still held.
@@ -368,7 +372,7 @@ async function startHosting(code, snap) {
   await api('/api/host', { room: code, id: me, takeover: snap ? 1 : 0, tk });
   net.mode = 'host'; net.tk = tk; S.roomTk = tk; net.host = new HostRoom(snap); net.code = code; net.hostId = me;
   let lost = 0;
-  const ping = () => { const H = net.host; if (!H) return; api('/api/ping', { room: code, id: me, pub: H.cfg.pub ? 1 : 0, open: H.R && H.R.ph === 'lobby' ? 1 : 0, n: H.players.size, name: H.cfg.name, mode: H.cfg.mode, ph: H.R ? H.R.ph : 'lobby', max: H.cfg.max }).then(j => {
+  const ping = () => { const H = net.host; if (!H) return; api('/api/ping', { room: code, id: me, pub: H.cfg.pub ? 1 : 0, open: H.R && H.R.ph === 'lobby' ? 1 : 0, n: [...H.players.values()].filter(x => !x.ai).length, name: H.cfg.name, mode: H.cfg.mode, ph: H.R ? H.R.ph : 'lobby', max: H.cfg.max }).then(j => {
     // (someone else is hosting this room now: this one has nobody left in it)
     if (j && j.own === false && net.host === H && ++lost >= 2) { leave(); $('err').textContent = 'Your room was taken over by another player after you lost connection.'; } else if (j && j.own) lost = 0;
   }).catch(() => {}); };
@@ -389,7 +393,7 @@ async function startHosting(code, snap) {
 }
 async function acceptPeer(code, me, src, sdp) {
   const host = net.host; if (!host) return;
-  if (host.players.size >= Math.min(MAX_P2P, host.cfg.max || MAX_P2P)) { await api('/api/sig', { room: code, src: me, dst: src, data: JSON.stringify({ type: 'full' }) }); return; }
+  if ([...host.players.values()].filter(x => !x.ai).length >= Math.min(MAX_P2P, host.cfg.max || MAX_P2P)) { await api('/api/sig', { room: code, src: me, dst: src, data: JSON.stringify({ type: 'full' }) }); return; }
   const pc = new RTCPeerConnection({ iceServers: await getIce() }); net.pcs.push(pc);
   const peer = { pc, rel: null, unr: null }; let p = null;
   const onmsg = ev => { if (!p || net.host !== host) return; let m; try { m = JSON.parse(ev.data); } catch (e) { return; } host.onMessage(p, m); };
@@ -414,8 +418,9 @@ async function migrate(code, why) {
   S.migrating = true; const oldHost = S.hostPid, LR = S.lastR || {};
   // (who was in the room is what the host last said, so everyone works out the same next host; the host's own sync keeps it
   // fresh)
-  const hostIds = LR.tm && typeof LR.tm === 'object' ? Object.keys(LR.tm).map(Number).filter(i => Number.isInteger(i) && i !== oldHost) : [];
-  const ids = [...new Set([S.myId, ...(hostIds.length ? hostIds : [...S.remotes.keys()].filter(i => i !== oldHost))])];
+  const bots = Array.isArray(LR.ai) ? LR.ai : [];
+  const hostIds = LR.tm && typeof LR.tm === 'object' ? Object.keys(LR.tm).map(Number).filter(i => Number.isInteger(i) && i !== oldHost && !bots.includes(i)) : [];
+  const ids = [...new Set([S.myId, ...(hostIds.length ? hostIds : [...S.remotes.keys()].filter(i => i !== oldHost && !bots.includes(i)))])];
   const pl = {}; for (const id of ids) { const r = S.remotes.get(id), sc = S.score[id] || {}; pl[id] = { tm: S.team[id], alive: id === S.myId ? P.alive : !!(r && r.alive), k: sc.k | 0, d: sc.d | 0 }; }
   const snap = { myId: S.myId, ids, pl, r: LR, age: performance.now() - (S.lastRT || performance.now()), tm: S.team[S.myId], alive: P.alive, life: S.life, tk: S.roomTk };
   const rest = ids.slice().sort((a, b) => a - b); let hi = 0, fails = 0; const heirNow = () => rest[Math.min(hi, rest.length - 1)];
