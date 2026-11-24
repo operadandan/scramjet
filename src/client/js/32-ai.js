@@ -8,7 +8,7 @@ import { hurtLevel } from './03-humanoid.js';
 import { _Y, freeRag, setHelmet } from './04-ragdoll.js';
 import { Anatomy, PART_OF_REGION } from './05-anatomy.js';
 import { WEAPONS, flashMat, pelletDirs } from './06-weapons.js';
-import { footSound, shotSound, surfaceAt } from './10-audio.js';
+import { footSound, inside, shotSound, surfaceAt } from './10-audio.js';
 import { fx } from './11-fx.js';
 import { smoke } from './12-blood.js';
 import { nz } from './12b-gore.js';
@@ -19,7 +19,7 @@ import { bullets, ejectShell, spawnBullet } from './16-ballistics.js';
 import { Dummy, P, S, arteryRate, dummies } from './17-dummies.js';
 import { flashMsg } from './18-player.js';
 import { net } from './19-network.js';
-import { explode, r3, r4x } from './19b-explosives.js';
+import { NADES, explode, r3, r4x } from './19b-explosives.js';
 import { last } from './22-menu-loop.js';
 import { SL, lightLevel } from './26-lights.js';
 import { GD, gadgetRemove, sledgeBody, smokeAt } from './27-gadgets.js';
@@ -93,7 +93,7 @@ function navNear(N, p, maxD) {
   return best;
 }
 // A* over the graph (a binary heap for the open set)
-function navPath(N, from, to) {
+function navPath(N, from, to, inside) {
   const a = navNear(N, from), z = navNear(N, to, 6); if (!a || !z) return null; if (a === z) return [z];
   const n = N.nodes.length, g = new Float32Array(n).fill(Infinity), came = new Int32Array(n).fill(-1), shut = new Uint8Array(n);
   const hh = k => { const q = N.nodes[k]; return Math.hypot(q.x - z.x, q.y - z.y, q.z - z.z); };
@@ -104,7 +104,7 @@ function navPath(N, from, to) {
   while (H.length && guard++ < 40000) {
     const ci = pop()[1]; if (shut[ci]) continue; if (ci === z.i) break; shut[ci] = 1;
     const c = N.nodes[ci];
-    for (let k = 0; k < c.e.length; k += 2) { const ni = c.e[k]; if (shut[ni]) continue; const ng = g[ci] + c.e[k + 1]; if (ng < g[ni]) { g[ni] = ng; came[ni] = ci; push(ni, ng + hh(ni)); } }
+    for (let k = 0; k < c.e.length; k += 2) { const ni = c.e[k]; if (shut[ni] || (inside && !inside(N.nodes[ni]))) continue; const ng = g[ci] + c.e[k + 1]; if (ng < g[ni]) { g[ni] = ng; came[ni] = ci; push(ni, ng + hh(ni)); } }
   }
   if (came[z.i] < 0) return null;
   const out = []; let k = z.i; while (k >= 0 && k !== a.i) { out.push(N.nodes[k]); k = came[k]; }
@@ -143,64 +143,81 @@ function aiSees(eye, q) {
   return true;
 }
 
+// The brain. What it does, in order of importance:
+//  - it never goes on the attack: it stays inside its building (no opening the doors out, no peeking outside), and the
+//    furthest it goes is to hunt down something heard inside, two of them at most;
+//  - it is always on the move round its part of the building, unless it knows where the attackers are coming from: then it
+//    takes a spot covering the way in nearest them (each bot a different one, off to the side of it, crouched, leaning out
+//    from the edge of cover) and waits there;
+//  - it shoots only what it is looking at, after a human reaction, with an aim that settles; leans round corners to see and
+//    shoot; shoots through soft walls at someone it has just heard or just lost behind one (never at a guess, never through
+//    brick or concrete);
+//  - it shares what it sees and hears, reloads behind cover, backs off when hurt or empty, runs from a grenade, looks away
+//    from a flashbang, and stops shooting anyone once they are down.
+const LEAN_D = 0.38;
 class AIBot extends Dummy {
   constructor(pos, o) {
     super(pos.x, pos.z, 'ai', null, AI_PAL);
     o = o || {};
     this.pos = pos.clone(); this.home = this.pos; this.yaw = o.yaw || 0; this.pitch = 0; this.ayaw = this.yaw; this.apitch = 0;
     this.w = o.w === undefined ? 0 : o.w; this.mag = WEAPONS[this.w].cap; this.pid = o.pid || 0; this.hostP = o.hostP || null; this.name = o.name || 'AI';
-    this.post = (o.post || pos).clone(); this.zone = o.zone || null; this.traps = o.traps || [];
+    this.post = (o.post || pos).clone(); this.zone = o.zone || 6; this.traps = o.traps || []; this.area = o.area || null; this.entries = o.entries || [];
     this.state = 'idle'; this.path = null; this.pathT = 0; this.goal = null; this.thinkT = Math.random() * 0.2; this.know = new Map(); this.tgt = null;
     this.errY = 0; this.errP = 0; this.fireT = 0; this.burst = 0; this.reloadT = 0; this.err = 0.15; this.engT = 0; this.recoil = 0; this.crouchK = 0; this.strafe = 0; this.strafeT = 0;
-    this.vel = new V3(); this.speedNow = 0; this.stepD = 0; this.lookT = 0; this.lookYaw = this.yaw; this.waitT = 0; this.sendT = 0; this.callT = 0; this.defuseT = 0;
+    this.lean = 0; this.leanK = 0; this.vel = new V3(); this.speedNow = 0; this.stepD = 0; this.lookYaw = this.yaw; this.lookP = 0; this.waitT = 0; this.sendT = 0; this.callT = 0; this.defuseT = 0;
+    this.camp = null; this.campT = 0; this.wb = null; this.dodgeT = 0; this.visited = [];
     this.hum.root.position.copy(this.pos); this.hum.root.rotation.y = this.yaw;
     AIS.push(this);
   }
-  get eye() { return _aiW.set(this.pos.x, this.pos.y + 1.62 - 0.55 * this.crouchK, this.pos.z).clone(); }
-  // ---- the brain, run from Dummy.update in place of the canned animations
+  // the eye, out to the side when leaning
+  get eye() { const r = this.leanK * LEAN_D; return new V3(this.pos.x + Math.cos(this.ayaw) * r, this.pos.y + 1.62 - 0.55 * this.crouchK - Math.abs(this.leanK) * 0.05, this.pos.z - Math.sin(this.ayaw) * r); }
+  eyeAt(side) { const r = side * LEAN_D; return new V3(this.pos.x + Math.cos(this.ayaw) * r, this.pos.y + 1.62 - 0.55 * this.crouchK, this.pos.z - Math.sin(this.ayaw) * r); }
+  inA(p) { const A = this.area; return !A || (p.x > A.x0 && p.x < A.x1 && p.z > A.z0 && p.z < A.z1); }
+  // ---- the body: turning, walking, leaning, the gun; the thinking runs ten times a second
   aiTick(dt, a, root) {
     if (this.out) return;
     const live = this.active();
-    this.thinkT -= dt; if (live && this.thinkT <= 0) { this.thinkT = 0.1; this.perceive(0.1); this.decide(); if (this.path && this.path.length) this.doorAhead(); this.claymores(); }
+    this.thinkT -= dt; if (live && this.thinkT <= 0) { this.thinkT = 0.1; this.perceive(0.1); this.decide(); this.doorAhead(); this.claymores(); }
     const blind = (this.flashT || 0) > 0;
-    // aim: turns fast but not instantly, onto where it means to look
-    let ty = this.lookYaw, tp = 0;
+    let ty = this.lookYaw, tp = this.lookP;
     const T = this.tgt && this.know.get(this.tgt.id);
     if (live && this.tgt && T && T.vis && !blind) {
-      const aim = this.aimPoint(this.tgt), e = this.eye, d = aim.sub(e);
-      ty = Math.atan2(-d.x, -d.z); tp = Math.atan2(d.y, Math.hypot(d.x, d.z));
-      ty += this.errY; tp += this.errP;
-    } else if (this.path && this.path.length) { const n = this.path[0]; ty = Math.atan2(-(n.x - this.pos.x), -(n.z - this.pos.z)); }
-    const turn = (blind ? 1.5 : 9) * dt;
-    this.ayaw += clamp(angWrap(ty - this.ayaw), -turn, turn) * Math.min(1, dt * 14 + 0.15); this.apitch += clamp(tp - this.apitch, -turn, turn) * Math.min(1, dt * 14 + 0.15);
+      const d = this.aimPoint(this.tgt).sub(this.eye);
+      ty = Math.atan2(-d.x, -d.z) + this.errY; tp = Math.atan2(d.y, Math.hypot(d.x, d.z)) + this.errP;
+    } else if (live && this.wb) { const d = this.wb.p.clone().sub(this.eye); ty = Math.atan2(-d.x, -d.z); tp = Math.atan2(d.y, Math.hypot(d.x, d.z)); }
+    const turn = (blind ? 1.5 : 9) * dt, k = Math.min(1, dt * 14 + 0.15);
+    this.ayaw += clamp(angWrap(ty - this.ayaw), -turn, turn) * k; this.apitch += clamp(tp - this.apitch, -turn, turn) * k;
     this.recoil = Math.max(0, this.recoil - dt * 0.45);
     this.yaw = this.ayaw; this.pitch = this.apitch + this.recoil;
-    // moving
+    // walking: along the path, looking where the danger is rather than at its feet
     let sp = 0, mv = null;
-    if (live && this.path && this.path.length && !this.tgtVis()) {
+    const engaged = this.tgtVis() || !!this.wb;
+    if (live && this.path && this.path.length && !engaged && this.dodgeT <= 0 || (live && this.dodgeT > 0 && this.path && this.path.length)) {
       const n = this.path[0], dx = n.x - this.pos.x, dz = n.z - this.pos.z, L = Math.hypot(dx, dz);
-      if (L < 0.25) { this.path.shift(); this.doorAhead(); }
+      if (L < 0.25) this.path.shift();
       else { sp = this.moveSpeed(); mv = new V3(dx / L, 0, dz / L); }
     }
-    if (live && this.tgtVis() && this.strafeT > 0) { this.strafeT -= dt; const s = new V3(Math.cos(this.ayaw), 0, -Math.sin(this.ayaw)).multiplyScalar(this.strafe); mv = mv ? mv.add(s).normalize() : s; sp = Math.max(sp, 2.2); }
+    if (this.dodgeT > 0) this.dodgeT -= dt;
+    if (live && engaged && this.strafeT > 0) { this.strafeT -= dt; const s = new V3(Math.cos(this.ayaw), 0, -Math.sin(this.ayaw)).multiplyScalar(this.strafe); const q = this.pos.clone().addScaledVector(s, 0.4); if (this.inA(q)) { mv = s; sp = 2; } }
     if (this.anat.legBroken('L') || this.anat.legBroken('R')) sp *= 0.45;
+    if (Math.abs(this.leanK) > 0.3) sp = Math.min(sp, 1.2);
     this.speedNow = damp(this.speedNow, sp, 10, dt);
     if (mv && this.speedNow > 0.05) {
       const nx = this.pos.x + mv.x * this.speedNow * dt, nz = this.pos.z + mv.z * this.speedNow * dt, y = this.pos.y;
       const fy = floorUnder(nx, nz, y + 0.6);
-      if (!navBlocked(nx, fy + 0.45, nz, 1.25, 0.15)) { this.vel.set((nx - this.pos.x) / dt, 0, (nz - this.pos.z) / dt); this.pos.set(nx, fy, nz); }
-      else { this.vel.set(0, 0, 0); this.path = null; }
+      if (!navBlocked(nx, fy + 0.45, nz, 1.25, 0.15) && !this.doorShut(nx, nz)) { this.vel.set((nx - this.pos.x) / dt, 0, (nz - this.pos.z) / dt); this.pos.set(nx, fy, nz); }
+      else { this.vel.set(0, 0, 0); if (!this.doorShut(nx, nz)) this.path = null; }
     } else this.vel.set(0, 0, 0);
     { const fy = floorUnder(this.pos.x, this.pos.z, this.pos.y + 0.6); if (this.pos.y > fy + 0.02) this.pos.y = Math.max(fy, this.pos.y - 6 * dt); else this.pos.y = fy; }
-    // its steps, heard by whoever is near
     if (this.speedNow > 0.5) { this.stepD += this.speedNow * dt; const stride = this.speedNow > 3.5 ? 0.95 : 0.7; if (this.stepD > stride) { this.stepD = 0; const dd = camera.position.distanceTo(this.pos); if (dd < 40) footSound(this.pos, surfaceAt(this.pos), this.crouchK > 0.5 ? 0.3 : this.speedNow > 3.5 ? 1.1 : 0.6, dd); } }
-    // shooting and reloading
+    // leaning: only standing still (or nearly)
+    this.leanK = damp(this.leanK, this.speedNow < 1.3 ? this.lean : 0, 7, dt);
     if (this.reloadT > 0) { this.reloadT -= dt; if (this.reloadT <= 0) this.mag = WEAPONS[this.w].cap; }
     this.fireT -= dt; if (live && !blind && this.reloadT <= 0) this.tryFire(dt);
-    const wantC = live && this.tgtVis() && this.dist > 9 && this.speedNow < 1 ? 1 : this.state === 'hold' ? 0.6 : 0;
+    const wantC = live && ((this.tgtVis() && this.dist > 9 && this.speedNow < 1) || (this.state === 'camp' && this.speedNow < 0.5 && this.campCrouch)) ? 1 : 0;
     this.crouchK = damp(this.crouchK, wantC, 6, dt);
     root.position.copy(this.pos); root.rotation.y = this.yaw;
-    Object.assign(a, { speed: this.speedNow, crouch: this.crouchK, pitch: this.pitch, weapon: this.w, ads: this.tgtVis() ? 1 : 0.2, sprint: this.speedNow > 5 ? 1 : 0, reload: this.reloadT > 0 ? 1 - this.reloadT / 2.6 + 0.001 : 0 });
+    Object.assign(a, { speed: this.speedNow, crouch: this.crouchK, pitch: this.pitch, weapon: this.w, lean: this.leanK, ads: engaged ? 1 : 0.2, sprint: this.speedNow > 5 ? 1 : 0, reload: this.reloadT > 0 ? 1 - this.reloadT / 2.6 + 0.001 : 0 });
   }
   active() {
     if (S.mode === 'test') return true;
@@ -208,128 +225,235 @@ class AIBot extends Dummy {
     const H = net.host; return !!H && H.R.ph === 'live' && !H.frozen();
   }
   tgtVis() { const T = this.tgt && this.know.get(this.tgt.id); return !!(T && T.vis); }
-  moveSpeed() { return this.state === 'hunt' ? 2.4 : this.state === 'rush' || this.state === 'defuse' || this.state === 'fall' ? 4.6 : this.state === 'engage' ? 2 : 1.7; }
+  moveSpeed() { return this.state === 'hunt' ? 1.9 : this.state === 'rush' || this.state === 'defuse' || this.state === 'fall' || this.state === 'dodge' ? 4.6 : this.state === 'move' ? 3.4 : 1.7; }
   aimPoint(t) {
     const h = t.dn ? 0.35 : t.pr > 0.5 ? 0.3 : 1.62 - 0.6 * (t.c || 0);
     // (head, or under the plate: the pelvis; the chest only when it has nothing better)
-    const chest = h * 0.78, y = this.aimZ === 'head' ? h - 0.07 : this.aimZ === 'hips' ? h * 0.56 : chest;
-    // (it leads a moving target a little)
-    const lead = t.r && t.r.st ? 0.08 : 0.06, vx = t.self ? P.vel.x : (t.r.tpos.x - t.r.pos.x) * 12, vz = t.self ? P.vel.z : (t.r.tpos.z - t.r.pos.z) * 12;
+    const y = t.dn ? h : this.aimZ === 'head' ? h - 0.07 : this.aimZ === 'hips' ? h * 0.56 : h * 0.78;
+    const lead = 0.07, vx = t.self ? P.vel.x : (t.r.tpos.x - t.r.pos.x) * 12, vz = t.self ? P.vel.z : (t.r.tpos.z - t.r.pos.z) * 12;
     return new V3(t.pos.x + vx * lead, t.pos.y + y, t.pos.z + vz * lead);
+  }
+  // a closed door right where it is about to step (it opens inside doors itself; outside ones stay shut)
+  doorShut(x, z) {
+    if (typeof doors === 'undefined') return false;
+    for (const d of doors) { if (d.fallen || Math.abs(d.a) > 0.5) continue; const c = d.g.position; if (Math.hypot(c.x - x, c.z - z) < 0.45 && Math.abs(c.y - this.pos.y) < 1.5) return true; }
+    return false;
+  }
+  outsideDoor(d) {
+    if (!this.area) return false; const c = d.g.position, f = new V3(0, 0, 1).applyQuaternion(d.g.quaternion);
+    return !this.inA(c.clone().addScaledVector(f, 0.9)) || !this.inA(c.clone().addScaledVector(f, -0.9));
   }
   // ---- seeing and hearing
   perceive(dt) {
-    const now = performance.now(), e = this.eye, fwd = new V3(-Math.sin(this.ayaw), 0, -Math.cos(this.ayaw)), blind = (this.flashT || 0) > 0;
-    const smoke = (this.smokeK || 0) > 0.5;
-    const TG = aiTargets();
+    const now = performance.now(), blind = (this.flashT || 0) > 0, smoke = (this.smokeK || 0) > 0.5;
+    const e0 = this.eyeAt(0), eL = this.eyeAt(-1), eR = this.eyeAt(1), fwd = new V3(-Math.sin(this.ayaw), 0, -Math.cos(this.ayaw));
+    const TG = aiTargets(); let leanVote = 0;
     for (const t of TG) {
-      let K = this.know.get(t.id); if (!K) { K = { aw: 0, seen: 0, last: null, vis: false, heard: 0 }; this.know.set(t.id, K); }
-      const dx = t.pos.x - e.x, dz = t.pos.z - e.z, d = Math.hypot(dx, dz), cs = d > 0.01 ? (dx * fwd.x + dz * fwd.z) / d : 1;
-      let vis = false;
+      let K = this.know.get(t.id); if (!K) { K = { aw: 0, seen: 0, last: null, vis: false, heard: 0, heardP: null }; this.know.set(t.id, K); }
+      const dx = t.pos.x - e0.x, dz = t.pos.z - e0.z, d = Math.hypot(dx, dz), cs = d > 0.01 ? (dx * fwd.x + dz * fwd.z) / d : 1;
+      let vis = false, side = 0;
       if (!blind && !smoke && d < 70 && (cs > AI_FOV || d < 2.2)) {
-        const h = t.dn ? 0.35 : t.pr > 0.5 ? 0.3 : 1.55 - 0.6 * (t.c || 0);
-        vis = aiSees(e, new V3(t.pos.x, t.pos.y + h, t.pos.z)) || aiSees(e, new V3(t.pos.x, t.pos.y + h * 0.55, t.pos.z));
+        const h = t.dn ? 0.35 : t.pr > 0.5 ? 0.3 : 1.55 - 0.6 * (t.c || 0), hd = new V3(t.pos.x, t.pos.y + h, t.pos.z), bd = new V3(t.pos.x, t.pos.y + h * 0.55, t.pos.z);
+        if (aiSees(e0, hd) || aiSees(e0, bd)) vis = true;
+        // round the corner: what it would see leaning out either way (only standing, only near enough to matter)
+        else if (this.speedNow < 1.3 && d < 30) { if (aiSees(eR, hd)) { vis = true; side = 1; } else if (aiSees(eL, hd)) { vis = true; side = -1; } }
       }
       if (vis) {
-        // how fast it picks you out: close, moving, lit up (your own light most of all), right in front
-        const lit = t.fl ? 1.5 : clamp((lightLevel(new V3(t.pos.x, t.pos.y + 1, t.pos.z)) || 0) * 2.5, 0.35, 1), rate = (7 / (1 + d * 0.1)) * (0.7 + Math.min(1, t.v / 3)) * lit * (0.6 + Math.max(0, cs)) * (t.c > 0.5 ? 0.75 : 1) + (d < 4 ? 10 : 0);
+        const lit = t.fl ? 1.5 : clamp((lightLevel(new V3(t.pos.x, t.pos.y + 1, t.pos.z)) || 0) * 2.5, 0.35, 1);
+        const rate = (7 / (1 + d * 0.1)) * (0.7 + Math.min(1, t.v / 3)) * lit * (0.6 + Math.max(0, cs)) * (t.c > 0.5 ? 0.75 : 1) + (d < 4 ? 10 : 0);
         K.aw = Math.min(1.5, K.aw + rate * dt * (K.seen && now - K.seen < 4000 ? 4 : 1));
       } else K.aw = Math.max(0, K.aw - dt * 0.25);
-      K.vis = vis && K.aw >= 1;
-      if (K.vis) { if (!K.wasVis) { this.engT = 0; this.err = 0.11 + Math.random() * 0.06; } K.seen = now; K.last = t.pos.clone(); this.callout(t, K.last); }
+      K.vis = vis && K.aw >= 1; K.side = side;
+      if (K.vis) { if (!K.wasVis) { this.engT = 0; this.err = 0.11 + Math.random() * 0.06; } K.seen = now; K.last = t.pos.clone(); K.lastH = t.c > 0.5 ? 1.0 : 1.35; K.vel = t.self ? P.vel.clone() : t.r.tpos.clone().sub(t.r.pos).multiplyScalar(12); this.callout(t, K.last); if (side) leanVote = side; }
+      // a body just seen ducking behind a wall: where it was going
+      if (!K.vis && K.wasVis) K.lostT = now;
       K.wasVis = K.vis;
-      // footsteps: a sprint carries, a crouch-walk barely does
-      const fr = t.v > 5 ? 15 : t.v > 3 ? 9 : t.v > 0.6 ? (t.c > 0.5 ? 2 : 5) : 0;
-      if (fr && d < fr && !K.vis) { K.heard = now; K.last = t.pos.clone().add(new V3(rnd(-1, 1), 0, rnd(-1, 1))); }
+      // footsteps: a sprint carries, a crouch-walk barely does (through walls, less)
+      const fr = t.v > 5 ? 16 : t.v > 3 ? 10 : t.v > 0.6 ? (t.c > 0.5 ? 2.2 : 5.5) : 0;
+      if (fr && d < fr && !K.vis) { K.heard = now; K.heardP = t.pos.clone(); K.last = t.pos.clone().add(new V3(rnd(-0.6, 0.6), 0, rnd(-0.6, 0.6))); K.lastH = t.c > 0.5 ? 1.0 : 1.35; }
       K.t = t;
     }
     for (const id of [...this.know.keys()]) if (!TG.some(t => t.id === id)) this.know.delete(id);
-    // shots and blasts
-    const deaf = (this.deafT || 0) > 0;
-    if (!deaf) for (const n of AI_NOISE) { if (now - n.t > 400 || n.heardBy && n.heardBy.has(this)) continue; (n.heardBy || (n.heardBy = new Set())).add(this);
-      const d = n.p.distanceTo(this.pos); if (d > n.r || (n.by && AIS.some(b => b.pid && b.pid === n.by))) continue;
-      this.noise = { p: n.p.clone().add(new V3(rnd(-1.5, 1.5) * d / 20, 0, rnd(-1.5, 1.5) * d / 20)), t: now }; }
-    // pick who to shoot: the one in view, nearest first, a downed one last
-    let best = null, bs = 1e9; for (const K of this.know.values()) if (K.vis && K.t) { const s = K.t.pos.distanceTo(this.pos) + (K.t.dn ? 30 : 0); if (s < bs) { bs = s; best = K.t; } }
+    // shots and blasts (where from, roughly; closer is more exact)
+    if (!((this.deafT || 0) > 0)) for (const n of AI_NOISE) { if (now - n.t > 400 || (n.heardBy && n.heardBy.has(this))) continue; (n.heardBy || (n.heardBy = new Set())).add(this);
+      const d = n.p.distanceTo(this.pos); if (d > n.r || (n.by && AIS.some(b => b.pid && b.pid === n.by)) || n.by === -1) continue;
+      this.noise = { p: n.p.clone().add(new V3(rnd(-1, 1) * d / 25, 0, rnd(-1, 1) * d / 25)), t: now }; AI_SQUAD.see(this.noise.p, now); }
+    // who to shoot: in view, nearest first; never someone already down
+    let best = null, bs = 1e9;
+    for (const K of this.know.values()) { if (!K.vis || !K.t) continue; const t = K.t; if (t.dn) continue; const s = t.pos.distanceTo(this.pos); if (s < bs) { bs = s; best = t; } }
     if (best) { if (!this.tgt || this.tgt.id !== best.id) { this.engT = 0; this.err = 0.11 + Math.random() * 0.06; const r = Math.random(), hp = bs < 12 ? 0.5 : 0.28; this.aimZ = r < hp ? 'head' : r < hp + 0.3 ? 'hips' : 'chest'; } this.tgt = best; this.dist = bs; }
     else if (this.tgt && !this.tgtVis()) this.tgt = null;
+    // leaning: out to whichever side it can see them from; otherwise round the edge it is covering
+    this.lean = best ? (this.know.get(best.id).side || 0) : leanVote || (this.state === 'camp' && this.campLean ? this.campLean : 0);
+    this.wallbang(now);
   }
-  // what one sees, the rest know a moment later
+  // ---- through the wall: someone heard right behind a thin wall, or just lost behind one, close; only through drywall,
+  // plywood, a door or boards (never brick, concrete or metal); a short burst, then it waits to see what happens
+  wallbang(now) {
+    this.wb = null; if (this.tgtVis() || this.reloadT > 0 || this.mag < 4) return;
+    for (const K of this.know.values()) {
+      if (!K.t || K.t.dn) continue;
+      const fresh = (K.heard && now - K.heard < 700 && K.heardP) || (K.lostT && now - K.lostT < 900 && K.last);
+      if (!fresh) continue;
+      // (where they must be now: the step it heard, or where they were heading when they went behind the wall)
+      const base = K.heard && now - K.heard < 700 ? K.heardP : K.last.clone().addScaledVector(K.vel || new V3(), Math.min(0.6, (now - K.lostT) / 1000));
+      const q = base.clone().setY(base.y + (K.lastH || 1.3)), e = this.eye, d = q.distanceTo(e);
+      if (d > 9 || d < 1.2 || !this.inA(this.pos)) continue;
+      const soft = aiSoftOnly(e, q); if (!soft) continue;
+      // (and not with one of its own in the way)
+      if (AIS.some(b => b !== this && !b.dead && !b.out && distToSeg(b.pos.clone().setY(b.pos.y + 1.2), e, q) < 0.6)) continue;
+      this.wb = { p: q, n: 3 + Math.floor(Math.random() * 3), t: now }; return;
+    }
+  }
   callout(t, p) {
-    const now = performance.now(); if (now - this.callT < 900) return; this.callT = now;
-    for (const b of AIS) if (b !== this && !b.dead && !b.out && b.pos.distanceTo(this.pos) < 60) setTimeout(() => { if (b.dead) return; let K = b.know.get(t.id); if (!K) { K = { aw: 0, seen: 0, last: null, vis: false, heard: 0 }; b.know.set(t.id, K); } if (!K.vis) { K.last = p.clone(); K.heard = performance.now(); K.aw = Math.max(K.aw, 0.6); } }, 700 + Math.random() * 500);
+    const now = performance.now(); if (now - this.callT < 900) return; this.callT = now; AI_SQUAD.see(p, now);
+    for (const b of AIS) if (b !== this && !b.dead && !b.out && b.pos.distanceTo(this.pos) < 60) setTimeout(() => { if (b.dead) return; let K = b.know.get(t.id); if (!K) { K = { aw: 0, seen: 0, last: null, vis: false, heard: 0 }; b.know.set(t.id, K); } if (!K.vis) { K.last = p.clone(); K.heard = Math.max(K.heard || 0, performance.now() - 300); K.heardP = null; K.aw = Math.max(K.aw, 0.6); } }, 600 + Math.random() * 500);
   }
   // ---- what to do now
   decide() {
-    const now = performance.now(), hurt = this.anat.blood < 3200 || hurtLevel(this.anat) > 0.6;
+    const now = performance.now(), an = this.anat, hurt = an.blood < 3200 || hurtLevel(an) > 0.6;
+    // a grenade at its feet: get away from it; a flashbang in view: look away
+    for (const n of (typeof NADES !== 'undefined' ? NADES : [])) {
+      const d = n.p.distanceTo(this.pos);
+      if (n.kind === 'frag' && d < 5.5 && this.dodgeT <= 0) { this.dodgeT = 1.4; this.runFrom(n.p); return; }
+      if (n.kind === 'flash' && d < 12 && aiSees(this.eye, n.p)) { this.lookYaw = Math.atan2(n.p.x - this.pos.x, n.p.z - this.pos.z); this.tgt = null; return; }
+    }
+    if (this.dodgeT > 0) return;
     if (this.tgtVis()) {
       this.state = 'engage'; this.path = null;
-      // a step to the side now and then, never standing still in a doorway trading shots
-      if (this.strafeT <= 0 && Math.random() < 0.06) { this.strafe = Math.random() < 0.5 ? -1 : 1; this.strafeT = rnd(0.3, 0.8); }
-      // out of rounds with them close, or badly hurt: back off out of sight
-      if ((this.mag === 0 && this.dist < 10) || (hurt && Math.random() < 0.04)) this.fallBack();
+      // a small step aside now and then (never out of the building, never forward)
+      if (this.strafeT <= 0 && Math.random() < 0.05 && this.speedNow < 0.5 && !this.leanK) { this.strafe = Math.random() < 0.5 ? -1 : 1; this.strafeT = rnd(0.25, 0.6); }
+      if ((this.mag === 0 && this.dist < 12) || (hurt && Math.random() < 0.05) || (this.mag < 6 && this.dist < 7 && Math.random() < 0.2)) this.fallBack();
       return;
     }
-    // the bomb is down: everyone goes to stop it
+    if (this.wb) { this.state = 'engage'; this.path = null; return; }
+    // reload while nothing is in view
+    if (this.mag < WEAPONS[this.w].cap * 0.4 && this.reloadT <= 0) this.reload();
     const site = this.plantSite();
     if (site) {
       if (this.pos.distanceTo(site) < 1.6) { this.state = 'defuse'; this.path = null; this.defuseT += 0.1; if (this.defuseT > 6.5) { this.defuseT = 0; this.disable(); } return; }
       this.defuseT = 0; this.goTo(site, 'defuse'); return;
     }
-    // something heard or called out: a recent one is hunted down, carefully
-    let lk = null, lt = 0; for (const K of this.know.values()) { const t = Math.max(K.seen, K.heard); if (K.last && t > lt) { lt = t; lk = K.last; } }
+    // what it knows: the latest place an attacker was seen or heard (its own, or called out)
+    let lk = null, lt = 0; for (const K of this.know.values()) { const t = Math.max(K.seen || 0, K.heard || 0); if (K.last && t > lt) { lt = t; lk = K.last; } }
     if (this.noise && this.noise.t > lt) { lt = this.noise.t; lk = this.noise.p; }
-    if (lk && now - lt < 14000) {
-      // half of them hold an angle on where it came from, half go for it
-      if ((this.slot || 0) % 2 === 0 || this.holdHere) { this.state = 'hold'; this.lookYaw = Math.atan2(-(lk.x - this.pos.x), -(lk.z - this.pos.z)); if (!this.path || !this.path.length) return; }
-      if (!this.goal || this.goal.distanceTo(lk) > 2 || !this.path || !this.path.length) this.goTo(lk, 'hunt');
-      return;
+    const sq = AI_SQUAD.last(); if (sq && sq.t > lt) { lt = sq.t; lk = sq.p; }
+    const age = now - lt;
+    // inside, close and fresh: two of them go after it, carefully, guns on where it was; the rest cover the ways to them
+    if (lk && age < 9000 && this.inA(lk)) {
+      const hunters = AIS.filter(b => b !== this && b.state === 'hunt' && !b.dead && !b.out).length;
+      if (hunters < 2 && !hurt && this.mag > 8) {
+        this.lookYaw = Math.atan2(-(lk.x - this.pos.x), -(lk.z - this.pos.z)); this.lookP = 0;
+        if (!this.goal || this.goal.distanceTo(lk) > 1.5 || !this.path || !this.path.length) this.goTo(lk, 'hunt');
+        if (this.pos.distanceTo(lk) < 1.2) { this.forget(lk); this.path = null; }
+        return;
+      }
     }
-    // nothing going on: set the traps first, then patrol their part of the house
+    // outside (or the hunt is covered): hold a spot that covers the way in nearest to it
+    if (lk && age < 22000) { this.campOn(lk, now); return; }
+    // nothing known yet: the traps and boards first
     const tr = this.traps.find(t => !t.done);
     if (tr) {
       if (this.pos.distanceTo(tr.p) < 1.4 || (tr.k === 'bd' && Math.hypot(this.pos.x - tr.p.x, this.pos.z - tr.p.z) < 2.2)) { tr.done = true; this.placeTrap(tr); }
-      // (somewhere it can't get to: tried a few times, then given up on)
       else if (this.goal && this.goal.distanceTo(tr.p) < 0.1 && !this.path) { tr.tries = (tr.tries || 0) + 1; this.goal = null; if (tr.tries > 3) tr.done = true; }
       else this.goTo(tr.p, 'rush');
       return;
     }
-    this.state = 'patrol';
-    if (!this.path || !this.path.length) {
-      this.waitT -= 0.1;
-      if (this.waitT <= 0) { this.waitT = rnd(2, 6); const N = navFor(this.post), cand = N.nodes.filter(n => Math.abs(n.y - this.post.y) < 0.5 && Math.hypot(n.x - this.post.x, n.z - this.post.z) < (this.zone || 5)); if (cand.length) this.goTo(new V3().copy(cand[Math.floor(Math.random() * cand.length)]), 'patrol'); }
-      else if (Math.random() < 0.15) this.lookYaw = this.ayaw + rnd(-1.6, 1.6);
+    this.patrol(now);
+  }
+  // patrol: always going somewhere in its part of the building, a short pause and a look round at each stop, the guns on
+  // the doorways and windows as it goes
+  patrol(now) {
+    this.camp = null; this.campLean = 0;
+    if (this.path && this.path.length) { this.state = 'patrol'; this.lookAtWay(); return; }
+    this.state = 'patrol'; this.waitT -= 0.1;
+    if (this.waitT > 0) { if (Math.random() < 0.12) { const en = this.entries[Math.floor(Math.random() * Math.max(1, this.entries.length))]; this.lookYaw = en && Math.random() < 0.6 ? Math.atan2(-(en.p.x - this.pos.x), -(en.p.z - this.pos.z)) : this.ayaw + rnd(-1.6, 1.6); } return; }
+    this.waitT = rnd(0.6, 2.4);
+    const N = navFor(this.post), cand = [];
+    for (let k = 0; k < 60 && cand.length < 12; k++) { const n = N.nodes[Math.floor(Math.random() * N.nodes.length)]; if (!n || !this.inA(n)) continue; const dp = Math.hypot(n.x - this.post.x, n.z - this.post.z), dm = Math.hypot(n.x - this.pos.x, n.z - this.pos.z);
+      if (dp < this.zone + 2 && dm > 2.5 && dm < 13 && !this.visited.some(v => Math.hypot(v.x - n.x, v.z - n.z) < 2)) cand.push(n); }
+    const n = cand[0] || N.nodes.find(q => this.inA(q) && Math.hypot(q.x - this.post.x, q.z - this.post.z) < this.zone);
+    if (n) { this.visited.push({ x: n.x, z: n.z }); if (this.visited.length > 6) this.visited.shift(); this.goTo(new V3(n.x, n.y, n.z), 'patrol'); }
+  }
+  lookAtWay() {
+    // (moving: eyes ahead, swinging onto any doorway or window it passes close to)
+    const n = this.path[0]; let y = Math.atan2(-(n.x - this.pos.x), -(n.z - this.pos.z));
+    for (const en of this.entries) { const d = Math.hypot(en.p.x - this.pos.x, en.p.z - this.pos.z); if (d < 6 && d > 1 && aiSees(this.eyeAt(0), en.p.clone().setY(en.p.y + 1.3))) { y = Math.atan2(-(en.p.x - this.pos.x), -(en.p.z - this.pos.z)); break; } }
+    this.lookYaw = y; this.lookP = 0;
+  }
+  // a spot covering the way in nearest the threat: off to its side, 3-8 m back, on the same floor, with a clear line to it;
+  // every bot a different way in (or a different spot on the same one)
+  campOn(lk, now) {
+    if (!this.entries.length) { this.patrol(now); return; }
+    if (this.camp && this.campT > now && this.camp.lk.distanceTo(lk) < 6) { this.holdCamp(); return; }
+    const taken = AIS.filter(b => b !== this && b.camp).map(b => b.camp.en);
+    const ens = this.entries.slice().sort((a, b) => a.p.distanceTo(lk) - b.p.distanceTo(lk));
+    let en = ens.find(x => !taken.includes(x)) || ens[(this.slot || 0) % ens.length];
+    const N = navFor(this.pos); let best = null, bs = -1e9;
+    const inDir = en.dir.clone().negate();
+    for (let k = 0; k < 140; k++) {
+      const n = N.nodes[Math.floor(Math.random() * N.nodes.length)]; if (!n || !this.inA(n) || Math.abs(n.y - en.p.y) > 0.6) continue;
+      const v = new V3(n.x - en.p.x, 0, n.z - en.p.z), d = v.length(); if (d < 3 || d > 8.5) continue;
+      const ang = v.normalize().dot(inDir); if (ang < 0.15) continue;   // (inside, in front of it)
+      const eye = new V3(n.x, n.y + 1.1, n.z); if (!aiSees(eye, en.p.clone().setY(en.p.y + 1.1))) continue;
+      // off the straight line in (not in plain view from outside), near a wall (cover), not on a trap, not on another bot
+      const off = 1 - ang, cover = navBlocked(n.x + 0.45, n.y + 0.5, n.z, 0.8, 0.1) || navBlocked(n.x - 0.45, n.y + 0.5, n.z, 0.8, 0.1) || navBlocked(n.x, n.y + 0.5, n.z + 0.45, 0.8, 0.1) || navBlocked(n.x, n.y + 0.5, n.z - 0.45, 0.8, 0.1);
+      if (AIS.some(b => b !== this && b.camp && Math.hypot(b.camp.p.x - n.x, b.camp.p.z - n.z) < 2)) continue;
+      const s = off * 2 + (cover ? 1.5 : 0) - Math.abs(d - 5) * 0.3 + Math.random() * 0.4; if (s > bs) { bs = s; best = n; }
     }
+    if (!best) { this.patrol(now); return; }
+    this.camp = { en, p: new V3(best.x, best.y, best.z), lk: lk.clone() }; this.campT = now + rnd(9000, 16000); this.campCrouch = Math.random() < 0.6;
+    // (which way to lean to look round its cover at the way in)
+    this.campLean = 0;
+    this.goTo(this.camp.p, 'move');
+  }
+  holdCamp() {
+    const c = this.camp;
+    if (this.pos.distanceTo(c.p) > 0.6) { if (!this.path || !this.path.length) this.goTo(c.p, 'move'); this.state = 'move'; if (this.path && this.path.length) this.lookAtWay(); return; }
+    this.state = 'camp'; this.path = null;
+    const t = c.en.p; this.lookYaw = Math.atan2(-(t.x - this.pos.x), -(t.z - this.pos.z)); this.lookP = 0;
+    // can it see the way in from here, or only leaning out?
+    const q = t.clone().setY(t.y + 1.2);
+    this.campLean = aiSees(this.eyeAt(0), q) ? 0 : aiSees(this.eyeAt(1), q) ? 1 : aiSees(this.eyeAt(-1), q) ? -1 : 0;
   }
   goTo(p, st) {
     this.state = st; const now = performance.now();
+    // (never out of its building: a place outside is swapped for the nearest place inside)
+    if (!this.inA(p)) { const N = navFor(this.pos); let b = null, bd = 1e9; for (const n of N.nodes) { if (!this.inA(n) || Math.abs(n.y - p.y) > 1.5) continue; const d = Math.hypot(n.x - p.x, n.z - p.z); if (d < bd) { bd = d; b = n; } } if (!b) return; p = new V3(b.x, b.y, b.z); }
     if (this.goal && this.goal.distanceTo(p) < 0.5 && this.path && this.path.length && now - this.pathT < 3000) return;
-    const N = navFor(this.pos), path = navPath(N, this.pos, p); this.goal = p.clone(); this.pathT = now;
+    const N = navFor(this.pos), path = navPath(N, this.pos, p, this.area ? n => this.inA(n) : null); this.goal = p.clone(); this.pathT = now;
     this.path = path ? path.slice() : null;
+  }
+  runFrom(q) {
+    const N = navFor(this.pos); let best = null, bs = -1;
+    for (let k = 0; k < 60; k++) { const n = N.nodes[Math.floor(Math.random() * N.nodes.length)]; if (!n || !this.inA(n) || Math.abs(n.y - this.pos.y) > 0.5) continue; const dn = Math.hypot(n.x - this.pos.x, n.z - this.pos.z), dq = Math.hypot(n.x - q.x, n.z - q.z); if (dn < 7 && dq > bs) { bs = dq; best = n; } }
+    if (best) { this.goal = null; this.goTo(new V3(best.x, best.y, best.z), 'dodge'); }
   }
   fallBack() {
     const t = this.tgt; if (!t) return; const N = navFor(this.pos); let best = null, bs = -1;
-    for (let k = 0; k < 40; k++) { const n = N.nodes[Math.floor(Math.random() * N.nodes.length)]; if (!n || Math.abs(n.y - this.pos.y) > 0.5) continue; const q = new V3(n.x, n.y + 1.5, n.z), d = q.distanceTo(t.pos);
-      if (d > 6 && d < 25 && Math.hypot(n.x - this.pos.x, n.z - this.pos.z) < 12 && !aiSees(q, new V3(t.pos.x, t.pos.y + 1.4, t.pos.z)) && d > bs) { bs = d; best = n; } }
+    for (let k = 0; k < 50; k++) { const n = N.nodes[Math.floor(Math.random() * N.nodes.length)]; if (!n || !this.inA(n) || Math.abs(n.y - this.pos.y) > 0.5) continue; const q = new V3(n.x, n.y + 1.5, n.z), d = q.distanceTo(t.pos);
+      if (d > 6 && d < 25 && Math.hypot(n.x - this.pos.x, n.z - this.pos.z) < 10 && !aiSees(q, new V3(t.pos.x, t.pos.y + 1.4, t.pos.z)) && d > bs) { bs = d; best = n; } }
     if (best) { this.goTo(new V3(best.x, best.y, best.z), 'fall'); if (this.mag < WEAPONS[this.w].cap) this.reload(); }
   }
+  forget(lk) { for (const K of this.know.values()) if (K.last && K.last.distanceTo(lk) < 2.5) { K.last = null; K.heard = 0; K.seen = 0; } if (this.noise && this.noise.p.distanceTo(lk) < 2.5) this.noise = null; AI_SQUAD.clear(lk); }
   plantSite() {
     if (S.mode !== 'online' || !net.host || !net.host.R.plant) return null;
     const s = TOWN.sites && TOWN.sites.find(x => x.id === net.host.R.plant.site); return s && s.p ? new V3(s.p.x, s.p.y || 0, s.p.z) : null;
   }
   disable() { if (this.hostP && net.host) net.host.sgMsg(this.hostP, { t: 'sg', a: 'disable' }); }
-  // the door in the way: opened (and unlocked: it's their house)
+  // the inside door in the way, opened (and unlocked: it's their house); a door to the outside stays as it is
   doorAhead() {
-    if (typeof doors === 'undefined') return; const n = this.path && this.path[0]; if (!n) return;
+    if (typeof doors === 'undefined' || !this.path || !this.path.length) return;
+    const look = this.path.slice(0, 4);
     for (const d of doors) {
-      if (d.fallen || !d.leaf) continue; const c = d.g.position; if (Math.hypot(c.x - this.pos.x, c.z - this.pos.z) > 1.8) continue;
-      if (Math.abs(d.a) > 0.6) continue;
+      if (d.fallen || !d.leaf || Math.abs(d.a) > 0.6) continue; const c = d.g.position;
+      if (Math.hypot(c.x - this.pos.x, c.z - this.pos.z) > 2.2 || !look.some(n => Math.hypot(n.x - c.x, n.z - c.z) < 0.9)) continue;
+      if (this.outsideDoor(d)) { this.path = null; continue; }
       const L = d.leaf; L.updateMatrixWorld(true); const s = L.worldToLocal(this.pos.clone().setY(c.y + 1)).z >= 0 ? -1 : 1;
       d.lock = 0; d.tgt = s * DOOR_OPEN; d.w = s * 4;
       doorNet({ i: d.i, a: 'st', tg: d.tgt, w: d.w, an: d.a, h: 0, lk: 0 });
     }
   }
-  // an attacker's claymore in front of it goes off, the same as for a player walking into it
   claymores() {
     if (typeof GD === 'undefined') return;
     for (const o of GD.slice()) {
@@ -341,20 +465,29 @@ class AIBot extends Dummy {
       gadgetRemove(o); explode(p, 'claymore', o.owner, true);
     }
   }
-  // ---- the gun
+  // ---- the gun: only at what it is looking at
   tryFire(dt) {
-    const T = this.tgt && this.know.get(this.tgt.id); if (!T || !T.vis || this.fireT > 0) return;
+    if (this.fireT > 0) return;
+    const T = this.tgt && this.know.get(this.tgt.id), W = WEAPONS[this.w];
     if (this.mag <= 0) { this.reload(); return; }
+    // through the wall: pointed at the spot, a short burst
+    if (!(T && T.vis) && this.wb) {
+      const d = this.wb.p.clone().sub(this.eye), wy = Math.atan2(-d.x, -d.z), wp = Math.atan2(d.y, Math.hypot(d.x, d.z));
+      if (Math.hypot(angWrap(wy - this.ayaw), wp - this.apitch) > 0.05) return;
+      this.fireT = W.pellets ? 60 / W.rpm + 0.1 : 60 / W.rpm * 1.4; this.shoot(); if (--this.wb.n <= 0) { this.wbDone = performance.now(); this.wb = null; }
+      return;
+    }
+    if (!T || !T.vis) return;
     this.engT += dt;
-    // the first look is rough, it settles onto the target over about half a second, worse at range, moving or hurt
+    // the first look is rough; it settles onto the target over about half a second (worse at range, moving, hurt, gassed)
     const base = 0.008 * (1 + this.dist / 30) * (this.speedNow > 1 ? 1.8 : 1) * (1 + hurtLevel(this.anat)) * ((this.gasK || 0) > 0.3 ? 3 : 1);
     this.err = Math.max(base, this.err - dt * 0.28);
     if (Math.random() < dt * 4) { this.errY = rnd(-1, 1) * this.err; this.errP = rnd(-1, 1) * this.err * 0.6; }
-    const aim = this.aimPoint(this.tgt), e = this.eye, d = aim.clone().sub(e), wy = Math.atan2(-d.x, -d.z), wp = Math.atan2(d.y, Math.hypot(d.x, d.z));
-    const off = Math.hypot(angWrap(wy - this.ayaw), wp - this.apitch);
-    if (this.engT < 0.22 || off > Math.max(0.05, this.err * 2.5)) return;   // (reaction time, and not firing before it is on)
-    const W = WEAPONS[this.w];
-    // bursts at range, full auto up close, a pump between shotgun shells
+    // looking at them: the line it is aiming along has to pass within a body's width of them (and it has had time to react)
+    const aim = this.aimPoint(this.tgt), e = this.eye, d = aim.clone().sub(e), dist = d.length();
+    const wy = Math.atan2(-d.x, -d.z), wp = Math.atan2(d.y, Math.hypot(d.x, d.z));
+    const off = Math.hypot(angWrap(wy - this.ayaw), wp - this.apitch), body = Math.atan2(0.28, Math.max(1, dist));
+    if (this.engT < 0.22 || off > body + this.err * 0.6) return;
     if (W.pellets) this.fireT = 60 / W.rpm + rnd(0.05, 0.2);
     else if (this.dist > 14) { this.burst++; this.fireT = this.burst >= 3 + Math.floor(Math.random() * 3) ? (this.burst = 0, rnd(0.25, 0.5)) : 60 / W.rpm; }
     else this.fireT = 60 / W.rpm;
@@ -386,7 +519,7 @@ class AIBot extends Dummy {
   // ---- the network (raid): its state as a player's, its hits and deaths through the room
   sendState() {
     const an = this.anat, a = this.hum.anim;
-    const m = { t: 's', lf: this.hostP.life, p: [this.pos.x, this.pos.y, this.pos.z].map(r4x), y: r4x(this.yaw), pi: r4x(this.pitch), v: r4x(this.speedNow), c: r4x(this.crouchK), l: 0, sp: this.speedNow > 5 ? 1 : 0, g: 1, a: r4x(a.ads || 0), w: this.w, r: r4x(a.reload || 0),
+    const m = { t: 's', lf: this.hostP.life, l: r4x(this.leanK || 0), p: [this.pos.x, this.pos.y, this.pos.z].map(r4x), y: r4x(this.yaw), pi: r4x(this.pitch), v: r4x(this.speedNow), c: r4x(this.crouchK), sp: this.speedNow > 5 ? 1 : 0, g: 1, a: r4x(a.ads || 0), w: this.w, r: r4x(a.reload || 0),
       pr: 0, lm: an.legBroken('L') || an.legBroken('R') ? 0.5 : 0, hu: r4x(a.hurt || 0), sg: 0, su: 0, fl: 0, dv: 0, ar: an.helmetOn ? 0 : 1, dn: this.rag ? 1 : 0, bb: an.brokenMask(), ah: an.armHangMask(), ls: an.lostMask(), lc: an.cutArr(),
       bl: Math.round(an.bleedRate()), arr: Math.round(arteryRate(an)), bp: r4x(clamp(an.blood / 5000, 0.2, 1)), rx: 0, cl: 0 };
     net.host.onMessage(this.hostP, m);
@@ -421,7 +554,7 @@ class AIBot extends Dummy {
     if (this.rag) { this.rag.keep = false; freeRag(this.rag); this.rag = null; }
     for (const [o, v] of this.vis0) o.visible = v; chunkReset(this.hum.root); clearWounds(this.hum); this.hum.setLost(0); setHelmet(this.hum, true);
     this.anat = new Anatomy(); this.pos.copy(p); this.post.copy(p); this.home = this.pos; this.hum.root.visible = true; this.hum.root.position.copy(p);
-    this.lastBy = 0; this.know.clear(); this.tgt = null; this.noise = null; this.path = null; this.mag = WEAPONS[this.w].cap; this.reloadT = 0; this.flashT = 0; this.deafT = 0; this.state = 'idle';
+    this.lastBy = 0; this.downSent = false; this.camp = null; this.wb = null; this.lean = 0; this.leanK = 0; this.dodgeT = 0; this.visited = []; this.know.clear(); this.tgt = null; this.noise = null; this.path = null; this.mag = WEAPONS[this.w].cap; this.reloadT = 0; this.flashT = 0; this.deafT = 0; this.state = 'idle';
     for (const t of this.traps) { t.done = false; t.tries = 0; }
   }
   hide() { this.out = true; this.hum.root.visible = false; if (this.rag) { this.rag.keep = false; this.rag = null; } }
@@ -429,8 +562,13 @@ class AIBot extends Dummy {
     super.update(dt);
     // in a raid the others see it as a player (down or on its feet), a bit less often when nobody is near
     if (this.hostP && this.hostP.alive && !this.out) { this.sendT -= dt; if (this.sendT <= 0) { this.sendT = this.tgt || this.state === 'hunt' ? 0.08 : 0.14; this.sendState(); } }
-    // out of the fight: dead, or down for good (no one is coming to drag it out)
-    if (!this.dead && !this.out && (this.anat.paralyzed || this.anat.bothLegs() || (this.anat.isDowned() && !(this.anat.koT > 0)))) { if (!this.anat.dead) this.anat.kill(this.anat.paralyzed ? 'spinal' : 'bleed'); this.die(); }
+    // down: out of the fight but alive (it counts for its side) until it bleeds out, unless the wound can't be survived;
+    // the one who dropped it gets the kill, as for a player
+    const down = !!this.rag && !this.dead && !this.out;
+    if (down && this.hostP && net.host && this.hostP.alive) {
+      const ft = this.anat.fatalWhy() ? 1 : 0;
+      if (!this.downSent || (ft && !this.hostP.fatal)) { this.downSent = true; net.host.down(this.hostP, { t: 'down', by: this.lastBy || this.anat.lastBy || 0, ft, lf: this.hostP.life }); }
+    } else if (!down) this.downSent = false;
   }
   die() {
     if (this.dead) return;
@@ -444,6 +582,17 @@ class AIBot extends Dummy {
   dispose() { super.dispose(); const i = AIS.indexOf(this); if (i >= 0) AIS.splice(i, 1); }
 }
 const angWrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+const distToSeg = (p, a, b) => { const ab = b.clone().sub(a), t = clamp(p.clone().sub(a).dot(ab) / Math.max(1e-6, ab.lengthSq()), 0, 1); return a.clone().addScaledVector(ab, t).distanceTo(p); };
+// only soft things between: drywall, plywood, a wooden door, boards (a round goes through those); at least one of them
+function aiSoftOnly(e, q) {
+  _aiV.subVectors(q, e); const L = _aiV.length(); _aiV.multiplyScalar(1 / L); _aiR.set(e, _aiV); _aiR.far = L - 0.3;
+  const hits = _aiR.intersectObjects(worldMeshes, false); let n = 0;
+  for (const h of hits) { const u = h.object.userData; if (!u.box && !u.door) continue; if (u.grid && gridOpenW(h.object, h.point.clone().addScaledVector(_aiV, 0.01))) continue;
+    const soft = u.board !== undefined || (u.door ? u.door.kind !== 'metal' : (u.kind === 'drywall' || u.kind === 'plywood')); if (!soft) return false; n++; }
+  return n > 0 && n <= 4;
+}
+// what the defenders know between them: the latest places the attackers were seen or heard
+const AI_SQUAD = { pts: [], see(p, t) { this.pts.push({ p: p.clone(), t }); if (this.pts.length > 12) this.pts.shift(); }, last() { return this.pts[this.pts.length - 1] || null; }, clear(p) { this.pts = this.pts.filter(x => x.p.distanceTo(p) > 3); } };
 
 // ---- raid: the host's six defenders, one HostRoom player each (so they count in the round like anyone)
 function raidTraps() {
@@ -467,11 +616,18 @@ function raidAddBots(H) {
 function raidBodies() {
   const H = net.host; if (!H || !H.bots) return;
   for (const b of AIS.slice()) if (b.hostP) { b.dispose(); const k = dummies.indexOf(b); if (k >= 0) dummies.splice(k, 1); }
-  navClear(); const traps = raidTraps();
+  navClear(); AI_SQUAD.pts = []; const traps = raidTraps();
+  // the house: where they stay, and the ways in they watch (the outside doors and the windows, from just inside)
+  const area = { x0: HOUSE.x0 + 0.1, x1: HOUSE.x1 - 0.1, z0: HOUSE.z0 + 0.1, z1: HOUSE.z1 - 0.1 }, entries = [], ctr = new V3((HOUSE.x0 + HOUSE.x1) / 2, 0, (HOUSE.z0 + HOUSE.z1) / 2);
+  if (typeof doors !== 'undefined') for (const d of doors) { const c = d.g.position, f = new V3(0, 0, 1).applyQuaternion(d.g.quaternion); const a = c.clone().addScaledVector(f, 0.9), b = c.clone().addScaledVector(f, -0.9);
+    const ia = a.x > area.x0 && a.x < area.x1 && a.z > area.z0 && a.z < area.z1, ib = b.x > area.x0 && b.x < area.x1 && b.z > area.z0 && b.z < area.z1;
+    if (ia !== ib) entries.push({ p: (ia ? a : b).setY(c.y), dir: ia ? f.clone().negate() : f.clone(), door: d.i }); }
+  if (TOWN.windows) for (const w of TOWN.windows) if (w && w.p) { const out = new V3(w.p.x - ctr.x, 0, w.p.z - ctr.z), ax = Math.abs(out.x) / (HOUSE.x1 - HOUSE.x0) > Math.abs(out.z) / (HOUSE.z1 - HOUSE.z0); const dir = ax ? new V3(Math.sign(out.x), 0, 0) : new V3(0, 0, Math.sign(out.z));
+    const p = new V3(w.p.x, 0, w.p.z).addScaledVector(dir, -0.7); p.y = floorUnder(p.x, p.z, (w.p.y || 0) - 0.3); entries.push({ p, dir, win: true }); }
   H.bots.forEach((p, i) => {
     const sp = TOWN.def && TOWN.def.length ? TOWN.def[i % TOWN.def.length] : new V3();
     // (the traps first, then the boarding of the windows, shared out between them)
-    const b = new AIBot(sp, { pid: p.id, hostP: p, name: p.name, w: i === 2 || i === 5 ? 5 : 0, post: sp, zone: 6, traps: [traps[i], traps[i + 6]].filter(Boolean) });
+    const b = new AIBot(sp, { pid: p.id, hostP: p, name: p.name, w: i === 2 || i === 5 ? 5 : 0, post: sp, zone: 7, area, entries, traps: [traps[i], traps[i + 6]].filter(Boolean) });
     b.slot = i; p.bot = b; dummies.push(b);
     if (!p.alive) b.hide();
   });
@@ -504,9 +660,10 @@ function buildCqc() {
 }
 function cqcReset() {
   for (const b of CQC.bots) { b.dispose(); const k = dummies.indexOf(b); if (k >= 0) dummies.splice(k, 1); }
-  CQC.bots = []; navClear();
+  CQC.bots = []; navClear(); AI_SQUAD.pts = [];
+  const area = { x0: -9.85, x1: 9.85, z0: 22.12, z1: 39.88 }, entries = [{ p: new V3(-4, 0, 22.9), dir: new V3(0, 0, -1) }, { p: new V3(5, 0, 22.9), dir: new V3(0, 0, -1) }, { p: new V3(-9.1, 0, 31), dir: new V3(-1, 0, 0) }];
   const posts = [[-6, 25, 0.5, 0], [6, 37, 2.5, 5], [-5, 31, 1.5, 0], [-6, 38, 2.2, 0]];
-  posts.forEach(([x, z, yaw, w], i) => { const b = new AIBot(new V3(x, 0, z), { yaw, w, post: new V3(x, 0, z), zone: 3, name: 'CQC ' + (i + 1) }); b.slot = i; CQC.bots.push(b); dummies.push(b); });
+  posts.forEach(([x, z, yaw, w], i) => { const b = new AIBot(new V3(x, 0, z), { yaw, w, post: new V3(x, 0, z), zone: 6, area, entries, name: 'CQC ' + (i + 1) }); b.slot = i; CQC.bots.push(b); dummies.push(b); });
 }
 // a bot wherever you are (console "spawn ai")
 function spawnAI(p) { const b = new AIBot(p.clone(), { post: p.clone(), zone: 4 }); dummies.push(b); return b; }

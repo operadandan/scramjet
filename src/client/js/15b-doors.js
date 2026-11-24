@@ -363,6 +363,13 @@ function doorDent(d, p, k, side) {
 // a shotgun blast into a door (all the pellets of one shot together, worked out by the shooter and sent to everyone as dents,
 // hinges and launches). Metal: each close blast dents it hard; two or three and it buckles out of its frame and falls over.
 // Wood: buckshot chews through the leaf round the hinges and lock; a couple of close blasts and the door comes off whole.
+// a .50 into a metal door: a deep dent each time, and the second one tears it off its hinges
+function door50(d, p, dir) {
+  if (d.fly || d.fallen) return; d.L50 = (d.L50 || 0) + 1; d.leaf.updateMatrixWorld(true);
+  const s = d.leaf.worldToLocal(p.clone().addScaledVector(dir, -0.3)).z >= 0 ? 1 : -1;
+  doorDent(d, p, 0.9, s); doorNet({ i: d.i, a: 'dn', p: p.toArray().map(r3d), k: 0.9, s }); noiseHit(700, 0.25, 0.5);
+  if (d.L50 >= 2) for (const h of [...d.hinges]) hingeOff(d, h.userData.n, dir);
+}
 function doorShotgun(d, p, dir, E, shot) {
   if (!shot || d.fly) return;
   const m = shot.door || (shot.door = new Map()); let e = m.get(d);
@@ -449,5 +456,5 @@ function doorApplySnap(list) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { DOOR_FW, DOOR_H, DOOR_OPEN, DOOR_W, addDoor, clearDoors, doorApplySnap, doorAt, doorBlast, doorDent, doorHint, doorKeyDown, doorKeyUp, doorLaunch, doorLeft, doorNet, doorPartHit, doorQuiet, doorRx, doorShotgun, doorSnap, doors, hingeOff, knobOff, updateDoors };
+export { DOOR_FW, DOOR_H, DOOR_OPEN, DOOR_W, addDoor, clearDoors, door50, doorApplySnap, doorAt, doorBlast, doorDent, doorHint, doorKeyDown, doorKeyUp, doorLaunch, doorLeft, doorNet, doorPartHit, doorQuiet, doorRx, doorShotgun, doorSnap, doors, hingeOff, knobOff, updateDoors };
 // ---- end module exports ----

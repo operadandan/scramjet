@@ -122,10 +122,12 @@ function updateStructure(dt) {
 function structLand(F) {
   const m = F.m, b = new THREE.Box3().setFromObject(m), c = b.getCenter(new V3()), sz = b.getSize(new V3());
   const D = DESTR[DESTR_OF[F.kind] || (F.kind === 'metal' ? 'concrete' : 'wood')] || DESTR.wood, area = Math.max(sz.x * sz.z, sz.x * sz.y, sz.y * sz.z);
+  const gp = m.geometry && m.geometry.parameters, trueTh = gp && gp.width !== undefined ? Math.min(gp.width, gp.height, gp.depth) : Math.min(sz.x, sz.y, sz.z);
   const n = clamp(Math.round(area * 6), 6, 70);
   for (let i = 0; i < n; i++) {
     const p = new V3(rnd(b.min.x, b.max.x), rnd(b.min.y, b.max.y) + 0.05, rnd(b.min.z, b.max.z));
-    const th = Math.max(0.03, Math.min(sz.x, sz.y, sz.z));
+    // (the piece's own thickness, not its box in the world: a tilted roof's box is metres deep, and its bits came out as pillars)
+    const th = clamp(trueTh, 0.03, 0.3);
     spawnDebris(p, 1, new V3(rnd(-1, 1), rnd(0.2, 1), rnd(-1, 1)).normalize(), 0.5, rnd(0.6, 2.4), D, 0, [rnd(0.18, 0.5), rnd(0.18, 0.5), th]);
   }
   spawnDebris(c, 16, new V3(0, 1, 0), 0.9, 2.5, D, 0.03);

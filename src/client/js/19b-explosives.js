@@ -862,5 +862,5 @@ function clearExplosives() {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { BOOM_FX, CHARGES, EXPL, boomL, boomLight, boomVisual, c4Mine, chargePos, clearExplosives, deafen, explSeq, explode, los, makeC4, makeFrag, makeRemote, onExplosiveMsg, r3, r4x, ragMeshes, updateC4, updateExplosives, updateFrag };
+export { BOOM_FX, CHARGES, EXPL, NADES, boomL, boomLight, boomVisual, c4Mine, chargePos, clearExplosives, deafen, explSeq, explode, los, makeC4, makeFrag, makeRemote, onExplosiveMsg, r3, r4x, ragMeshes, updateC4, updateExplosives, updateFrag };
 // ---- end module exports ----

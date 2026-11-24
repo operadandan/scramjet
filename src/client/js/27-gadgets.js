@@ -232,6 +232,7 @@ function sledgeDoorFx(D, p, dir, seed) {
 }
 function sledgeLand() {
   const q = camera.quaternion, d = new V3(0, 0, -1).applyQuaternion(q), o = camera.position.clone();
+  if (meleeGadget(o, d)) { P.kick += 2; return; }
   const tg = worldMeshes.slice();
   for (const dm of dummies) { if (!dm.rag && dm.hum.root.visible) { dm.hum.root.updateMatrixWorld(true); tg.push(...dm.hum.hitMeshes.filter(m => m.visible)); } }
   if (S.remotes) for (const r of S.remotes.values()) if (r.hum && r.hum.root.visible && r.alive) tg.push(...r.hum.hitMeshes.filter(m => m.visible));
@@ -352,12 +353,37 @@ function gdAlarm(o, at) {
   // the defenders see where it went off (and who set it off), for a few seconds
   if (S.team[S.myId] === DEF_TEAM && at) { if (o.marker) sgDisposeMarker(o.marker); o.marker = sgMarker('!', '#ff6a5a'); o.marker.position.copy(at).setY(at.y + 1.9); o.mt = 4; }
 }
+// ---- disarming: a round through a bear trap, a claymore or an alarm wrecks it; barbed wire only comes apart under a blow
+// (a fist, a rifle butt, the sledge). The one who did it tells everyone (checked by the host).
+function gadgetDisarm(o, how) {
+  if (!o || o.gone) return; o.gone = true;
+  const c = o.p.clone().setY(o.p.y + 0.12); impactFx(c, new V3(0, 1, 0), 'metal'); particles(c, 14, PMAT.spark, 3, 0.01, 0.4, 1, new V3(0, 1, 0)); noiseHit(2400, 0.08, 0.2); noiseHit(700, 0.1, 0.25);
+  if (o.k === 'beartrap' && !o.sprung) gdSnap(o);
+  if (how && S.mode === 'online') net.send({ t: 'x', a: 'gdx', k: how, i: o.id, tg: o.owner });
+  gadgetRemove(o);
+}
+// the meshes a round can hit (wire is left out: rounds go through it)
+function gadgetTargets(arr) { for (const o of GD) if (!o.gone && (o.k === 'beartrap' || o.k === 'claymore' || o.k === 'alarm')) o.g.traverse(x => { if (x.isMesh && x.visible) { x.userData.gdKey = o.key; arr.push(x); } }); }
+// a melee blow: any trap within reach in front of the swing (wire included)
+function meleeGadget(o, d) {
+  for (const g of GD) {
+    if (g.gone || !['beartrap', 'claymore', 'alarm', 'wire'].includes(g.k)) continue;
+    // (the wire is a 2.4 m strip: the nearest point of it)
+    let q = g.p.clone().setY(g.p.y + 0.3);
+    if (g.k === 'wire') { const r = new V3(Math.cos(g.yaw), 0, -Math.sin(g.yaw)), t = clamp(o.clone().sub(g.p).dot(r), -1.2, 1.2); q = g.p.clone().addScaledVector(r, t).setY(g.p.y + 0.3); }
+    const v = q.clone().sub(o), along = v.dot(d); if (along < 0.1 || along > 2) continue;
+    if (v.addScaledVector(d, -along).length() > 0.5) continue;
+    gadgetDisarm(g, 'cut'); return true;
+  }
+  return false;
+}
 // what someone else did with theirs
 function gadgetRx(m) {
   const ok = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
   if (m.a === 'gd' && ok(m.p) && GADGETS[m.k] && (GADGETS[m.k].slot === 2 || m.k === 'bcharge')) gadgetAdd(m.id, m.i, m.k, new V3().fromArray(m.p), Number(m.f) || 0, m.c === 1 ? 'r' : 'b');
   else if (m.a === 'gdx') {
     const o = GD.find(x => x.key === gdKey(m.tg, m.i)); if (!o) return;
+    if (m.k === 'dis' || m.k === 'cut') { gadgetDisarm(o, null); return; }
     if (m.k === 'snap') { o.sprung = true; gdSnap(o); }
     else if (m.k === 'alarm') gdAlarm(o, ok(m.p) ? new V3().fromArray(m.p) : o.p);
     else if (m.k === 'rustle') noiseHit(3000, 0.15, 0.05 / (1 + camera.position.distanceTo(o.p) * 0.2));
@@ -397,5 +423,5 @@ function flashBodies(p) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { GADGETS, GD, HEADGEAR, clearGadgets, flashBang, gadgetAdd, gadgetBlast, gadgetGhostOff, gadgetRemove, gadgetRx, gdKey, gdModel, sledgeBody, sledgeDoorFx, sledgeK, smokeAt, smokeCloud, updateGadget, updateGadgets, updateSledge, wireDrag };
+export { GADGETS, GD, HEADGEAR, clearGadgets, flashBang, gadgetAdd, gadgetBlast, gadgetDisarm, gadgetGhostOff, gadgetRemove, gadgetRx, gadgetTargets, gdKey, gdModel, meleeGadget, sledgeBody, sledgeDoorFx, sledgeK, smokeAt, smokeCloud, updateGadget, updateGadgets, updateSledge, wireDrag };
 // ---- end module exports ----

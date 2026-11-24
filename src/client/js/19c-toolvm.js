@@ -20,7 +20,7 @@ import { breachHas, pressSlot, toolSlotIndex } from './21-items-inventory.js';
 import { screenBlood } from './21b-screenfx.js';
 import { frame } from './22-menu-loop.js';
 import { boardBreak } from './23-siege.js';
-import { gdModel, sledgeK } from './27-gadgets.js';
+import { gdModel, meleeGadget, sledgeK } from './27-gadgets.js';
 import { matchFrozen } from './28-match.js';
 import { boxHit } from './30-structure.js';
 // ---- end module links ----
@@ -252,6 +252,7 @@ function landPunch(pw, side) {
   for (const dm of dummies) { if (dm.rag) tg.push(...ragMeshes(dm.rag)); else if (dm.hum.root.visible) { dm.hum.root.updateMatrixWorld(true); tg.push(...dm.hum.hitMeshes.filter(m => m.visible)); } }
   if (S.remotes) for (const r of S.remotes.values()) if (r.hum && r.hum.root.visible && r.alive) tg.push(...r.hum.hitMeshes.filter(m => m.visible));
   for (const r of ragdolls) if (r !== P.rag && (!r.owner || !r.owner.dummy)) tg.push(...ragMeshes(r));
+  if (meleeGadget(o, d)) return;
   _pr.set(o, d); _pr.far = 0.82;
   const h = _pr.intersectObjects(tg, false).find(x => !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(d, 0.01))));
   if (!h) return;
@@ -301,6 +302,7 @@ function updateBash(dt) {
 }
 function bashLand() {
   const q = camera.quaternion, d = new V3(0, 0, -1).applyQuaternion(q), o = camera.position.clone();
+  if (meleeGadget(o, d)) return;
   const tg = worldMeshes.slice();
   for (const dm of dummies) { if (dm.rag) tg.push(...ragMeshes(dm.rag)); else if (dm.hum.root.visible) { dm.hum.root.updateMatrixWorld(true); tg.push(...dm.hum.hitMeshes.filter(m => m.visible)); } }
   if (S.remotes) for (const r of S.remotes.values()) if (r.hum && r.hum.root.visible && r.alive) tg.push(...r.hum.hitMeshes.filter(m => m.visible));

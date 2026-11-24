@@ -12,13 +12,14 @@ import { bulletHole, fragScuff, impactFx, puffTex, tracer } from './11-fx.js';
 import { goreBlast, spawnGore } from './12b-gore.js';
 import { addWound, bloodFx, blowSpatter, bodyPen, bodyWound, exitThrough, holeInGroup, wallSpatter, worldPen } from './14-wounds.js';
 import { DESTR_OF, holePass, markPlate, packHit, ragHitInfo, wallGrid } from './15-destruction.js';
-import { doorPartHit, doorShotgun } from './15b-doors.js';
+import { door50, doorPartHit, doorShotgun } from './15b-doors.js';
 import { P, S, dummies, localBody } from './17-dummies.js';
 import { pointBlocked } from './18-player.js';
 import { applyHurt, net } from './19-network.js';
 import { seg } from './19c-toolvm.js';
 import { frame } from './22-menu-loop.js';
 import { lampBreak } from './24-env.js';
+import { GD, gadgetDisarm, gadgetTargets } from './27-gadgets.js';
 import { boxHit } from './30-structure.js';
 import { AIBot } from './32-ai.js';
 // ---- end module links ----
@@ -122,6 +123,9 @@ function bulletTargets() {
   for (const d of dummies) if (!d.dead && !d.rag && !d.out && d.hum.root.visible) for (const m of d.hum.hitMeshes) if (m.visible) arr.push(m);
   // your own body takes other players' rounds the same way any body does (holes, bits, blood, flinch); the damage itself
   // still comes from the shooter's report. Your own rounds pass through it.
+  gadgetTargets(arr);
+  // (your own downed body is there for the AI's rounds: they finish off the downed)
+  if (P.rag && P.alive && bullets.some(b => b.ai)) P.rag.group.traverse(o => { if (o.isMesh && !o.userData.keep && !o.userData.organ && !o.userData.inner && !o.userData.tube && o.visible) { o.userData.selfRag = true; arr.push(o); } });
   if (P.alive && !P.downed && localBody && bullets.some(b => !b.local || b.ai)) for (const m of localBody.hitMeshes) if (m.visible) arr.push(m);
   return arr;
 }
@@ -138,7 +142,7 @@ function updateBullets(dt) {
     b.pos.addScaledVector(b.vel, dt);
     _bd.subVectors(b.pos, _bp); const len = _bd.length(); if (len > 0) _bd.multiplyScalar(1 / len);
     bray.set(_bp, _bd); bray.far = len;
-    const hit = len > 0 ? (b.local && !b.ai ? bray.intersectObjects(targets, false).find(h => h.object.userData.hum !== localBody) : b.ai ? bray.intersectObjects(targets, false).find(h => { const hm = h.object.userData.hum; return !(hm && hm.dummy instanceof AIBot); }) : bray.intersectObjects(targets, false)[0]) || null : null;
+    const hit = len > 0 ? (b.local && !b.ai ? bray.intersectObjects(targets, false).find(h => h.object.userData.hum !== localBody && !h.object.userData.selfRag) : b.ai ? bray.intersectObjects(targets, false).find(h => { const hm = h.object.userData.hum; return !(hm && hm.dummy instanceof AIBot); }) : bray.intersectObjects(targets, false)[0]) || null : null;
     b.life += dt;
     if (!b.local && !b.whizz && S.mode && P.alive && len > 0) {
       const tc = clamp(_a.subVectors(camera.position, _bp).dot(_bd), 0, hit ? hit.distance : len), dd = _a.copy(_bp).addScaledVector(_bd, tc).distanceTo(camera.position);
@@ -344,6 +348,8 @@ function onBulletHit(b, hit, dir, dist) {
     }
     return cont;
   }
+  // a trap: the round wrecks it and stops (the shooter's machine reports it)
+  if (ud.gdKey) { const o = GD.find(x => x.key === ud.gdKey); if (o && b.local && !b.ai && !b.frag) gadgetDisarm(o, 'dis'); return null; }
   // a plywood door's knob or a hinge: shot off, and it stops the round
   if (ud.doorPart && doorPartHit(ud.doorPart, hit, dir, b.local) && b.w !== 2) return null;   // (a .50 carries on through)
   // a ceiling light: the shade and bulb burst, the light goes out (every client sees the same round hit it)
@@ -351,6 +357,7 @@ function onBulletHit(b, hit, dir, dist) {
   if (ud.lamp !== undefined && !b.frag) { lampBreak(ud.lamp, hit.point, dir); return { point: hit.point.clone().addScaledVector(dir, 0.3), dir, v: v * 0.95 }; }
   if (ud.box && !ud.door && !b.frag && !ud.grid && !wallGrid(hit.object)) boxHit(hit.object, Eh * 0.6, b.local ? 'own' : 'peer');   // (fragments and spall, whose paths are random per machine, leave furniture alone)
   if (ud.door && b.local && !b.frag && WEAPONS[b.w].pellets) doorShotgun(ud.door, hit.point, dir, Eh, b.shot);
+  if (ud.door && b.local && !b.frag && b.w === 2 && ud.door.kind === 'metal') door50(ud.door, hit.point, dir);
   if (hit.face) {
     const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
     const open = holePass(hit.object, hit.point, n, dir, v); if (open) return open;
