@@ -99,8 +99,8 @@ const CMDS = {
     if (G) {
       // (into the slot that has it already, else the first empty one, else the last)
       if (it === 'bcharge' || it === 'claymore') return conPrint('Not in the game any more.', '#ff8a7a');
-      if (!P.eq) P.eq = [null, null, null, null]; eqSync(); const c = parseInt(a[1]) ? n : G.n;
-      let i = P.eq.findIndex(e => e && e.k === it); if (i < 0) i = P.eq.findIndex(e => !e); if (i < 0) i = 3;
+      if (!P.eq) P.eq = [null, null]; eqSync(); const c = parseInt(a[1]) ? n : G.n;
+      let i = P.eq.findIndex(e => e && e.k === it); if (i < 0) i = P.eq.findIndex(e => !e); if (i < 0) i = 1;
       P.eq[i] = { k: it, n: c }; if (it === 'c4') P.c4N = c; if (P.eqSel === i) eqLoad(i);
       return conPrint('Given: ' + G.name + (c ? ' x' + c : '') + '  (key ' + (i + 3) + ')');
     }

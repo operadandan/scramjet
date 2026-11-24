@@ -375,7 +375,7 @@ function keepSlot() {
   if (P.slot === 5 && !breachHas()) { selectEmpty(0); return; }
   const empty = n => n < 2 ? P.activeLo[n] == null : toolSlotIndex(n - 2) < 0;
   if (P.slot === 4) {
-    if (!(P.emptySel >= 0 && P.emptySel <= 5)) { const k = [0, 1, 2, 3, 4, 5].find(empty); P.emptySel = k === undefined ? 0 : k; }
+    if (!(P.emptySel >= 0 && P.emptySel <= 3)) { const k = [0, 1, 2, 3].find(empty); P.emptySel = k === undefined ? 0 : k; }
     // (a slot that fills up again while its fists are out: taken up)
     if (P.emptySel >= 2 && !empty(P.emptySel) && !P.fist?.hit && (!P.fist || P.fist.ph === 'guard')) { const i = P.emptySel - 2; eqLoad(i); switchWeapon(eqCat(P.eq[i].k)); }
   }

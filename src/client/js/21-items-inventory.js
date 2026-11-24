@@ -380,7 +380,7 @@ function pickUp() {
 const TOOL_NAME = { medkit: 'IFAK medkit', plate: 'Armor plate' };
 // number keys and the wheel pick a slot (0-3) whether or not anything is in it
 // the key of what is already in hand puts it away (empty hands); pressed again it comes back out
-// keys 1-2 the guns, 3-6 the four equipment slots, 7 the defuser (for whoever carries it). Each piece of equipment is held
+// keys 1-2 the guns, 3-4 the two equipment slots, 5 the defuser (for whoever carries it). Each piece of equipment is held
 // in the hand-slot its kind uses (2 a gadget, 3 a throwable, 5 a breaching tool); what is left of it is kept in P.eq.
 const eqCat = k => !GADGETS[k] ? -1 : GADGETS[k].slot === 3 ? 3 : GADGETS[k].slot === 'b' ? 5 : 2;
 function eqHas(e) { if (!e) return false; if (e.k === 'sledge') return true; if (e.k === 'c4') return P.c4N > 0 || c4Mine().length > 0; return e.n > 0 || (eqCat(e.k) === 3 && P.nade && P.nade.ph !== 'idle' && P.tool3 === e.k); }
@@ -388,7 +388,7 @@ function eqSync() { const e = P.eq && P.eqSel >= 0 ? P.eq[P.eqSel] : null; if (!
 function eqLoad(i) { const e = P.eq[i], c = eqCat(e.k); P.eqSel = i; if (c === 2) { P.tool2 = e.k; P.gN = e.n; } else if (c === 3) { P.tool3 = e.k; P.fragN = e.n; } else P.toolB = e.k; }
 function backToGun() { if (P.activeLo[0] != null) switchWeapon(0); else if (P.activeLo[1] != null) switchWeapon(1); else selectEmpty(0); }
 function pressSlot(n) {
-  if (n === 6) { if (S.mode === 'online' && SG.carrier === S.myId) { const was = P.defOut; selectEmpty(0); P.defOut = !was; } return; }
+  if (n === 4) { if (S.mode === 'online' && SG.carrier === S.myId) { const was = P.defOut; selectEmpty(0); P.defOut = !was; } return; }
   P.defOut = false; eqSync();
   if (n < 2) { if (P.slot === n) return selectEmpty(n); return switchWeapon(n); }
   const i = n - 2, e = P.eq ? P.eq[i] : null, held = P.eqSel === i && e && P.slot === eqCat(e.k);
@@ -412,13 +412,13 @@ function updateToolbar() {
   const lo = P.activeLo, es = n => P.slot === 4 && P.emptySel === n, gr = i => lo[i] == null ? [i + 1, 'Empty', '', es(i)] : [i + 1, WEAPONS[lo[i]].name, attSummary(lo[i]), P.slot === i];
   eqSync();
   const rows = [gr(0), gr(1)];
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 2; i++) {
     const e = P.eq ? P.eq[i] : null, has = eqHas(e), on = has && P.eqSel === i && P.slot === eqCat(e.k);
     const sub = !e ? '' : e.k === 'sledge' ? 'LMB swing' : e.k === 'c4' ? 'x' + P.c4N + (c4Mine().length ? ', ' + c4Mine().length + ' set' : '') : 'x' + e.n;
     rows.push([i + 3, has ? GADGETS[e.k].name : 'Empty', has ? sub : '', has ? on : es(i + 2)]);
   }
-  // the defuser, for whoever carries it (7)
-  if (S.mode === 'online' && SG.carrier === S.myId) rows.push([7, 'Defuser', 'plant on a bomb (hold F)', !!P.defOut]);
+  // the defuser, for whoever carries it (5)
+  if (S.mode === 'online' && SG.carrier === S.myId) rows.push([5, 'Defuser', 'plant on a bomb (hold F)', !!P.defOut]);
   const key = JSON.stringify(rows);
   if (key === tbKey) return; tbKey = key;
   tb.innerHTML = rows.map(r => '<div class="tb' + (r[3] ? ' on' : '') + (r[1] === 'Empty' ? ' empty' : '') + '"><b>' + r[0] + '</b><div><span>' + (r[1] === 'Empty' && r[3] ? 'Fists' : r[1]) + '</span><small>' + r[2] + '</small></div></div>').join('');

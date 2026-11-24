@@ -195,6 +195,13 @@ class AIBot extends Dummy {
     } else if (live && this.wb) { const d = this.wb.p.clone().sub(this.eye); ty = Math.atan2(-d.x, -d.z); tp = Math.atan2(d.y, Math.hypot(d.x, d.z)); }
     // turning like a body: it speeds up into a turn and slows onto the mark (quick once it is fighting, unhurried on patrol,
     // never a snap); a flashbang leaves it groping
+    // walking: it faces where it is going; only a target it is shooting at or has in its sights turns it off its way
+    const walking = live && !this.act && this.path && this.path.length && this.proneK < 0.3 && !(T && T.vis) && !this.wb;
+    // (what holds its eyes, most first: someone in its sights or being shot at, the spot it is firing through, a sound or
+    // shot it heard in the last couple of seconds, then the way it is walking, then whatever it is watching standing still)
+    const fresh = this.noise && performance.now() - this.noise.t < 2200 ? this.noise.p : null;
+    if (live && fresh && !(T && T.vis) && !this.wb) { ty = Math.atan2(-(fresh.x - this.pos.x), -(fresh.z - this.pos.z)); tp = 0; }
+    else if (walking) { const n = this.path[0]; if (Math.hypot(n.x - this.pos.x, n.z - this.pos.z) > 0.05) { ty = Math.atan2(-(n.x - this.pos.x), -(n.z - this.pos.z)); tp = 0; } }
     if (this.avert) { ty = Math.atan2(this.avert.x - this.pos.x, this.avert.z - this.pos.z); }
     const fight = !!(this.tgt && T && T.vis) || !!this.wb, maxV = blind ? 1.2 : fight ? 6.5 : this.state === 'patrol' || this.state === 'camp' ? 2.4 : 3.8, acc = fight ? 30 : 12;
     const want = clamp(angWrap(ty - this.ayaw) * 7, -maxV, maxV); this.yawV += clamp(want - this.yawV, -acc * dt, acc * dt); this.ayaw = angWrap(this.ayaw + this.yawV * dt);

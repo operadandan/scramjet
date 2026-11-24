@@ -25,8 +25,11 @@ function eyeInit() {
   const mk = (id, css) => { const d = document.createElement(id === 'still' || id === 'grain' ? 'canvas' : 'div'); d.id = 'eye_' + id; d.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;' + css; document.body.appendChild(d); return d; };
   eyeEls = {
     still: mk('still', 'z-index:8;opacity:0'),
-    lidT: mk('lidT', 'z-index:4;background:#000;height:0;bottom:auto;border-radius:0 0 50% 50% / 0 0 30% 30%'),
-    lidB: mk('lidB', 'z-index:4;background:#000;height:0;top:auto;border-radius:50% 50% 0 0 / 30% 30% 0 0'),
+    // the lids: soft-edged (out of focus, that close to the eye), curved, the upper one doing nearly all the work, a
+    // little light coming through them reddish as they close
+    lidT: mk('lidT', 'z-index:4;left:-12%;width:124%;height:0;bottom:auto;top:-6%;background:linear-gradient(to bottom,#030101 0,#050202 82%,#140605 100%);border-radius:0 0 50% 50% / 0 0 42% 42%;filter:blur(18px)'),
+    lidB: mk('lidB', 'z-index:4;left:-12%;width:124%;height:0;top:auto;bottom:-6%;background:linear-gradient(to top,#030101 0,#060202 85%,#160706 100%);border-radius:50% 50% 0 0 / 42% 42% 0 0;filter:blur(16px)'),
+    lidGlow: mk('lidGlow', 'z-index:3;opacity:0;background:radial-gradient(ellipse at 50% 55%,rgba(90,22,10,.55),rgba(30,6,3,.9) 70%)'),
     gas: mk('gas', 'z-index:3;opacity:0;background:radial-gradient(ellipse at center,rgba(255,120,90,0) 30%,rgba(190,40,30,.55) 75%,rgba(110,10,10,.9) 100%)'),
     mask: mk('still', 'z-index:4;display:none'),
     grain: mk('grain', 'z-index:4;opacity:0.04;mix-blend-mode:overlay'),
@@ -78,7 +81,20 @@ function nvgGlare(dt) {
 }
 function eyeReset() { EYE.flashK = 0; EYE.stillK = 0; EYE.gasK = 0; EYE.smokeK = 0; EYE.outK = 0; P.flashBlind = 0; P.nvgOn = false; if (eyeEls) setLid(0); }
 function toggleNvg() { P.nvgOn = !P.nvgOn; noiseHit(P.nvgOn ? 4200 : 2600, 0.03, 0.04); }
-function setLid(k) { const h = (k * 51) + '%'; eyeEls.lidT.style.height = h; eyeEls.lidB.style.height = h; }
+function setLid(k) {
+  // (the upper lid comes down most of the way; the lower barely rises; shut, they overlap past the blur)
+  const top = k * 72, bot = k * k * 44;
+  eyeEls.lidT.style.height = (k > 0.001 ? top + 6 : 0) + '%'; eyeEls.lidB.style.height = (k > 0.001 ? bot + 6 : 0) + '%';
+  eyeEls.lidGlow.style.opacity = String(clamp((k - 0.25) * 1.3, 0, 0.95));
+  EYE.lidK = k;
+}
+// a real blink: the lid drops fast (speeding up), stays shut a moment, then comes back up slower and eases in; sometimes
+// only half way, sometimes two in a row
+function blinkShape(u) {
+  if (u < 0.32) { const a = u / 0.32; return a * a; }
+  if (u < 0.42) return 1;
+  const a = (u - 0.42) / 0.58; return 1 - (1 - Math.pow(1 - a, 2.4));
+}
 function updateEyes(dt) {
   if (!eyeEls) eyeInit();
   const on = S.mode && P.alive, an = P.anat;
@@ -108,9 +124,12 @@ function updateEyes(dt) {
   S.eyeOut = out && EYE.outK > 0.6; EYE.wasOut = out;
   EYE.blinkT -= dt;
   const heavy = on && P.downed && !out, gasBlink = EYE.gasK > 0.3;
-  if (EYE.blinkT <= 0 && on) { EYE.blink = heavy ? 0.9 : gasBlink ? 0.35 : 0.13; EYE.blinkT = heavy ? rnd(2.5, 4.5) : gasBlink ? rnd(0.6, 1.5) : rnd(8, 10); }
+  if (EYE.blinkT <= 0 && on) {
+    EYE.blinkTot = heavy ? rnd(0.8, 1.1) : gasBlink ? rnd(0.3, 0.45) : rnd(0.24, 0.32); EYE.blink = EYE.blinkTot; EYE.blinkDepth = heavy || gasBlink ? 1 : Math.random() < 0.15 ? rnd(0.55, 0.8) : 1;
+    EYE.blinkT = heavy ? rnd(2.5, 4.5) : gasBlink ? rnd(0.6, 1.5) : Math.random() < 0.12 ? rnd(0.35, 0.5) : rnd(8, 10);
+  }
   let bl = 0;
-  if (EYE.blink > 0) { const tot = heavy ? 0.9 : gasBlink ? 0.35 : 0.13; EYE.blink = Math.max(0, EYE.blink - dt); const u = 1 - EYE.blink / tot; bl = Math.sin(u * Math.PI); }
+  if (EYE.blink > 0) { EYE.blink = Math.max(0, EYE.blink - dt); bl = blinkShape(1 - EYE.blink / EYE.blinkTot) * EYE.blinkDepth; }
   const squint = EYE.gasK * 0.55 + (P.flashBlind > 0 ? 0.15 : 0);
   setLid(on ? clamp(Math.max(bl, squint, EYE.outK), 0, 1) : 0);
   // ---- a CSS filter over the game view: smoke and gas blur, night vision green and bright
@@ -121,6 +140,8 @@ function updateEyes(dt) {
   const blur = EYE.smokeK * 1.2 + EYE.gasK * 3.5;
   if (blur > 0.05) f += 'blur(' + blur.toFixed(2) + 'px) ';
   if (EYE.gasK > 0.05) f += 'saturate(' + (1 - EYE.gasK * 0.5).toFixed(2) + ') ';
+  // (through closing lids the world goes dim and soft before it goes dark)
+  const lk = EYE.lidK || 0; if (lk > 0.05) f += 'brightness(' + (1 - lk * 0.55).toFixed(2) + ') blur(' + (lk * 2.2).toFixed(2) + 'px) ';
   S.eyeFilt = f.trim();
   eyeEls.nvgTube.style.display = nvg ? 'block' : 'none';
   if (!eyeEls.bloom) { const d = document.createElement('div'); d.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:4;background:radial-gradient(circle at 50% 50%,rgba(220,255,210,.95),rgba(140,255,140,.6) 35%,rgba(60,200,80,.2) 70%,rgba(0,0,0,0) 100%);opacity:0;mix-blend-mode:screen'; document.body.appendChild(d); eyeEls.bloom = d; }

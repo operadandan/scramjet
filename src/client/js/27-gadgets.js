@@ -15,7 +15,7 @@ import { doorDent, doorLaunch, doorNet, hingeOff, knobOff } from './15b-doors.js
 import { P, S, dummies, mouse } from './17-dummies.js';
 import { PITCH_MIN, flashMsg, hurtFlash, selectEmpty } from './18-player.js';
 import { DEF_TEAM, net } from './19-network.js';
-import { boomL, boomLight, explSeq, explode, los, r3, r4x } from './19b-explosives.js';
+import { boomL, boomLight, deafen, explSeq, explode, los, r3, r4x } from './19b-explosives.js';
 import { TV, bashBoard, meleeWall, punchMark, seg } from './19c-toolvm.js';
 import { screenBlood } from './21b-screenfx.js';
 import { sgDisposeMarker, sgMarker } from './23-siege.js';
@@ -402,22 +402,28 @@ function smokeCloud(p, gas) {
   }
   SMOKES.push({ g, parts, t: 0, c: p.clone().setY(p.y + 0.9), r: 0.6, k: 0, gas: !!gas, life: gas ? 26 : 22 }); noiseHit(300, 0.8, 0.08);
 }
+// a flashbang only blinds what has a clear line to it: through a wall you get the bang (muffled) and nothing else; its
+// burst of light only lights up the room it went off in, as far as your eyes are concerned
 function flashBang(p) {
-  boomLight.position.copy(p); boomLight.intensity = 400; boomL = 1; noiseHit(180, 0.4, 0.5);
-  flashBodies(p);
+  const q = p.clone().setY(p.y + 0.12), eye = camera.position, seen = !!S.mode && los(q, eye);
+  boomLight.position.copy(q); boomLight.intensity = seen || !S.mode ? 400 : 12; boomL = 1; noiseHit(180, 0.4, seen ? 0.5 : 0.2);
+  flashBodies(q);
   if (!S.mode || !P.alive) return;
-  const eye = camera.position, d = eye.distanceTo(p); if (d > 22) return;
-  const seen = los(p, eye), look = camera.getWorldDirection(new V3()).dot(_gdV.copy(p).sub(eye).normalize());
-  const k = clamp(1 - d / 22, 0, 1) * (seen ? (look > 0.3 ? 1 : 0.45) : 0.15);
+  const d = eye.distanceTo(q); if (d > 22) return;
+  if (!seen) { if (d < 8) deafen(clamp(1 - d / 8, 0, 1) * 0.35); return; }
+  const look = camera.getWorldDirection(new V3()).dot(_gdV.copy(q).sub(eye).normalize());
+  const k = clamp(1 - d / 22, 0, 1) * (look > 0.3 ? 1 : 0.45);
   if (k <= 0.05) return;
   flashHit(k, clamp(1 - d / 14, 0, 1));
 }
-// AI bodies and dummies near a flash: blinded and deafened for a few seconds too (they stop seeing, flinch, cover their eyes)
+// AI bodies and dummies near a flash, with a clear line to it: blinded and deafened for a few seconds (behind a wall: only a
+// little deafened, close)
 function flashBodies(p) {
   for (const dm of dummies) {
     if (dm.dead || !dm.hum || !dm.hum.root.visible) continue;
-    const e = dm.hum.root.position.clone().setY(dm.hum.root.position.y + 1.6), d = e.distanceTo(p); if (d > 18) continue;
-    const k = clamp(1 - d / 18, 0, 1) * (los(p, e) ? 1 : 0.2); if (k < 0.1) continue;
+    const e = dm.hum.root.position.clone().setY(dm.hum.root.position.y + (dm.eyeH || 1.6)), d = e.distanceTo(p); if (d > 18) continue;
+    if (!los(p, e)) { if (d < 6) dm.deafT = Math.max(dm.deafT || 0, (1 - d / 6) * 2); continue; }
+    const k = clamp(1 - d / 18, 0, 1); if (k < 0.1) continue;
     dm.flashT = Math.max(dm.flashT || 0, 1 + k * 5); dm.deafT = Math.max(dm.deafT || 0, k * 7);
     if (dm.hum.flinch) dm.hum.flinch('head', new V3(0, 0, 1), 1.2 * k);
   }
