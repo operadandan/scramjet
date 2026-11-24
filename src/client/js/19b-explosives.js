@@ -23,7 +23,7 @@ import { meleeWall } from './19c-toolvm.js';
 import { WARMING } from './22b-warm.js';
 import { siegeBlast } from './23-siege.js';
 import { GADGETS, GD, flashBang, gadgetBlast, gadgetRemove, gadgetRx, gdKey, gdModel, smokeCloud } from './27-gadgets.js';
-import { blastSlabs } from './30-structure.js';
+import { blastBoxes, blastSlabs } from './30-structure.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- explosives: M112 C4 (slot 3) and the M67 fragmentation grenade (slot 4)
 // Charges are rated in kilograms of TNT. Blast effects scale with Hopkinson's scaled distance Z = d / W^(1/3) (m / kg^1/3):
@@ -489,7 +489,7 @@ function explode(p, kind, owner, isOwner, n, onBody) {
   const E = EXPL[kind] || EXPL.frag; n = n || new V3(0, 1, 0); gadgetBlast(p, E.W);
   if (kind === 'claymore') kind = 'frag';   // (a claymore is a big frag, as far as walls and bodies go)
   boomVisual(p, n, E.W, kind);
-  blastWalls(p, E.W, owner, doorAt(p, E.W)); blastSlabs(p, E.W);
+  blastWalls(p, E.W, owner, doorAt(p, E.W)); blastSlabs(p, E.W); blastBoxes(p, E.W);
   doorBlast(p, E.W, isOwner || S.mode !== 'online'); siegeBlast(p, E.W);
   // fragments flying everywhere: they chip and hole walls and crates (bodies are worked out above, hit by hit)
   if (E.frags) for (let i = 0; i < 110; i++) {

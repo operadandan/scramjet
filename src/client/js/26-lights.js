@@ -86,5 +86,5 @@ function updateLights(dt) {
 function lightState() { const W = VMW[P.weapon], dev = P.deviceOn && P.slot < 2 && W && W.side !== 'none' ? (W.side === 'laser' ? 1 : 2) : 0; return { fl: SL.on ? 1 : 0, dv: dev }; }
 
 // ---- module exports: build.mjs strips this block ----
-export { SL, lightState, toggleFlashlight, updateLights };
+export { SL, lightState, remoteLights, toggleFlashlight, updateLights };
 // ---- end module exports ----

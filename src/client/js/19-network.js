@@ -27,6 +27,7 @@ import { ENV, WEATHER, envApply, envSet, envShare, envSnap } from './24-env.js';
 import { lightState } from './26-lights.js';
 import { clearGadgets } from './27-gadgets.js';
 import { LOBBY_SP, goLobbyWorld, loadoutUI, lobbyStrip } from './28-match.js';
+import { demolish } from './30-structure.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- transport (Durable Object websocket, or peer-to-peer WebRTC with the room creator as host)
 const net = {
@@ -73,10 +74,32 @@ function waitIce(pc) {
   });
 }
 // in-browser game server, run by whoever created the room
-const MAX_P2P = 8;
-const GD_RULES = { bcharge: ['r', 3], claymore: ['r', 1], beartrap: ['b', 3], wire: ['b', 2], shield: ['b', 1], alarm: ['b', 2] };
+const MAX_P2P = 12;   // 6 v 6
+const GD_RULES = { claymore: ['r', 1], beartrap: ['b', 3], wire: ['b', 2], shield: ['b', 1], alarm: ['b', 2] };
 class HostRoom {
-  constructor() { this.players = new Map(); this.nextId = 1; this.rInit(); this.self = this.add(null); }
+  // snap: when a lobby moves to this player because its host left, what the round was (from their last round message): the
+  // ids, teams and score carry on, and so does the round, timers included
+  constructor(snap) {
+    this.players = new Map(); this.nextId = snap ? snap.myId : 1; this.cfg = Object.assign({ name: 'BREACH server', mode: 'siege', win: 5, max: MAX_P2P, tod: 6.4, weather: 'rain', pub: 0 }, S.cfg || {}); this.rInit();
+    this.self = this.add(null);
+    if (snap) { this.migT = Date.now(); this.nextId = Math.max(this.nextId, ...snap.ids.map(i => i + 1)); this.rResume(snap); }
+  }
+  rResume(sn) {
+    const R = this.R, m = sn.r || {}, now = Date.now(), el = sn.age || 0;
+    Object.assign(R, { n: m.n | 0, ph: ['lobby', 'load', 'live', 'post'].includes(m.ph) ? m.ph : 'lobby', sc: m.sc || { r: 0, b: 0 }, sp: m.sp | 0, carrier: m.dfz || null, dz: m.dz || null, sgw: Array.isArray(m.sgw) ? m.sgw.slice() : [], found: Array.isArray(m.fd) ? m.fd.slice() : [] });
+    R.end = m.left > 0 ? now + Math.max(1000, m.left - el) : 0; R.go = m.go > 0 ? now + Math.max(0, m.go - el) : (R.ph === 'live' ? now : 0);
+    R.gd = {}; for (const g of m.gdw || []) if (Array.isArray(g)) R.gd[g[0] + ':' + g[1]] = { o: g[0], i: g[1], k: g[2], p: g[3], f: g[4], team: g[5], sn: g[6] };
+    if (m.pl && m.pl.site) R.plant = { site: m.pl.site, end: now + Math.max(1000, (m.pl.left || 0) - el), by: 0 };
+    this.self.team = sn.tm; this.self.alive = sn.alive; this.self.life = sn.life; this.self.ready = true; this.self.name = S.myName;
+    // the clocks start again where they were
+    const n = R.n, left = Math.max(500, R.end - now);
+    if (R.ph === 'load') this.rTimer(left, () => { if (R.n === n && R.ph === 'load') this.rGo(); });
+    else if (R.ph === 'live') {
+      if (R.plant) R.pt = setTimeout(() => { R.pt = null; if (net.host !== this) return; if (R.n === n && R.ph === 'live' && R.plant) this.rEnd('r', 'defuse'); }, Math.max(500, R.plant.end - now));
+      else this.rTimer(left, () => { if (R.n === n && R.ph === 'live' && !R.plant) this.rEnd('b', 'time'); });
+    } else if (R.ph === 'post') { const over = R.sc.r >= this.cfg.win || R.sc.b >= this.cfg.win; this.rTimer(left, () => over ? this.rLobby() : this.rStart()); }
+    else setTimeout(() => { if (net.host === this) this.rCheck(); }, 8000);
+  }
   add(peer) { const p = { id: this.nextId++, peer, name: '', ready: false, alive: false, state: null, lastHit: 0, kills: 0, deaths: 0 }; this.players.set(p.id, p); return p; }
   deliver(p, s, fast) {
     if (!p.peer) { const m = JSON.parse(s); queueMicrotask(() => { if (net.mode === 'host') onNet(m); }); return; }
@@ -91,13 +114,17 @@ class HostRoom {
     switch (m.t) {
       case 'hello': {
         if (p.ready) return;
+        // someone carrying on after their host left: they keep their id, side, life and score (only just after a move)
+        const mig = m.mig && this.migT && Date.now() - this.migT < 60000 && Number.isInteger(m.want) && m.want > 0 && m.want < 1000 && !this.players.has(m.want);
+        if (mig) { this.players.delete(p.id); p.id = m.want; this.players.set(p.id, p); this.nextId = Math.max(this.nextId, p.id + 1); }
         p.name = String(m.name || '').replace(/[<>]/g, '').slice(0, 16) || ('Op' + p.id); p.ready = true;
-        p.team = this.rTeam();
+        p.team = mig && (m.tm === 'r' || m.tm === 'b') ? m.tm : this.rTeam();
+        if (mig) { p.alive = !!m.alive; p.life = m.life | 0; p.kills = m.k | 0; p.deaths = m.d | 0; }
         const players = [...this.players.values()].filter(x => x.ready).map(x => ({ id: x.id, name: x.name, alive: x.alive, state: x.state, k: x.kills, d: x.deaths, tm: x.team }));
-        this.send(p, { t: 'welcome', id: p.id, players, r: this.rMsg() });
+        this.send(p, { t: 'welcome', id: p.id, host: this.self.id, cfg: this.cfg, players, r: this.rMsg() });
         this.broadcast({ t: 'join', id: p.id, name: p.name, tm: p.team }, p);
         // mid-round: waits for the next one
-        if (this.R.ph === 'lobby' || this.R.ph === 'load') this.spawn(p);
+        if (!mig && (this.R.ph === 'lobby' || this.R.ph === 'load')) this.spawn(p);
         this.rCheck();
         break;
       }
@@ -115,7 +142,7 @@ class HostRoom {
       case 'sg': if (JSON.stringify(m).length < 400) this.sgMsg(p, m); break;
       case 'chat': if (p.ready && typeof m.s === 'string' && m.s.trim() && (p.chatT || 0) < Date.now() - 500) { p.chatT = Date.now(); this.broadcast({ t: 'chat', id: p.id, s: m.s.slice(0, 120) }, p); } break;
       case 'x': if (p.ready && JSON.stringify(m).length < 600 && ['c4p', 'c4t', 'nade', 'boom', 'chk', 'gd', 'gdx', 'mw'].includes(m.a) && !this.frozen() && this.xGuard(p, m)) this.broadcast({ t: 'x', id: p.id, a: m.a, k: ['c4', 'frag', 'smoke', 'flash', 'teargas', 'bcharge', 'claymore', 'beartrap', 'wire', 'shield', 'alarm', 'snap', 'rustle'].includes(m.k) ? m.k : 'frag', i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0, w: m.w, c: Number(m.c) || 0, tg: Number.isFinite(m.tg) ? m.tg : undefined, tp: Number(m.tp) || 0, lp: m.lp, lq: m.lq, ob: m.ob ? 1 : 0, T: Array.isArray(m.T) ? m.T.slice(0, 48).map(Number) : undefined, C: Array.isArray(m.C) ? m.C.slice(0, 32).map(Number) : undefined, H: Array.isArray(m.H) ? m.H.slice(0, 24).map(Number) : undefined }, p); break;
-      case 'punch': { const tgt = this.players.get(m.id), pa = p.state && p.state.p, ta = tgt && tgt.state && tgt.state.p; if (p.ready && p.alive && !this.frozen() && (!pa || !ta || Math.hypot(pa[0] - ta[0], pa[1] - ta[1], pa[2] - ta[2]) < 2.6) && tgt && tgt !== p && tgt.alive && Date.now() - (p.lastPunch || 0) > 220 && (p.lastPunch = Date.now())) this.send(tgt, { t: 'punched', by: p.id, f: String(m.f || '').slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)) }); break; }
+      case 'punch': { const tgt = this.players.get(m.id), pa = p.state && p.state.p, ta = tgt && tgt.state && tgt.state.p; if (p.ready && p.alive && !this.frozen() && (!pa || !ta || Math.hypot(pa[0] - ta[0], pa[1] - ta[1], pa[2] - ta[2]) < 2.6) && tgt && tgt !== p && tgt.alive && Date.now() - (p.lastPunch || 0) > 220 && (p.lastPunch = Date.now())) this.send(tgt, { t: 'punched', by: p.id, f: String(m.f || '').slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)), sl: m.sl ? 1 : 0 }); break; }
       case 'hit': this.hit(p, m); break;
       case 'died': this.died(p, m); break;
       case 'down': this.down(p, m); break;
@@ -134,9 +161,15 @@ class HostRoom {
     }
     // a blast wrecks the gadgets round it, the same way every client works it out: the room forgets them too, once the boom
     // itself is accepted (and never the gadget that is going off)
-    const sweep = skip => { if (!fin(m.p)) return; const k = ['c4', 'frag', 'claymore', 'bcharge'].includes(m.k) ? m.k : 'frag', W = { c4: 0.76, frag: 0.24, claymore: 0.3, bcharge: 0.3 }[k];
+    const sweep = skip => { if (!fin(m.p)) return; const W = { c4: 0.76, frag: 0.24, claymore: 0.3, bcharge: 0.3 }[m.k] || 0; if (W < 0.1) return;
       for (const key in R.gd) { const g = R.gd[key]; if (key !== skip && g.k !== 'bcharge' && Math.hypot(g.p[0] - m.p[0], g.p[1] - m.p[1], g.p[2] - m.p[2]) < 1.1 * Math.cbrt(W) + 0.4) delete R.gd[key]; } };
     if (m.a === 'boom' && m.k === 'bcharge') { const key = m.tg + ':' + (Number(m.i) || 0), g = Object.hasOwn(R.gd, key) ? R.gd[key] : null; if (!g || g.k !== 'bcharge' || m.tg !== p.id || !fin(m.p) || Math.hypot(g.p[0] - m.p[0], g.p[1] - m.p[1], g.p[2] - m.p[2]) > 0.6) return false; delete R.gd[key]; sweep(key); return true; }
+    // a fist, gun butt or sledge through a soft wall: only from where they stand, only alive, in a round, a few a second
+    if (m.a === 'mw') {
+      p.mwT = (p.mwT || []).filter(t => t > now - 1000);
+      if (!p.alive || !fin(m.p) || !near(m.p, 2.6) || p.mwT.length >= 3 || (R.ph !== 'live' && R.ph !== 'lobby')) return false;
+      p.mwT.push(now); m.n = Math.max(0, Math.min(9, m.n | 0)); m.w = Math.max(0, Math.min(3000, Number(m.w) || 0)); m.f = Math.max(0, Math.min(0.2, Number(m.f) || 0)); return true;
+    }
     if (m.a === 'gdx' || (m.a === 'boom' && m.k === 'claymore')) {
       const key = m.tg + ':' + (Number(m.i) || 0), g = Object.hasOwn(R.gd, key) ? R.gd[key] : null;
       if (!g || R.ph !== 'live' || !p.alive || (p.gxT || 0) > now - 250) return false;
@@ -197,7 +230,7 @@ class HostRoom {
   rTeam() { let r = 0, b = 0; for (const x of this.players.values()) if (x.ready && x.team) x.team === 'r' ? r++ : b++; return r < b ? 'r' : b < r ? 'b' : (Math.random() < 0.5 ? 'r' : 'b'); }
   rCount(alive) { const c = { r: 0, b: 0 }; for (const x of this.players.values()) if (x.ready && x.team && (!alive || (x.alive && !x.fatal))) c[x.team]++; return c; }
   rTeams() { const o = {}; for (const x of this.players.values()) if (x.ready && x.team) o[x.id] = x.team; return o; }
-  rMsg(extra) { const R = this.R; return Object.assign({ t: 'round', n: R.n, ph: R.ph, left: Math.max(0, R.end - Date.now()), go: Math.max(0, (R.go || 0) - Date.now()), sc: R.sc, mv: Object.values(R.votes || {}).length, map: R.map, tm: this.rTeams(), dfz: R.carrier, dz: R.dz, pl: R.plant && { site: R.plant.site, left: Math.max(0, R.plant.end - Date.now()) }, sp: R.sp | 0, sgw: R.sgw, gdw: Object.values(R.gd || {}).map(g => [g.o, g.i, g.k, g.p, g.f, g.team, g.sn ? 1 : 0]), fd: R.found, env: typeof envSnap === 'function' ? envSnap() : undefined }, extra || {}); }
+  rMsg(extra) { const R = this.R; return Object.assign({ t: 'round', n: R.n, ph: R.ph, left: Math.max(0, R.end - Date.now()), go: Math.max(0, (R.go || 0) - Date.now()), sc: R.sc, mv: Object.values(R.votes || {}).length, map: R.map, tm: this.rTeams(), dfz: R.carrier, dz: R.dz, pl: R.plant && { site: R.plant.site, left: Math.max(0, R.plant.end - Date.now()) }, sp: R.sp | 0, lo: typeof TOWN !== 'undefined' && TOWN.lampAll ? TOWN.lampAll.map((L, i) => L.out ? i : -1).filter(i => i >= 0) : [], sgw: R.sgw, gdw: Object.values(R.gd || {}).map(g => [g.o, g.i, g.k, g.p, g.f, g.team, g.sn ? 1 : 0]), fd: R.found, env: typeof envSnap === 'function' ? envSnap() : undefined }, extra || {}); }
   rTimer(ms, f) { if (this.R.tm) clearTimeout(this.R.tm); this.R.tm = setTimeout(() => { if (net.host !== this) return; this.R.tm = null; f(); }, ms); }
   // ---- the match: a lobby on the baseplate (voting for the map) until there is someone on each team, then rounds to 5 wins.
   // A round: 15 s to pick a loadout (everyone at their start, held there), then the round itself, the first 5 s still held.
@@ -235,7 +268,7 @@ class HostRoom {
     if (!c.r || !c.b) return this.rLobby();
     R.n++; R.ph = 'load'; R.end = Date.now() + 15000; R.go = 0;
     // the bombs move every round: another pair of sites
-    { const old = R.sp | 0; R.sp = (old + 1 + Math.floor(Math.random() * 3)) % 4; }
+    { R.sp = R.sp === undefined ? Math.floor(Math.random() * 4) : ((R.sp | 0) + 1 + Math.floor(Math.random() * 3)) % 4; }
     // a new round: one attacker, picked at random, carries the defuser; nothing boarded or reinforced yet
     if (R.pt) clearTimeout(R.pt); R.pt = null; R.plant = null; R.dz = null; R.sgw = []; R.bkSet = {}; R.found = [];
     for (const x of this.players.values()) { x.rfN = 0; x.gdN = {}; } R.gd = {};
@@ -298,7 +331,7 @@ class HostRoom {
   rEnd(win, why) {
     const R = this.R; if (R.ph !== 'live') return;
     R.ph = 'post'; R.sc[win]++; R.end = Date.now() + 7000; R.go = 0; if (R.pt) clearTimeout(R.pt); R.pt = null;
-    const over = R.sc[win] >= 5;
+    const over = R.sc[win] >= (this.cfg.win || 5);
     this.broadcast(this.rMsg({ win, why, over: over ? 1 : 0 }));
     // first to 5 wins the match: its result stays up, then everyone goes back to the baseplate
     this.rTimer(over ? 12000 : 7000, () => over ? this.rLobby() : this.rStart());
@@ -306,11 +339,11 @@ class HostRoom {
 
 
 }
-async function startHosting(code) {
+async function startHosting(code, snap) {
   const me = rid();
-  await api('/api/host', { room: code, id: me });
-  net.mode = 'host'; net.host = new HostRoom(); net.code = code; net.hostId = me;
-  const ping = () => { const H = net.host; api('/api/ping', { room: code, id: me, pub: S.pub ? 1 : 0, open: H && H.R && H.R.ph === 'lobby' ? 1 : 0, n: H ? H.players.size : 0 }).catch(() => {}); };
+  await api('/api/host', { room: code, id: me, takeover: snap ? 1 : 0 });
+  net.mode = 'host'; net.host = new HostRoom(snap); net.code = code; net.hostId = me;
+  const ping = () => { const H = net.host; if (!H) return; api('/api/ping', { room: code, id: me, pub: H.cfg.pub ? 1 : 0, open: H.R && H.R.ph === 'lobby' ? 1 : 0, n: H.players.size, name: H.cfg.name, mode: H.cfg.mode, ph: H.R ? H.R.ph : 'lobby', max: H.cfg.max }).catch(() => {}); };
   ping(); net.timers.push(setInterval(ping, 5000));
   let after = 0, busy = false;
   net.timers.push(setInterval(async () => {
@@ -321,11 +354,12 @@ async function startHosting(code) {
     } catch (e) {}
     busy = false;
   }, 1000));
+  if (snap) { onNet({ t: 'welcome', id: net.host.self.id, host: net.host.self.id, cfg: net.host.cfg, players: [...net.host.players.values()].map(x => ({ id: x.id, name: x.name, alive: x.alive, tm: x.team, k: 0, d: 0 })), r: net.host.rMsg(), mig: 1 }); return; }
   net.host.onMessage(net.host.self, { t: 'hello', name: S.myName });
 }
 async function acceptPeer(code, me, src, sdp) {
   const host = net.host; if (!host) return;
-  if (host.players.size >= MAX_P2P) { await api('/api/sig', { room: code, src: me, dst: src, data: JSON.stringify({ type: 'full' }) }); return; }
+  if (host.players.size >= Math.min(MAX_P2P, host.cfg.max || MAX_P2P)) { await api('/api/sig', { room: code, src: me, dst: src, data: JSON.stringify({ type: 'full' }) }); return; }
   const pc = new RTCPeerConnection({ iceServers: await getIce() }); net.pcs.push(pc);
   const peer = { pc, rel: null, unr: null }; let p = null;
   const onmsg = ev => { if (!p || net.host !== host) return; let m; try { m = JSON.parse(ev.data); } catch (e) { return; } host.onMessage(p, m); };
@@ -343,7 +377,27 @@ async function acceptPeer(code, me, src, sdp) {
   await waitIce(pc);
   await api('/api/sig', { room: code, src: me, dst: src, data: JSON.stringify({ type: 'answer', sdp: pc.localDescription.sdp }) });
 }
-async function joinPeer(code) {
+// ---- the host left: the lobby moves to whoever has been in it longest (the lowest id left). They take the room code over and
+// carry the round on from where it was; everyone else reconnects to them and keeps their place, side and score.
+async function migrate(code, why) {
+  if (S.migrating) return;
+  S.migrating = true; const oldHost = S.hostPid, snap = { myId: S.myId, ids: [S.myId, ...[...S.remotes.keys()].filter(i => i !== oldHost)], r: S.lastR || {}, age: performance.now() - (S.lastRT || performance.now()), tm: S.team[S.myId], alive: P.alive, life: S.life };
+  const rest = snap.ids.slice().sort((a, b) => a - b), heir = rest[0];
+  if (S.remotes.has(oldHost)) { S.remotes.get(oldHost).dispose(); S.remotes.delete(oldHost); }
+  for (const pc of net.pcs) try { pc.close(); } catch (e) {} net.pcs = []; net.rel = net.unr = null; net.mode = 'migrating';
+  roundBanner('<b>HOST LEFT</b><small>' + (heir === S.myId ? 'You are the new host' : 'Moving the lobby to ' + esc(S.names[heir] || 'P' + heir)) + '</small>', 4000);
+  const t0 = Date.now();
+  for (;;) {
+    if (S.mode !== 'online' || !S.migrating) return;
+    if (Date.now() - t0 > 45000) { S.migrating = false; leave(); $('err').textContent = why + ' and the lobby could not be moved - room ' + code; return; }
+    try {
+      if (heir === S.myId) { S.cfg = Object.assign({}, S.cfgIn || {}); await startHosting(code, snap); }
+      else { await sleep(2500); await joinPeer(code, true); }
+      S.migrating = false; return;
+    } catch (e) { await sleep(2000); }
+  }
+}
+async function joinPeer(code, mig) {
   let info; try { info = await api('/api/room?room=' + code); } catch (e) { throw new Error('Room ' + code + ' not found. The host may have left.'); }
   const me = rid();
   const pc = new RTCPeerConnection({ iceServers: await getIce() }); net.pcs.push(pc);
@@ -373,16 +427,27 @@ async function joinPeer(code) {
   net.mode = 'peer'; net.rel = rel; net.unr = unr; net.code = code;
   const onmsg = ev => { try { onNet(JSON.parse(ev.data)); } catch (e) { console.error(e); } };
   rel.onmessage = onmsg; unr.onmessage = onmsg;
-  const lost = why => { if (net.mode === 'peer' && net.rel === rel) { leave(); $('err').textContent = why + ' - room ' + code; } };
+  // the host gone: the lobby carries on with one of the players as its new host (everyone else reconnects to them)
+  const lost = why => { if (net.mode === 'peer' && net.rel === rel) { if (S.welcomed && !S.noMigrate) migrate(code, why); else { leave(); $('err').textContent = why + ' - room ' + code; } } };
   rel.onclose = () => lost('The host left or the connection dropped');
   pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed') lost('Connection to the host failed'); };
-  net.send({ t: 'hello', name: S.myName });
+  net.send(mig ? { t: 'hello', name: S.myName, mig: 1, want: S.myId, tm: S.team[S.myId], alive: P.alive, life: S.life, k: (S.score[S.myId] || {}).k | 0, d: (S.score[S.myId] || {}).d | 0 } : { t: 'hello', name: S.myName });
 }
 
 // ---------------------------------------------------------------- networking
 function onNet(m) {
   switch (m.t) {
     case 'welcome':
+      S.hostPid = m.host; S.cfgIn = m.cfg && typeof m.cfg === 'object' ? m.cfg : {};
+      if (m.mig || (S.welcomed && S.migrating)) {
+        // carrying on after the host left: same world, same round; the player list is brought up to date
+        S.myId = m.id; const ids = new Set(m.players.map(pl => pl.id));
+        for (const id of [...S.remotes.keys()]) if (!ids.has(id)) { S.remotes.get(id).dispose(); S.remotes.delete(id); }
+        for (const pl of m.players) { if (pl.tm) S.team[pl.id] = pl.tm; if (pl.id !== m.id && !S.remotes.has(pl.id)) { const r = addRemote(pl.id, pl.name); r.alive = pl.alive; if (pl.state) r.setState(pl.state); } }
+        if (m.r) roundRx(m.r, false, true);
+        roundBanner('<b>LOBBY MOVED</b><small>' + (m.host === S.myId ? 'You are hosting now' : 'New host: ' + esc(S.names[m.host] || 'P' + m.host)) + '</small>', 3000);
+        break;
+      }
       S.myId = m.id; S.welcomed = true; S.names[m.id] = S.myName;
       S.team = {}; for (const pl of m.players) if (pl.tm) S.team[pl.id] = pl.tm;
       for (const pl of m.players) { S.score[pl.id] = { k: pl.k || 0, d: pl.d || 0 }; if (pl.id !== m.id) { const r = addRemote(pl.id, pl.name); r.alive = pl.alive; if (pl.state) r.setState(pl.state); } }
@@ -408,6 +473,7 @@ function onNet(m) {
     case 'itake': removeItem(m.iid); break;
     case 'x': onExplosiveMsg(m); break;
     case 'punched': onPunched(m); break;
+    case 'demo': demolish(); break;
     case 'hurt':
       if (P.alive && P.anat && Array.isArray(m.p) && Array.isArray(m.d)) {
         const an = P.anat; an.lastBy = m.by; an.lastDir.fromArray(m.wd || [0, 0, -1]); an.lastDist = m.dist || 0;
@@ -467,14 +533,15 @@ function teamSync() {
     const R = S.remotes.get(id); R.label.visible = !!tm && tm === S.team[S.myId];
   }
 }
-function roundRx(m, joining) {
+function roundRx(m, joining, moved) {
   const old = S.R || {}, now = performance.now();
+  S.lastR = m; S.lastRT = now;
   S.R = { n: m.n | 0, ph: String(m.ph), end: Number(m.left) > 0 ? now + Number(m.left) : 0, go: now + (Number(m.go) || 0), sc: m.sc || { r: 0, b: 0 }, sp: m.sp | 0, win: m.win, why: m.why, over: !!m.over, mv: m.mv | 0 };
   if (m.tm && typeof m.tm === 'object') { S.team = {}; for (const k in m.tm) S.team[k] = m.tm[k]; teamSync(); }
   const ph = S.R.ph;
   // the world for the phase: the baseplate between matches; the map, put back as new, at the start of every round
   if (ph === 'lobby') { if (S.world !== 'lobby') goLobbyWorld(); S.voted = S.voted && old.ph === 'lobby' ? S.voted : null; }
-  else if (S.world !== 'town' || (ph === 'load' && S.R.n !== old.n && !joining)) resetRoundWorld();
+  else if (S.world !== 'town' || (ph === 'load' && S.R.n !== old.n && !joining) || (joining && TOWN.pair !== (S.R.sp | 0))) resetRoundWorld();
   if (S.world === 'town') siegeRound(m, joining);
   // (a new round resets to dawn and rain here; the host's snapshot in this message was taken before its own reset, so it is
   // not applied: the host's next env message is already the fresh one)
@@ -502,7 +569,9 @@ function resetRoundWorld() {
   while (bullets.length) removeBullet(bullets.length - 1);
   clearGadgets(); buildTown(S.R ? S.R.sp : 0); siegeReset(); S.world = 'town';
   // every round on the house map starts at dawn, in the rain
-  ENV.tod = 6.4; envSet('rain', true); envShare();
+  // each round starts at the server's time of day and weather (dawn and rain unless the host set otherwise)
+  { const c = (net.mode === 'host' && net.host ? net.host.cfg : S.cfgIn) || {}; ENV.tod = Number.isFinite(+c.tod) ? +c.tod : 6.4; envSet(c.weather || 'rain', true); if (+c.dayLen > 0) ENV.rate = 0.4 / +c.dayLen; }
+  envShare();
 }
 let bannerT = 0, leftT = 0;
 function teamLeft(tm) {
@@ -541,5 +610,5 @@ function netSend(dt) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { DEF_TEAM, api, joinPeer, net, netSend, onNet, roundHud, startHosting, teamName };
+export { DEF_TEAM, api, joinPeer, net, netSend, onNet, roundHud, sleep, startHosting, teamName };
 // ---- end module exports ----

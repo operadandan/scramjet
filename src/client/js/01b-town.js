@@ -84,7 +84,7 @@ const BOARD_COL = 0x9a7a52;
 function decoMat(c) { let m = DECO_MATS.get(c); if (!m) { m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 }); m.userData.shared = true; DECO_MATS.set(c, m); } return m; }
 // the bomb: a steel case, three canisters strapped to it, the wiring, and a box with a lit display
 function townBomb(p) {
-  addBox(p.x, p.y, p.z, 0.64, 0.3, 0.44, 'metal', 0x2e322e); const g = new THREE.Group(); g.position.copy(p); worldGroup.add(g);
+  addBox(p.x, p.y, p.z, 0.64, 0.3, 0.44, 'metal', 0x2e322e); const base = worldMeshes[worldMeshes.length - 1]; base.userData.bomb = true; const g = new THREE.Group(); g.position.set(0, -0.15, 0); base.add(g);
   const mk = (geo, c, x, y, z, rx, rz, em) => { const m = new THREE.Mesh(geo, em ? new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 2.2, toneMapped: false }) : decoMat(c)); m.position.set(x, y, z); if (rx) m.rotation.x = rx; if (rz) m.rotation.z = rz; m.castShadow = true; g.add(m); return m; };
   const can = new THREE.CylinderGeometry(0.075, 0.075, 0.5, 16);
   for (const z of [-0.13, 0, 0.13]) mk(can, 0x4a5a32, 0, 0.375, z, 0, Math.PI / 2);
@@ -96,17 +96,17 @@ function townBomb(p) {
 const HOUSE = { x0: -14, x1: 14, z0: -10, z1: 10, f1: 3.0, H: 2.8, t: 0.2 };
 // the two bombs move every round: one of these pairs (A downstairs, B upstairs), chosen by the room
 const SITE_PAIRS = [
-  [{ id: 'A', p: [10, 0, -7.2], name: 'A · Kitchen' }, { id: 'B', p: [9.5, 1, -6.8], name: 'B · Main bedroom' }],
-  [{ id: 'A', p: [-10.5, 0, 6.5], name: 'A · Living room' }, { id: 'B', p: [-1.5, 1, 6.6], name: 'B · Kids room' }],
+  [{ id: 'A', p: [10, 0, -7.2], name: 'A · Kitchen' }, { id: 'B', p: [11.8, 1, -5.5], name: 'B · Main bedroom' }],
+  [{ id: 'A', p: [-12.4, 0, 2.6], name: 'A · Living room' }, { id: 'B', p: [-1.5, 1, 6.6], name: 'B · Kids room' }],
   [{ id: 'A', p: [11, 0, 6.6], name: 'A · Office' }, { id: 'B', p: [5.5, 1, 6.6], name: 'B · Study' }],
-  [{ id: 'A', p: [-10.5, 0, -6.8], name: 'A · Laundry' }, { id: 'B', p: [-10, 1, 6.4], name: 'B · Guest bedroom' }]
+  [{ id: 'A', p: [-10.5, 0, -6.8], name: 'A · Laundry' }, { id: 'B', p: [-8, 1, 4.5], name: 'B · Guest bedroom' }]
 ];
 // reinforced walls round each pair's sites, to begin with ([x, y, z, w, h, d], y 0 or 1 = which floor)
 const SITE_RF = [
-  [[7, 0, -0.1, 1.4, 0, 0.05], [3.1, 0, -6, 0.05, 0, 1.4], [8, 1, -0.1, 1.4, 1, 0.05], [4.1, 1, -6, 0.05, 1, 1.4]],
-  [[-4.1, 0, 6, 0.05, 0, 1.4], [-10, 0, 0.1, 1.4, 0, 0.05], [-4.9, 1, 7, 0.05, 1, 1.4], [3.1, 1, 6.5, 0.05, 1, 1.4]],
-  [[8.1, 0, 7, 0.05, 0, 1.4], [11, 0, 0.1, 1.4, 0, 0.05], [3.1, 1, 7.5, 0.05, 1, 1.4], [7.9, 1, 7.5, 0.05, 1, 1.4]],
-  [[-6.9, 0, -6, 0.05, 0, 1.4], [-11, 0, -0.1, 1.4, 0, 0.05], [-4.9, 1, 7, 0.05, 1, 1.4], [-11, 1, 0.1, 1.4, 1, 0.05]]
+  [[7, 0, -0.1, 1.4, 0, 0.05], [0.1, 0, -8, 0.05, 0, 1.4], [8, 1, -0.1, 1.4, 1, 0.05], [4.1, 1, -7, 0.05, 1, 1.4]],
+  [[-4.1, 0, 6.8, 0.05, 0, 1.4], [-6, 0, 0.1, 1.4, 0, 0.05], [-4.9, 1, 7, 0.05, 1, 1.4], [3.1, 1, 6.5, 0.05, 1, 1.4]],
+  [[8.1, 0, 7, 0.05, 0, 1.4], [9.5, 0, 0.1, 1.4, 0, 0.05], [3.1, 1, 7.5, 0.05, 1, 1.4], [7.9, 1, 7.5, 0.05, 1, 1.4]],
+  [[-6.9, 0, -6, 0.05, 0, 1.4], [-12.5, 0, -0.1, 1.4, 0, 0.05], [-4.9, 1, 7, 0.05, 1, 1.4], [-12.5, 1, 0.1, 1.4, 1, 0.05]]
 ];
 // a floor or roof slab, laid as tiles no bigger than about 3.5 m: each tile stands or falls on its own (30-structure), so
 // part of a roof caves in where the walls under it are gone, not all or nothing
@@ -156,7 +156,7 @@ function buildTown(pair) {
   for (const x of [-10, -3, 4, 11]) addDoor(x, 0, 0, 'plywood', x > 0 ? -1 : 1, 0);
   addDoor(-7, -3, Math.PI / 2, 'plywood', 1, 0); addDoor(0, -5, Math.PI / 2, 'plywood', -1, 0);
   addDoor(-4, 4, Math.PI / 2, 'plywood', 1, 0); addDoor(2, 5, Math.PI / 2, 'plywood', -1, 0); addDoor(8, 4, Math.PI / 2, 'plywood', 1, 0);
-  townFlat(0, 0, x1 - x0, z1 - z0, 'pave', 1.2, 0.004, 0xa98d6c);
+  townFlat(0, 0, x1 - x0, z1 - z0, 'pave', 1.2, 0.004, 0xa98d6c); worldMeshes[worldMeshes.length - 1].userData.surf = 'wood';
   // the stairs, up along the north wall of the stair hall: 16 steps of 19 cm
   const sz0 = z0 + t / 2 + 0.02, sz1 = sz0 + 1.15, sN = 16, rise = f1 / sN, run = 0.28, sx0 = -6.6;
   for (let i = 0; i < sN; i++) addBox(sx0 + i * run + run / 2, 0, (sz0 + sz1) / 2, run, (i + 1) * rise, sz1 - sz0, 'crate', 0x7a5a3a);
@@ -165,7 +165,6 @@ function buildTown(pair) {
   slab(0, f1 - 0.2, (sz1 + z1) / 2, x1 - x0 + t, 0.2, z1 - sz1 + t / 2, 'crate', 0x8a7458);
   slab((x0 - t / 2 + sx0) / 2, f1 - 0.2, (z0 + sz1) / 2, sx0 - x0 + t / 2, 0.2, sz1 - z0 + t / 2, 'crate', 0x8a7458);
   slab((sTop + x1) / 2, f1 - 0.2, (z0 + sz1) / 2, x1 - sTop + t / 2, 0.2, sz1 - z0 + t / 2, 'crate', 0x8a7458);
-  townFlat(0, (sz1 + z1) / 2, x1 - x0, z1 - sz1, 'pave', 1.2, f1 + 0.004, 0x9a8466);
   addBox((sx0 + 0.9 + sTop) / 2, f1, sz1 + 0.03, sTop - sx0 - 0.9, 1, 0.05, 'crate', 0x5a4632);
   wall('x', x0 - t / 2, x1 + t / 2, z1, 1, 1, [['w', -12], ['w', -9], ['w', -2], ['w', 0.8], ['w', 5.5], ['w', 11]]);
   wall('x', x0 - t / 2, x1 + t / 2, z0, 1, 1, [['w', -11], ['w', -2], ['w', 1.5], ['w', 7], ['w', 11]]);
@@ -189,7 +188,7 @@ function buildTown(pair) {
   addBox(-1, 0, z1 + 0.9, 3, 0.15, 1.6, 'concrete', 0x9b978f);
   addBox(-4.6, 0, z1 + 1.9, 2, 1.45, 1.4, 'metal', 0x2e5a3a); addBox(-3.5, 0, z1 + 1.4, 0.1, f1, 2.6, 'crate', 0xe8e3d8);
   // ---- furniture. Big pieces are solid (cover, things to vault and stand on); small things are only looks
-  const deco = (x, y, z, w, h, d, c, mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat || decoMat(c)); m.position.set(x, y + h / 2, z); m.castShadow = m.receiveShadow = true; worldGroup.add(m); return m; };
+  const deco = (x, y, z, w, h, d, c, mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat || decoMat(c)); m.position.set(x, y + h / 2, z); m.castShadow = m.receiveShadow = true; m.userData.deco = true; worldGroup.add(m); return m; };
   // a ceiling light: its shade can be shot out (the light goes, glass falls); the first few really light the room
   const lamp = (x, y, z, light) => {
     const shade = deco(x, y - 0.16, z, 0.42, 0.14, 0.42, 0, lampMat); deco(x, y - 0.03, z, 0.06, 0.05, 0.06, 0x2a2a2a);
@@ -201,7 +200,7 @@ function buildTown(pair) {
   addBox(-10, 0, 8.6, 2.4, 0.5, 0.9, 'crate', 0x5b6a7a); deco(-10, 0.5, 8.95, 2.4, 0.4, 0.2, 0x4f5d6c);
   addBox(-13.2, 0, 5, 0.9, 0.5, 2.2, 'crate', 0x5b6a7a); deco(-13.55, 0.5, 5, 0.2, 0.4, 2.2, 0x4f5d6c);
   addBox(-10.2, 0, 6.2, 1.2, 0.42, 0.6, 'crate', 0x6a4e34);
-  addBox(-9, 0, 0.38, 1.8, 0.5, 0.45, 'crate', 0x3a3430); deco(-9, 0.5, 0.33, 1.4, 0.8, 0.06, 0x101114);
+  addBox(-7, 0, 0.38, 1.8, 0.5, 0.45, 'crate', 0x3a3430); deco(-7, 0.5, 0.33, 1.4, 0.8, 0.06, 0x101114);
   addBox(-5, 0, 8.5, 1.4, 1.9, 0.35, 'crate', 0x6a4e34); for (let k = 0; k < 4; k++) deco(-5, 0.3 + k * 0.42, 8.3, 1.2, 0.28, 0.05, [0x8a3a2a, 0x2a4a6a, 0x5a6a3a, 0x7a6a4a][k]);
   townFlat(-10, 6, 3.6, 2.8, 'pave', 3.2, 0.008, 0x6e3c34);
   // front hall: a coat stand, a shoe rack, a side table
@@ -209,10 +208,10 @@ function buildTown(pair) {
   // dining room: a long table and six chairs, a sideboard
   addBox(5, 0, 6, 2.4, 0.76, 1.1, 'crate', 0x7a5a3a);
   for (const cx of [4.2, 5, 5.8]) for (const [cz, s] of [[4.95, -1], [7.05, 1]]) { addBox(cx, 0, cz, 0.44, 0.46, 0.44, 'crate', 0x6a4e34); deco(cx, 0.46, cz + s * 0.2, 0.44, 0.5, 0.05, 0x6a4e34); }
-  addBox(5, 0, 0.36, 2.2, 0.85, 0.45, 'crate', 0x5a3e2a);
+  addBox(6.4, 0, 0.36, 2.2, 0.85, 0.45, 'crate', 0x5a3e2a);
   // office (south-east): desk, chair, filing cabinets, a safe
   addBox(11, 0, 8.6, 1.8, 0.75, 0.8, 'crate', 0x6a4e34); addBox(11, 0, 7.6, 0.5, 0.5, 0.5, 'crate', 0x2a2a2a);
-  addBox(13.4, 0, 3, 0.5, 1.3, 1.6, 'metal', 0x6a7078); addBox(9, 0, 1, 0.8, 1, 0.8, 'metal', 0x3a3e42);
+  addBox(13.4, 0, 8.4, 0.5, 1.3, 1.6, 'metal', 0x6a7078); addBox(9, 0, 1, 0.8, 1, 0.8, 'metal', 0x3a3e42);
   // kitchen (north-east): counters along the back wall with the stove and sink, the fridge, an island, a table
   addBox(8, 0, -9.4, 5, 0.92, 0.62, 'crate', 0xd8d2c4); deco(8, 0.92, -9.4, 5.02, 0.04, 0.64, 0x3a3836);
   deco(6.5, 0.96, -9.4, 0.6, 0.02, 0.5, 0x151515); deco(9.5, 0.93, -9.45, 0.5, 0.04, 0.35, 0x9aa0a6);
@@ -224,7 +223,7 @@ function buildTown(pair) {
   addBox(-12.5, 0, -9.3, 0.7, 0.9, 0.7, 'metal', 0xe8e8e4); addBox(-11.6, 0, -9.3, 0.7, 0.9, 0.7, 'metal', 0xe8e8e4);
   addBox(-13.5, 0, -5, 0.45, 1.8, 1.6, 'crate', 0x6a5a4a); addBox(-8, 0, -9.4, 0.8, 1.7, 0.6, 'metal', 0x9a9a92);
   // stair hall: a shoe rack and the banister up the stairs
-  addBox(-2, 0, -0.45, 1.2, 0.45, 0.32, 'crate', 0x5a4632);
+  addBox(-1, 0, -0.45, 1.2, 0.45, 0.32, 'crate', 0x5a4632);
   for (let k = 0; k < 5; k++) deco(sx0 + 0.4 + k * 0.8, k * 0.8 * 0.67, sz1 + 0.02, 0.05, 1.0, 0.05, 0x5a4632);
   // upstairs. Main bedroom (north-east): bed, bedside tables, wardrobe, dresser
   addBox(9, f1, -7.8, 2.2, 0.5, 2, 'crate', 0x8a96a8); deco(9, f1 + 0.5, -8.7, 2.2, 0.55, 0.15, 0x5a4632);
@@ -237,13 +236,13 @@ function buildTown(pair) {
   addBox(-13.5, f1, -5.5, 0.6, 0.45, 0.42, 'crate', 0xf0f0ec); addBox(-9, f1, -9.5, 0.6, 0.85, 0.4, 'crate', 0xf0f0ec);
   // guest bedroom (south-west), kids room (south middle), study, second bath (south-east)
   addBox(-10, f1, 7, 2, 0.5, 1.6, 'crate', 0xa8908a); deco(-10, f1 + 0.5, 7.75, 2, 0.5, 0.15, 0x5a4632); addBox(-13.3, f1, 2, 0.5, 0.85, 1.2, 'crate', 0x7a5a3a);
-  addBox(-1.5, f1, 8.8, 1.6, 0.5, 1.6, 'crate', 0x9a7aa8); addBox(1.8, f1, 3, 1, 0.6, 0.5, 'crate', 0x7aa88a);
+  addBox(-1.5, f1, 8.8, 1.6, 0.5, 1.6, 'crate', 0x9a7aa8); addBox(1.8, f1, 9.4, 1, 0.6, 0.5, 'crate', 0x7aa88a);
   addBox(5.5, f1, 8.8, 1.4, 0.75, 0.7, 'crate', 0x6a4e34); addBox(7.6, f1, 1.8, 0.35, 1.9, 1.4, 'crate', 0x6a4e34);
   addBox(12.6, f1, 9.2, 1.6, 0.55, 0.8, 'crate', 0xf0f0ec); addBox(13.5, f1, 5.5, 0.6, 0.45, 0.42, 'crate', 0xf0f0ec);
-  // the lights: one in every room; six of them really light (the main rooms), the others just glow and can be shot out
+  // the lights: one in every room, every one a real light (the only light inside), every one can be shot out
   lamp(-3.5, f1 - 0.2, -5, true); lamp(8, f1 - 0.2, -5, true); lamp(-9, f1 - 0.2, 5, true); lamp(5, f1 - 0.2, 5, true);
   lamp(9, f1 + H - 0.02, -5, true); lamp(-1, f1 + H - 0.02, 5, true);
-  lamp(-10.5, f1 - 0.2, -5); lamp(-1, f1 - 0.2, 5); lamp(11, f1 - 0.2, 5); lamp(-10.5, f1 + H - 0.02, -5); lamp(-1, f1 + H - 0.02, -5); lamp(-10, f1 + H - 0.02, 5); lamp(5.5, f1 + H - 0.02, 5); lamp(11, f1 + H - 0.02, 5);
+  lamp(-10.5, f1 - 0.2, -5, true); lamp(-1, f1 - 0.2, 5, true); lamp(11, f1 - 0.2, 5, true); lamp(-10.5, f1 + H - 0.02, -5, true); lamp(-1, f1 + H - 0.02, -5, true); lamp(-10, f1 + H - 0.02, 5, true); lamp(5.5, f1 + H - 0.02, 5, true); lamp(11, f1 + H - 0.02, 5, true);
   deco(-2.6, 2.15, z1 + 0.18, 0.14, 0.24, 0.1, 0, lampMat);
   for (const w of TOWN.windows) if (w.t > 0.15) { const out = Math.abs(w.p.z) > 9 ? Math.sign(w.p.z) : 0, ox = out ? 0 : Math.sign(w.p.x); deco(w.p.x + ox * (t / 2 + 0.1), w.y0 - 0.06, w.p.z + out * (t / 2 + 0.1), out ? w.w + 0.16 : 0.12, 0.06, out ? 0.12 : w.w + 0.16, 0xd8d2c4); }
   // ---- the two bombs this round
@@ -257,7 +256,7 @@ function buildTown(pair) {
   townFence('x', x0 - 6, x1 + 6, -16, 1.8); townFence('z', -16, 2, x0 - 6, 1.5); townFence('z', -16, 2, x1 + 6, 1.5);
   addBox(15.5, 0, -13.5, 3, 2.3, 2.4, 'crate', 0x7a6650);
   townFlat(-2, -12.8, 6, 3.4, 'pave', 1.5, 0.006, 0xa8a49c); addBox(-2, 0, -13, 1.2, 0.72, 0.8, 'crate', 0x8a8a84);
-  addBox(15.6, 0, 1.2, 0.6, 1.1, 0.6, 'metal', 0x2e4a2e); addBox(15.6, 0, 2.0, 0.6, 1.1, 0.6, 'metal', 0x2a3a5a);
+  addBox(15.6, 0, -2.5, 0.6, 1.1, 0.6, 'metal', 0x2e4a2e); addBox(15.6, 0, -1.7, 0.6, 1.1, 0.6, 'metal', 0x2a3a5a);
   addBox(-2.2, 0, 16.2, 0.25, 1.15, 0.45, 'metal', 0x2a2a2a);
   townCar(9.5, 13.6, 'z', 0x34506e); townCar(-12, 22, 'x', 0x9a9a92); townCar(16, 21.6, 'x', 0x6e2e2e); townCar(-26, -4, 'z', 0x2e2e2e);
   for (const [x, z, k] of [[-17, 13.5, 1], [16, 12, 0.9], [-18, -13, 1.1], [4, -14, 0.9], [22, -6, 1], [-34, 8, 1], [30, 10, 1]]) townTree(x, z, k);
@@ -269,8 +268,20 @@ function buildTown(pair) {
   TOWN.def = [new V3(-3.5, 0, -5.5), new V3(-1, 0, 2.5), new V3(5.5, 0, -2.8), new V3(5, 0, 2.8), new V3(-9.5, 0, 2.8), new V3(-1.5, f1, -4.5), new V3(9, f1, -3.5), new V3(0, f1, 3.5), new V3(-10, f1, 2.6), new V3(11, f1, 2.6)];
   TOWN.atk = [new V3(-5, 0, 33.4), new V3(-2, 0, 33.4), new V3(3, 0, 32.6), new V3(6, 0, 32.6), new V3(-37.6, 0, -10), new V3(-37.6, 0, -8), new V3(-37.6, 0, -6), new V3(-37.6, 0, -11.8), new V3(-14, 0, 33), new V3(13, 0, 33.5)];
   spawns = TOWN.atk.concat(TOWN.def);
+  // the little things go with what they sit on, hang from or are fixed to (a falling shelf takes its books, a ceiling its
+  // light, a wall its sill), so nothing is left floating when that goes
+  worldGroup.updateMatrixWorld(true);
+  for (const m of worldGroup.children.slice()) {
+    if (!m.userData.deco) continue;
+    const bb = new THREE.Box3().setFromObject(m), c = bb.getCenter(new V3()); let best = null, bv = 1e9;
+    for (const w of worldMeshes) { const b = w.userData.box; if (!b || w.userData.door || w === m) continue;
+      if (c.x < b.min.x - 0.12 || c.x > b.max.x + 0.12 || c.z < b.min.z - 0.12 || c.z > b.max.z + 0.12) continue;
+      if (bb.min.y > b.max.y + 0.08 || bb.max.y < b.min.y - 0.08) continue;
+      const v = (b.max.x - b.min.x) * (b.max.y - b.min.y) * (b.max.z - b.min.z); if (v < bv) { bv = v; best = w; } }
+    if (best) best.attach(m);
+  }
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { BOARD_COL, HOUSE, TOWN, buildTown, decoMat, lampMat, slab };
+export { BOARD_COL, HOUSE, SITE_PAIRS, TOWN, buildTown, decoMat, lampMat, slab };
 // ---- end module exports ----

@@ -490,5 +490,5 @@ function bleedDrips(owner, rate, dt, artery, pressure) {
 const arteryRate = an => { let r = 0; for (const w of an.wounds) if (w.artery && !w.treated) r += w.rate; return r; };
 
 // ---- module exports: build.mjs strips this block ----
-export { P, PALS, Remote, S, SKINS, arteryRate, bleedDrips, deathMasks, dummies, fpBody, fpClip, keys, localBody, mouse, reactPack, reactRun, reactStart, spawnDummies };
+export { Dummy, P, PALS, Remote, S, SKINS, arteryRate, bleedDrips, deathMasks, dummies, fpBody, fpClip, keys, localBody, mouse, reactPack, reactRun, reactStart, spawnDummies };
 // ---- end module exports ----

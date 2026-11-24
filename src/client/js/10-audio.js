@@ -131,5 +131,5 @@ function noiseHit(freq, dur, vol) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { aMaster, actx, audio, blip, footSound, inside, noiseBuf, noiseHit, shotSound, suppress, surfaceAt };
+export { GUN_SOUNDS, aMaster, actx, audio, blip, footSound, inside, loadGunSound, noiseBuf, noiseHit, shotSound, suppress, surfaceAt };
 // ---- end module exports ----

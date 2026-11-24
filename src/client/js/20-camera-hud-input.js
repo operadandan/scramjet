@@ -32,7 +32,7 @@ function specHeadLayer(r, l) { if (r && r.hum && r.hum.head) r.hum.head.traverse
 function updateCamera(dt) {
   if (!S.mode || (!P.alive && !P.rag)) {
     const t = performance.now() / 1000 * 0.05;
-    camera.position.set(Math.cos(t) * 42, 17, Math.sin(t) * 42); camera.lookAt(0, 1.5, 0);
+    camera.position.set(Math.cos(t) * 46 + 4, 9 + Math.sin(t * 0.7) * 3, Math.sin(t) * 40 + 8); camera.lookAt(0, 3, 0);
     camera.fov = 70; camera.updateProjectionMatrix();
     return;
   }

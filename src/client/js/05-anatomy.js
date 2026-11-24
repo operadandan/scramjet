@@ -417,7 +417,7 @@ class Anatomy {
     return list.sort((a, b) => b[0] - a[0]);
   }
 }
-const DEATH_TEXT = { gaveup: 'gave up', brain: 'head wound', spinal: 'severed spinal cord', cardiac: 'cardiac arrest', bleed: 'blood loss', asphyx: 'suffocation', blast: 'explosion' };
+const DEATH_TEXT = { gaveup: 'gave up', brain: 'head wound', spinal: 'severed spinal cord', cardiac: 'cardiac arrest', bleed: 'blood loss', asphyx: 'suffocation', blast: 'explosion', crushed: 'crushed by the building' };
 // local-frame conversion of a world hit, for anatomy and for the network
 function hitToFrame(hum, mesh, point, dir) {
   const frame = mesh.userData.frame, F = hum.frames[frame];

@@ -11,7 +11,7 @@ import { blip, noiseHit, suppress } from './10-audio.js';
 import { bulletHole, fragScuff, impactFx, puffTex, tracer } from './11-fx.js';
 import { goreBlast, spawnGore } from './12b-gore.js';
 import { addWound, bloodFx, blowSpatter, bodyPen, bodyWound, exitThrough, holeInGroup, wallSpatter, worldPen } from './14-wounds.js';
-import { DESTR_OF, holePass, markPlate, packHit, ragHitInfo } from './15-destruction.js';
+import { DESTR_OF, holePass, markPlate, packHit, ragHitInfo, wallGrid } from './15-destruction.js';
 import { doorPartHit, doorShotgun } from './15b-doors.js';
 import { P, S, dummies, localBody } from './17-dummies.js';
 import { pointBlocked } from './18-player.js';
@@ -19,6 +19,7 @@ import { net } from './19-network.js';
 import { seg } from './19c-toolvm.js';
 import { frame } from './22-menu-loop.js';
 import { lampBreak } from './24-env.js';
+import { boxHit } from './30-structure.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- props: shells, mags, dropped guns
 const props = [];
@@ -337,7 +338,9 @@ function onBulletHit(b, hit, dir, dist) {
   // a plywood door's knob or a hinge: shot off, and it stops the round
   if (ud.doorPart && doorPartHit(ud.doorPart, hit, dir, b.local) && b.w !== 2) return null;   // (a .50 carries on through)
   // a ceiling light: the shade and bulb burst, the light goes out (every client sees the same round hit it)
-  if (ud.lamp !== undefined) { lampBreak(ud.lamp, hit.point, dir); return { point: hit.point.clone().addScaledVector(dir, 0.3), dir, v: v * 0.95 }; }
+  if (ud.lamp !== undefined && b.frag) return { point: hit.point.clone().addScaledVector(dir, 0.3), dir, v };
+  if (ud.lamp !== undefined && !b.frag) { lampBreak(ud.lamp, hit.point, dir); return { point: hit.point.clone().addScaledVector(dir, 0.3), dir, v: v * 0.95 }; }
+  if (ud.box && !ud.door && !ud.grid && !wallGrid(hit.object)) boxHit(hit.object, Eh * 0.6);
   if (ud.door && b.local && !b.frag && WEAPONS[b.w].pellets) doorShotgun(ud.door, hit.point, dir, Eh, b.shot);
   if (hit.face) {
     const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);

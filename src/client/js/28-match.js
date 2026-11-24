@@ -12,13 +12,14 @@ import { clearPools, splatIM } from './14-wounds.js';
 import { DEB_POOLS, debris } from './15-destruction.js';
 import { bullets, props, removeBullet } from './16-ballistics.js';
 import { P, S, keys, mouse } from './17-dummies.js';
-import { api, net } from './19-network.js';
+import { api, net, sleep } from './19-network.js';
 import { clearExplosives } from './19b-explosives.js';
 import { clearItems, hlMesh } from './21-items-inventory.js';
 import { CODE_CHARS, setLoadout, startOnline } from './22-menu-loop.js';
 import { siegeClear } from './23-siege.js';
 import { GADGETS, HEADGEAR, clearGadgets } from './27-gadgets.js';
 import { eyeReset } from './29-eyes.js';
+import { deploy } from './31-menu.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- the match, as each player sees it
 // Between matches (and until there is someone on each team) everyone is on a bare baseplate with empty hands, voting for the
@@ -124,12 +125,19 @@ function freezeBegin() { if (!matchFrozen()) return; _frz = { k: FREEZE_KEYS.map
 function freezeEnd() { if (!_frz) return; FREEZE_KEYS.forEach((k, i) => { if (keys[k] === false) keys[k] = _frz.k[i]; }); if (!mouse.left) mouse.left = _frz.l; if (!mouse.right) mouse.right = _frz.r; _frz = null; if (matchFrozen()) { P.vel.x = 0; P.vel.z = 0; } }
 
 // ---- queue up: into a public room still on its baseplate, or a new one
-async function queueUp() {
-  $('err').textContent = 'Looking for a match...';
-  let j = null; try { j = await api('/api/queue'); } catch (e) {}
-  if (j && j.room) { S.pub = true; startOnline(j.room, false); return; }
-  let c = ''; for (let i = 0; i < 5; i++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
-  S.pub = true; startOnline(c, true);
+// quick match: the room holds you a place in the fullest public lobby of that mode; with none, it hands you a code to start
+// one, already listed so whoever queues next lands with you
+async function queueUp(mode) {
+  $('err').textContent = mode === 'raid' ? 'Looking for a raid...' : 'Looking for a match...';
+  let j = null; try { j = await api('/api/queue', { mode: mode || 'siege' }); } catch (e) {}
+  S.cfg = { name: mode === 'raid' ? 'Raid lobby' : 'Public match', mode: mode || 'siege', pub: 1, tod: 6.4, weather: 'rain', dayLen: 60, win: 5, max: 12 }; S.pub = true;
+  if (j && j.room) {
+    // (a lobby just made by someone else queueing may take a second to come up)
+    for (let k = 0; k < 8; k++) { try { await api('/api/room?room=' + j.room); break; } catch (e) { await sleep(800); } }
+    deploy(mode === 'raid' ? 'RAID' : 'QUICK MATCH', () => startOnline(j.room, false)); return;
+  }
+  let c = j && j.make; if (!c) { c = ''; for (let i = 0; i < 5; i++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]; }
+  deploy(mode === 'raid' ? 'RAID' : 'QUICK MATCH', () => startOnline(c, true));
 }
 
 // ---- module exports: build.mjs strips this block ----

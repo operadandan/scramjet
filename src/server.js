@@ -17,7 +17,9 @@ async function getDB(env) {
       env.DB.prepare("CREATE TABLE IF NOT EXISTS rooms (code TEXT PRIMARY KEY, host TEXT NOT NULL, seen INTEGER NOT NULL)"),
       env.DB.prepare("CREATE TABLE IF NOT EXISTS sig (id INTEGER PRIMARY KEY AUTOINCREMENT, room TEXT NOT NULL, dst TEXT NOT NULL, src TEXT NOT NULL, data TEXT NOT NULL, ts INTEGER NOT NULL)"),
       env.DB.prepare("CREATE INDEX IF NOT EXISTS sig_dst ON sig (room, dst, id)"),
-      env.DB.prepare("CREATE TABLE IF NOT EXISTS pubs (code TEXT PRIMARY KEY, seen INTEGER NOT NULL, open INTEGER NOT NULL, n INTEGER NOT NULL)")
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS pubs (code TEXT PRIMARY KEY, seen INTEGER NOT NULL, open INTEGER NOT NULL, n INTEGER NOT NULL)"),
+      // the server browser: every public server and what it is running
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS servers (code TEXT PRIMARY KEY, name TEXT NOT NULL, mode TEXT NOT NULL, map TEXT NOT NULL, ph TEXT NOT NULL, n INTEGER NOT NULL, max INTEGER NOT NULL, seen INTEGER NOT NULL, hold INTEGER NOT NULL DEFAULT 0)")
     ]);
     dbReady = true;
   }
@@ -56,7 +58,10 @@ async function handleApi(request, env, url) {
       const code = cleanCode(body.room), id = cleanId(body.id);
       if (code.length < 4 || !id) return json({ error: "bad request" }, 400);
       const row = await db.prepare("SELECT host, seen FROM rooms WHERE code = ?").bind(code).first();
-      if (row && row.host !== id && now - row.seen < HOST_TTL) return json({ error: "taken" }, 409);
+      // (a lobby whose host left moves to one of its players: a takeover is allowed once the old host has stopped pinging
+      // for a few seconds, or said it was leaving)
+      const stale = body.takeover ? 7000 : HOST_TTL;
+      if (row && row.host !== id && now - row.seen < stale) return json({ error: "taken" }, 409);
       await db.batch([
         db.prepare("INSERT OR REPLACE INTO rooms (code, host, seen) VALUES (?, ?, ?)").bind(code, id, now),
         db.prepare("DELETE FROM sig WHERE ts < ?").bind(now - 120000),
@@ -67,23 +72,41 @@ async function handleApi(request, env, url) {
     case "/api/ping": {
       await db.prepare("UPDATE rooms SET seen = ? WHERE code = ? AND host = ?").bind(now, cleanCode(body.room), cleanId(body.id)).run();
       // a public room (made by "queue up"): listed while it is on its baseplate with room to spare
-      if (body.pub) {
-        const own = await db.prepare("SELECT 1 FROM rooms WHERE code = ? AND host = ?").bind(cleanCode(body.room), cleanId(body.id)).first();
-        if (own) await db.prepare("INSERT OR REPLACE INTO pubs (code, seen, open, n) VALUES (?, ?, ?, ?)").bind(cleanCode(body.room), now, body.open ? 1 : 0, Math.max(0, Math.min(99, Number(body.n) || 0))).run();
-      }
+      const own = await db.prepare("SELECT 1 FROM rooms WHERE code = ? AND host = ?").bind(cleanCode(body.room), cleanId(body.id)).first();
+      if (own && body.pub) {
+        const n = Math.max(0, Math.min(12, Number(body.n) || 0)), name = String(body.name || "").replace(/[<>]/g, "").slice(0, 32) || "BREACH server";
+        const mode = body.mode === "raid" ? "raid" : "siege", ph = ["lobby", "load", "live", "post"].includes(body.ph) ? body.ph : "lobby", max = Math.max(2, Math.min(12, Number(body.max) || 12));
+        await db.batch([
+          db.prepare("INSERT OR REPLACE INTO pubs (code, seen, open, n) VALUES (?, ?, ?, ?)").bind(cleanCode(body.room), now, body.open ? 1 : 0, n),
+          // (a queued player's reserved place is kept until the host's count catches up with it)
+          db.prepare("INSERT INTO servers (code, name, mode, map, ph, n, max, seen, hold) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0) ON CONFLICT(code) DO UPDATE SET name = excluded.name, mode = excluded.mode, ph = excluded.ph, max = excluded.max, seen = excluded.seen, hold = CASE WHEN excluded.n >= servers.n + servers.hold THEN 0 ELSE MAX(0, servers.n + servers.hold - excluded.n) END, n = excluded.n").bind(cleanCode(body.room), name, mode, "Suburban House", ph, n, max, now)
+        ]);
+      } else if (own) await db.prepare("DELETE FROM servers WHERE code = ?").bind(cleanCode(body.room)).run();
       return json({ ok: true });
     }
     case "/api/unhost": {
       let b = body; if (!b.room) { try { b = JSON.parse(await request.text()); } catch (e) {} }
       await db.prepare("DELETE FROM rooms WHERE code = ? AND host = ?").bind(cleanCode(b.room), cleanId(b.id)).run();
       await db.prepare("DELETE FROM pubs WHERE code = ? AND NOT EXISTS (SELECT 1 FROM rooms WHERE code = ? AND host != ?)").bind(cleanCode(b.room), cleanCode(b.room), cleanId(b.id)).run();
+      // (the server browser keeps the entry a little longer when someone in it is taking over as host; the next ping refreshes it)
       return json({ ok: true });
     }
     // queue up: the fullest public room still between matches (on its baseplate) with room for one more, if there is one
     case "/api/queue": {
-      await db.prepare("DELETE FROM pubs WHERE seen < ?").bind(now - 60000).run();
-      const row = await db.prepare("SELECT code FROM pubs WHERE open = 1 AND seen > ? AND n < ? ORDER BY n DESC LIMIT 1").bind(now - HOST_TTL, 8).first();
-      return json({ room: row ? row.code : null });
+      // the fullest public server of that mode still between matches with a place free; the place is held for you (so two
+      // people queueing at once don't both take the last one, and do end up together). None: you are told to make one, and it
+      // is listed at once, so the next one to queue finds you.
+      await db.batch([db.prepare("DELETE FROM pubs WHERE seen < ?").bind(now - 60000), db.prepare("DELETE FROM servers WHERE seen < ?").bind(now - 60000)]);
+      const mode = body.mode === "raid" ? "raid" : "siege";
+      const row = await db.prepare("SELECT code FROM servers WHERE mode = ? AND ph = 'lobby' AND seen > ? AND n + hold < max ORDER BY n + hold DESC LIMIT 1").bind(mode, now - HOST_TTL).first();
+      if (row) { await db.prepare("UPDATE servers SET hold = hold + 1 WHERE code = ?").bind(row.code).run(); return json({ room: row.code }); }
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let code = ""; for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
+      await db.prepare("INSERT OR REPLACE INTO servers (code, name, mode, map, ph, n, max, seen, hold) VALUES (?, ?, ?, ?, 'lobby', 0, 12, ?, 1)").bind(code, mode === "raid" ? "Raid lobby" : "Public match", mode, "Suburban House", now).run();
+      return json({ room: null, make: code });
+    }
+    case "/api/servers": {
+      const rows = await db.prepare("SELECT code, name, mode, map, ph, n, max FROM servers WHERE seen > ? ORDER BY ph = 'lobby' DESC, n DESC LIMIT 60").bind(now - HOST_TTL).all();
+      return json({ servers: rows.results || [] });
     }
     case "/api/room": {
       const row = await db.prepare("SELECT host, seen FROM rooms WHERE code = ?").bind(cleanCode(url.searchParams.get("room"))).first();
@@ -127,7 +150,7 @@ export default {
   }
 };
 
-export const GD_RULES = { bcharge: ['r', 3], claymore: ['r', 1], beartrap: ['b', 3], wire: ['b', 2], shield: ['b', 1], alarm: ['b', 2] };
+export const GD_RULES = { claymore: ['r', 1], beartrap: ['b', 3], wire: ['b', 2], shield: ['b', 1], alarm: ['b', 2] };
 class GameRoom extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
@@ -206,7 +229,7 @@ class GameRoom extends DurableObject {
       case "chat": if (p.ready && typeof m.s === "string" && m.s.trim() && (p.chatT || 0) < Date.now() - 500) { p.chatT = Date.now(); this.broadcast({ t: "chat", id: p.id, s: m.s.slice(0, 120) }, p); } break;
       case "x": { if (p.ready && raw.length < 600 && ["c4p", "c4t", "nade", "boom", "chk", "gd", "gdx", "mw"].includes(m.a) && !this.frozen() && this.xGuard(p, m)) this.broadcast({ t: "x", id: p.id, a: m.a, k: ["c4", "frag", "smoke", "flash", "teargas", "bcharge", "claymore", "beartrap", "wire", "shield", "alarm", "snap", "rustle"].includes(m.k) ? m.k : "frag", i: Number(m.i) || 0, p: m.p, n: m.n, v: m.v, f: Number(m.f) || 0, w: m.w, c: Number(m.c) || 0, tg: Number.isFinite(m.tg) ? m.tg : undefined, tp: Number(m.tp) || 0, lp: m.lp, lq: m.lq, ob: m.ob ? 1 : 0, T: Array.isArray(m.T) ? m.T.slice(0, 48).map(Number) : undefined, C: Array.isArray(m.C) ? m.C.slice(0, 32).map(Number) : undefined, H: Array.isArray(m.H) ? m.H.slice(0, 24).map(Number) : undefined }, p); break; }
       // a punch: forwarded to the one hit, whose client works out the bruise
-      case "punch": { const tgt = this.players.get(m.id), pa = p.state && p.state.p, ta = tgt && tgt.state && tgt.state.p; if (p.ready && p.alive && !this.frozen() && (!pa || !ta || Math.hypot(pa[0] - ta[0], pa[1] - ta[1], pa[2] - ta[2]) < 2.6) && tgt && tgt !== p && tgt.alive && Date.now() - (p.lastPunch || 0) > 220) { p.lastPunch = Date.now(); this.send(tgt, { t: "punched", by: p.id, f: String(m.f || "").slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)) }); } break; }
+      case "punch": { const tgt = this.players.get(m.id), pa = p.state && p.state.p, ta = tgt && tgt.state && tgt.state.p; if (p.ready && p.alive && !this.frozen() && (!pa || !ta || Math.hypot(pa[0] - ta[0], pa[1] - ta[1], pa[2] - ta[2]) < 2.6) && tgt && tgt !== p && tgt.alive && Date.now() - (p.lastPunch || 0) > 220) { p.lastPunch = Date.now(); this.send(tgt, { t: "punched", by: p.id, f: String(m.f || "").slice(0, 8), p: m.p, wd: m.wd, pw: Math.min(1.2, Math.max(0, Number(m.pw) || 0)), sl: m.sl ? 1 : 0 }); } break; }
       case "hit": this.hit(p, m); break;
       case "died": this.died(p, m); break;
       case "down": this.down(p, m); break;
@@ -226,9 +249,15 @@ class GameRoom extends DurableObject {
     }
     // a blast wrecks the gadgets round it, the same way every client works it out: the room forgets them too, once the boom
     // itself is accepted (and never the gadget that is going off)
-    const sweep = skip => { if (!fin(m.p)) return; const k = ['c4', 'frag', 'claymore', 'bcharge'].includes(m.k) ? m.k : 'frag', W = { c4: 0.76, frag: 0.24, claymore: 0.3, bcharge: 0.3 }[k];
+    const sweep = skip => { if (!fin(m.p)) return; const W = { c4: 0.76, frag: 0.24, claymore: 0.3, bcharge: 0.3 }[m.k] || 0; if (W < 0.1) return;
       for (const key in R.gd) { const g = R.gd[key]; if (key !== skip && g.k !== 'bcharge' && Math.hypot(g.p[0] - m.p[0], g.p[1] - m.p[1], g.p[2] - m.p[2]) < 1.1 * Math.cbrt(W) + 0.4) delete R.gd[key]; } };
     if (m.a === 'boom' && m.k === 'bcharge') { const key = m.tg + ':' + (Number(m.i) || 0), g = Object.hasOwn(R.gd, key) ? R.gd[key] : null; if (!g || g.k !== 'bcharge' || m.tg !== p.id || !fin(m.p) || Math.hypot(g.p[0] - m.p[0], g.p[1] - m.p[1], g.p[2] - m.p[2]) > 0.6) return false; delete R.gd[key]; sweep(key); return true; }
+    // a fist, gun butt or sledge through a soft wall: only from where they stand, only alive, in a round, a few a second
+    if (m.a === 'mw') {
+      p.mwT = (p.mwT || []).filter(t => t > now - 1000);
+      if (!p.alive || !fin(m.p) || !near(m.p, 2.6) || p.mwT.length >= 3 || (R.ph !== 'live' && R.ph !== 'lobby')) return false;
+      p.mwT.push(now); m.n = Math.max(0, Math.min(9, m.n | 0)); m.w = Math.max(0, Math.min(3000, Number(m.w) || 0)); m.f = Math.max(0, Math.min(0.2, Number(m.f) || 0)); return true;
+    }
     if (m.a === 'gdx' || (m.a === 'boom' && m.k === 'claymore')) {
       const key = m.tg + ':' + (Number(m.i) || 0), g = Object.hasOwn(R.gd, key) ? R.gd[key] : null;
       if (!g || R.ph !== 'live' || !p.alive || (p.gxT || 0) > now - 250) return false;
@@ -336,7 +365,7 @@ class GameRoom extends DurableObject {
     if (!c.r || !c.b) return this.rLobby();
     R.n++; R.ph = 'load'; R.end = Date.now() + 15000; R.go = 0;
     // the bombs move every round: another pair of sites
-    { const old = R.sp | 0; R.sp = (old + 1 + Math.floor(Math.random() * 3)) % 4; }
+    { R.sp = R.sp === undefined ? Math.floor(Math.random() * 4) : ((R.sp | 0) + 1 + Math.floor(Math.random() * 3)) % 4; }
     // a new round: one attacker, picked at random, carries the defuser; nothing boarded or reinforced yet
     if (R.pt) clearTimeout(R.pt); R.pt = null; R.plant = null; R.dz = null; R.sgw = []; R.bkSet = {}; R.found = [];
     for (const x of this.players.values()) { x.rfN = 0; x.gdN = {}; } R.gd = {};

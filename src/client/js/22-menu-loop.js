@@ -33,6 +33,7 @@ import { gadgetGhostOff, updateGadgets, wireDrag } from './27-gadgets.js';
 import { freezeBegin, freezeEnd, loadoutUI, matchHud, queueUp } from './28-match.js';
 import { eyeAfterRender, updateEyes } from './29-eyes.js';
 import { updateStructure } from './30-structure.js';
+import { deploy, serverCfg } from './31-menu.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- scoreboard
 S.score = {};
@@ -73,7 +74,7 @@ function playerName() { const n = $('name').value.trim().slice(0, 16) || ('Op' +
 function enterGame(mode) {
   S.mode = mode; $('menu').style.display = 'none'; $('hud').style.display = 'block'; $('err').textContent = '';
   $('vig').style.display = $('vigads').style.display = 'block';
-  $('help').innerHTML = mode === 'test' ? 'K test headshot death, J test body death, H take a test rifle hit<br>Shooting range on your right: 25 m to 750 m. Spare mags refill here.<br>3: C4, left mouse to throw it (it sticks to whatever it hits, people too), right mouse to fire. 4: M67, hold left (overhand) or right (underhand) to pull the pin, let go to throw, R to cook. An empty slot is your fists: left mouse jab, right mouse cross.' : '';
+  $('help').innerHTML = mode === 'test' ? 'TESTING RANGE · L loadout · ` console (give, spawn, explode, hurt, sites, lights...)<br>K test headshot death, J test body death, Y take a test rifle hit, U be suppressed<br>Shooting range on your right: 25 m to 750 m · the close-quarters course with AI defenders is behind you' : '';
   $('pauseinfo').innerHTML = mode === 'online' ? 'Room code: <b style="color:#fff;letter-spacing:3px">' + S.room + '</b><br>Share it so friends can join.' : 'Testing mode';
   renderer.domElement.requestPointerLock();
   audio();
@@ -118,7 +119,7 @@ function startTest() {
   setTimeout(() => { if (S.mode === 'test') loadoutUI(true); }, 250);
 }
 function leave() {
-  net.close();
+  S.migrating = false; net.close();
   for (const r of S.remotes.values()) r.dispose(); S.remotes.clear();
   for (const d of dummies) d.dispose(); dummies.length = 0;
   while (ragdolls.length) ragdolls.pop().dispose();
@@ -135,11 +136,11 @@ function leave() {
   buildTown(); setTimeout(warmShaders, 50);
 }
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-$('queue').onclick = () => queueUp();
-$('create').onclick = () => { S.pub = false; let c = ''; for (let i = 0; i < 5; i++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]; startOnline(c, true); };
-$('join').onclick = () => { S.pub = false; const c = $('code').value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (c.length < 4) { $('err').textContent = 'Enter a valid room code'; return; } startOnline(c, false); };
+$('queue').onclick = () => queueUp('siege');
+$('create').onclick = () => { S.cfg = serverCfg(); S.pub = !!S.cfg.pub; let c = ''; for (let i = 0; i < 5; i++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]; deploy('CREATING SERVER', () => startOnline(c, true)); };
+$('join').onclick = () => { S.pub = false; S.cfg = null; const c = $('code').value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (c.length < 4) { $('err').textContent = 'Enter a valid room code'; return; } deploy('JOINING ' + c, () => startOnline(c, false)); };
 $('code').addEventListener('keydown', e => { if (e.key === 'Enter') $('join').click(); });
-$('test').onclick = () => startTest();
+$('test').onclick = () => deploy('TESTING RANGE', () => startTest());
 $('resume').onclick = () => renderer.domElement.requestPointerLock();
 try { S.showTarget = localStorage.getItem('breach_target_panel') === '1'; } catch (e) { S.showTarget = false; }
 $('opt_target').checked = !!S.showTarget;
@@ -212,8 +213,8 @@ function applyGfx() {
   _shT = 0; _drT = 0;
   try { localStorage.setItem('breach_gfx', JSON.stringify(GFX)); } catch (e) {}
 }
-function settingsUI() {
-  const box = $('setv'); if (!box) return;
+function settingsUI(inMenu) {
+  const box = $(inMenu ? 'msetv' : 'setv'); if (!box) return;
   const row = (label, html) => '<div class="srow"><span>' + label + '</span>' + html + '</div>';
   const sel = (k, opts) => '<select data-k="' + k + '">' + opts.map(([v, t]) => '<option value="' + v + '"' + (String(GFX[k]) === String(v) ? ' selected' : '') + '>' + t + '</option>').join('') + '</select>';
   const rng = (k, a, b, st, fmt) => '<input type="range" data-k="' + k + '" min="' + a + '" max="' + b + '" step="' + st + '" value="' + GFX[k] + '"><b>' + fmt(GFX[k]) + '</b>';
@@ -227,19 +228,19 @@ function settingsUI() {
     '<h3>VIEW AND CONTROLS</h3>' +
     row('Field of view', rng('fov', 60, 100, 1, v => v + '&deg;')) +
     row('Mouse sensitivity', rng('sens', 0.2, 3, 0.05, v => (+v).toFixed(2) + 'x')) +
-    '<button id="setback">Back</button>';
+    (inMenu ? '' : '<button id="setback">Back</button>');
   box.querySelectorAll('[data-k]').forEach(el => {
     const ev = el.tagName === 'SELECT' ? 'onchange' : 'oninput';
     el[ev] = () => {
       const k = el.dataset.k, v = el.value;
-      if (k === 'preset') { GFX.preset = v; if (GFX_PRESETS[v]) Object.assign(GFX, GFX_PRESETS[v]); applyGfx(); settingsUI(); return; }
+      if (k === 'preset') { GFX.preset = v; if (GFX_PRESETS[v]) Object.assign(GFX, GFX_PRESETS[v]); applyGfx(); settingsUI(inMenu); return; }
       GFX[k] = el.type === 'range' ? +v : (k === 'res' && v !== 'auto' ? +v : v);
       if (!['fov', 'sens'].includes(k)) GFX.preset = 'custom';
       if (el.type === 'range') el.nextElementSibling.innerHTML = { debris: 1, splats: 1 }[k] ? Math.round(v * 100) + '%' : k === 'fov' ? v + '&deg;' : k === 'sens' ? (+v).toFixed(2) + 'x' : v;
-      applyGfx(); if (k !== 'fov' && k !== 'sens' && el.tagName === 'SELECT') settingsUI();
+      applyGfx(); if (k !== 'fov' && k !== 'sens' && el.tagName === 'SELECT') settingsUI(inMenu);
     };
   });
-  $('setback').onclick = () => { $('setv').style.display = 'none'; $('pmain').style.display = 'block'; };
+  if (!inMenu) $('setback').onclick = () => { $('setv').style.display = 'none'; $('pmain').style.display = 'flex'; };
 }
 $('opensettings').onclick = () => { $('pmain').style.display = 'none'; $('setv').style.display = 'block'; settingsUI(); };
 applyGfx();
@@ -292,5 +293,5 @@ function frame(now, hidden) {
 schedule();
 
 // ---- module exports: build.mjs strips this block ----
-export { CODE_CHARS, applyGfx, frame, leave, renderScore, scoreOf, setLoadout, startOnline };
+export { CODE_CHARS, applyGfx, frame, leave, renderScore, scoreOf, setLoadout, settingsUI, startOnline };
 // ---- end module exports ----

@@ -3,7 +3,9 @@ import { $, camera, clamp, damp, renderer, rnd } from './00-setup.js';
 import { noiseHit } from './10-audio.js';
 import { P, S, dummies } from './17-dummies.js';
 import { PITCH_MIN } from './18-player.js';
-import { deafen } from './19b-explosives.js';
+import { boomLight, deafen, los } from './19b-explosives.js';
+import { ENV, houseLights } from './24-env.js';
+import { SL, remoteLights } from './26-lights.js';
 import { smokeAt } from './27-gadgets.js';
 import { matchFrozen } from './28-match.js';
 // ---- end module links ----
@@ -61,6 +63,19 @@ function flashHit(k, ears) {
   P.flashBlind = Math.max(P.flashBlind || 0, k * 4);
   deafen(Math.max(ears || 0, k * 0.8));
 }
+// light into night vision: a lamp, a flashlight pointed your way, a flash or a blast is many times too bright for the tube;
+// the view blooms out, white-green, round it (worse the nearer and the more straight on), and takes a moment to settle
+function nvgGlare(dt) {
+  EYE.glT = (EYE.glT || 0) - dt; if (EYE.glT > 0) return EYE.glK || 0;
+  EYE.glT = 0.1; let k = 0; const eye = camera.position, fw = camera.getWorldDirection(EYE._gv || (EYE._gv = eye.clone()));
+  const see = (p, I) => { const d = p.distanceTo(eye); if (d < 0.2 || d > 40) return; const to = p.clone().sub(eye).multiplyScalar(1 / d), c = to.dot(fw); if (c < 0.55) return; if (!los(eye, p)) return; k += I * Math.pow((c - 0.55) / 0.45, 1.5) / (1 + d * d * 0.08); };
+  for (const l of houseLights) if (l.intensity > 0) see(l.position, 0.9);
+  for (const L of remoteLights) if (L.l.intensity > 0) { const back = L.l.target.position.clone().sub(L.l.position).normalize().dot(eye.clone().sub(L.l.position).normalize()); if (back > 0.8) see(L.l.position, 3 * (back - 0.8) / 0.2); }
+  if (boomLight.intensity > 1) see(boomLight.position, 4);
+  if (SL.on) k += 0.08;
+  k += ENV.flash * 2;
+  EYE.glK = clamp(k, 0, 1.5); return EYE.glK;
+}
 function eyeReset() { EYE.flashK = 0; EYE.stillK = 0; EYE.gasK = 0; EYE.smokeK = 0; EYE.outK = 0; P.flashBlind = 0; P.nvgOn = false; if (eyeEls) setLid(0); }
 function toggleNvg() { P.nvgOn = !P.nvgOn; noiseHit(P.nvgOn ? 4200 : 2600, 0.03, 0.04); }
 function setLid(k) { const h = (k * 51) + '%'; eyeEls.lidT.style.height = h; eyeEls.lidB.style.height = h; }
@@ -100,13 +115,16 @@ function updateEyes(dt) {
   setLid(on ? clamp(Math.max(bl, squint, EYE.outK), 0, 1) : 0);
   // ---- a CSS filter over the game view: smoke and gas blur, night vision green and bright
   const nvg = on && P.head === 'nvg' && P.nvgOn;
+  const gl = nvg ? nvgGlare(dt) : 0; EYE.glare = damp(EYE.glare || 0, gl, gl > (EYE.glare || 0) ? 14 : 2.5, dt);
   let f = '';
-  if (nvg) f += 'grayscale(1) sepia(1) hue-rotate(68deg) saturate(3.2) brightness(' + (1.6 + Math.max(0, 0.6 - (P.envDay || 0.5)) * 3).toFixed(2) + ') contrast(1.25) ';
+  if (nvg) f += 'grayscale(1) sepia(1) hue-rotate(68deg) saturate(3.2) brightness(' + (1.25 + EYE.glare * 2.5).toFixed(2) + ') contrast(' + (1.25 - Math.min(0.6, EYE.glare * 0.5)).toFixed(2) + ') ';
   const blur = EYE.smokeK * 1.2 + EYE.gasK * 3.5;
   if (blur > 0.05) f += 'blur(' + blur.toFixed(2) + 'px) ';
   if (EYE.gasK > 0.05) f += 'saturate(' + (1 - EYE.gasK * 0.5).toFixed(2) + ') ';
   S.eyeFilt = f.trim();
   eyeEls.nvgTube.style.display = nvg ? 'block' : 'none';
+  if (!eyeEls.bloom) { const d = document.createElement('div'); d.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:4;background:radial-gradient(circle at 50% 50%,rgba(220,255,210,.95),rgba(140,255,140,.6) 35%,rgba(60,200,80,.2) 70%,rgba(0,0,0,0) 100%);opacity:0;mix-blend-mode:screen'; document.body.appendChild(d); eyeEls.bloom = d; }
+  eyeEls.bloom.style.opacity = nvg ? String(clamp(EYE.glare * 0.8, 0, 0.95)) : '0';
   eyeEls.mask.style.display = on && masked ? 'block' : 'none';
   // ---- grain: always faint; night vision much heavier (not overwhelming)
   EYE.grainT -= dt;

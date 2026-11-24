@@ -27,7 +27,7 @@ const _fogDay = new THREE.Color(0xb4c2cf), _fogNight = new THREE.Color(0x0a0e15)
 const _sunReal = new V3();
 // the house lights: always there (a light added later would rebuild every shader), only lit at night
 // (one per room the map puts a lamp in: TOWN.lamps; the rest stay dark)
-const houseLights = []; for (let i = 0; i < 6; i++) { const l = new THREE.PointLight(0xffd8a0, 0, 12, 1.6); l.position.set(0, -50, 0); scene.add(l); houseLights.push(l); }
+const houseLights = []; for (let i = 0; i < 14; i++) { const l = new THREE.PointLight(0xffd8a0, 0, 12, 1.6); l.position.set(0, -50, 0); scene.add(l); houseLights.push(l); }
 // (the lamp shades' glowing material, lampMat, is in 01b-town: the map is built before this file runs)
 // rain: streaks in a box that follows the camera
 const RAIN_N = 2400, rainGeo = new THREE.BufferGeometry(), rainPos = new Float32Array(RAIN_N * 6);
@@ -79,19 +79,22 @@ function updateEnv(dt) {
   const sunI = day > 0.02 ? Math.max(0.15, 4.6 * day) * (1 - cloud * 0.72) : 0.13 * (1 - cloud * 0.7);
   ENV.flash = Math.max(0, ENV.flash - dt * 6);
   sun.intensity = sunI + ENV.flash * 6; vmSun.intensity = sunI * 0.74 + ENV.flash * 4;
-  if (_hemi) _hemi.intensity = _hemiI * (0.05 + day * 0.95) * (1 + cloud * 0.4 * day) + ENV.flash * 0.6;
-  scene.environmentIntensity = 0.012 + 0.55 * day * (1 - cloud * 0.4); vmScene.environmentIntensity = 0.03 + 0.65 * day * (1 - cloud * 0.4);
+  // night vision: an image intensifier (and its little infrared lamp) lifts the dark a long way; it is all green and grainy
+  const nvg = P.head === 'nvg' && P.nvgOn && P.alive && S.mode;
+  // (the sky's light is low even by day: a house with its windows boarded and its lamps out is properly dark inside)
+  if (_hemi) _hemi.intensity = _hemiI * (0.012 + day * 0.42) * (1 + cloud * 0.4 * day) + ENV.flash * 0.6 + (nvg ? 0.32 : 0);
+  scene.environmentIntensity = (nvg ? 0.25 : 0.003) + 0.3 * day * (1 - cloud * 0.4); vmScene.environmentIntensity = 0.03 + 0.65 * day * (1 - cloud * 0.4);
   // the sky dome: turbid and grey under cloud, dark at night
   const u = sky.material.uniforms; u.sunPosition.value.copy(_sunReal); u.turbidity.value = 7 + cloud * 13; u.rayleigh.value = 1.8 * (1 - cloud * 0.7) + 0.1;
-  renderer.toneMappingExposure = 0.55 * (0.55 + day * 0.45) * (1 - cloud * 0.2) + 0.04 * (1 - day) + ENV.flash * 0.3;
+  renderer.toneMappingExposure = (0.55 * (0.55 + day * 0.45) * (1 - cloud * 0.2) + 0.02 * (1 - day) + ENV.flash * 0.3) * (nvg ? 2.6 : 1);
   _tmpC.copy(_fogNight).lerp(_fogDay, day).lerp(_fogGrey, cloud * day * 0.7);
   scene.fog.color.copy(_tmpC); scene.fog.density = fogD;
   // the house lights at dusk
   // the house lights: on through the day too when it is dark out (they are what lights the inside), brighter at night
-  const lit = clamp(0.55 + (1 - day) * 0.45 + cloud * 0.15, 0, 1), lamps = (typeof TOWN !== 'undefined' && TOWN.lamps) || [];
+  const lit = 1, lamps = (typeof TOWN !== 'undefined' && TOWN.lamps) || [];
   const all = (typeof TOWN !== 'undefined' && TOWN.lampAll) || [];
-  for (let i = 0; i < houseLights.length; i++) { const l = houseLights[i], q = lamps[i], dead = all.some(L => L.li === i && L.out); if (q && S.mode && !dead) { l.position.copy(q); l.intensity = lit * 16; } else l.intensity = 0; }
-  lampMat.emissiveIntensity = lamps.length ? lit * 1.6 : 0;
+  for (let i = 0; i < houseLights.length; i++) { const l = houseLights[i], q = lamps[i], dead = all.some(L => L.li === i && L.out); if (q && S.mode && !dead) { l.position.copy(q); l.intensity = 48; l.distance = 15; } else l.intensity = 0; }
+  lampMat.emissiveIntensity = lamps.length ? 3 : 0;
   ENV.day = day; P.envDay = day; ENV.cloud = cloud; ENV.fogK = clamp((fogD - 0.002) / 0.02, 0, 1);
   // rain round the camera, falling and blown with the wind; not under a roof (it is only drawn outdoors)
   const cp = camera.position, inHouse = S.world !== 'lobby' && cp.x > HOUSE.x0 && cp.x < HOUSE.x1 && cp.z > HOUSE.z0 && cp.z < HOUSE.z1 && cp.y < HOUSE.f1 + HOUSE.H + 1;

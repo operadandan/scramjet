@@ -11,16 +11,18 @@ import { VMW, pressHand, settleHand, solveElbow } from './08-hands.js';
 import { noiseHit } from './10-audio.js';
 import { impactFx } from './11-fx.js';
 import { addWound } from './14-wounds.js';
-import { DESTR_OF, gridOpenW, wallDamage } from './15-destruction.js';
+import { DESTR_OF, gridOpenW, wallDamage, wallGrid } from './15-destruction.js';
 import { P, S, dummies, localBody, mouse } from './17-dummies.js';
 import { PITCH_MIN, flashMsg, hurtFlash, selectEmpty } from './18-player.js';
 import { net } from './19-network.js';
 import { c4Mine, makeC4, makeFrag, makeRemote, r4x, ragMeshes } from './19b-explosives.js';
 import { breachHas, pressSlot, toolSlotIndex } from './21-items-inventory.js';
+import { screenBlood } from './21b-screenfx.js';
 import { frame } from './22-menu-loop.js';
 import { boardBreak } from './23-siege.js';
 import { gdModel, sledgeK } from './27-gadgets.js';
 import { matchFrozen } from './28-match.js';
+import { boxHit } from './30-structure.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- tool viewmodels: grenade, C4 + remote, fists
 // The same rigged arms, the same skin and sleeves, the same way of placing a hand as the guns: each hand's grip on what it
@@ -118,7 +120,7 @@ const setH = (h, P_) => { h.position.copy(P_.p); h.quaternion.copy(P_.q); };
 const G_ = { idle: tpose(0.185, -0.165, -0.35, 0.1, -0.15, -0.05), pres: tpose(0.11, -0.15, -0.37, 0.15, -0.6, 0.1), over: tpose(0.24, -0.01, -0.1, -0.6, -0.5, 0.4), under: tpose(0.2, -0.4, -0.2, 0.7, -0.3, 0),
   relO: tpose(0.06, -0.07, -0.43, 0.5, 0, 0), relU: tpose(0.06, -0.15, -0.41, -0.4, 0, 0), folO: tpose(-0.02, -0.36, -0.3, 1.2, 0.3, 0), folU: tpose(0.04, -0.03, -0.4, -0.9, 0, 0), low: tpose(0.14, -0.5, -0.28, 0.6, -0.3, 0) };
 const B_ = { idle: tpose(0.07, -0.2, -0.37, 0.35, 0.3, 0.0), back: tpose(0.18, -0.03, -0.15, -0.3, 0.2, 0.4), rel: tpose(0.0, -0.09, -0.42, 0.4, 0.3, 0), fol: tpose(-0.04, -0.36, -0.3, 1, 0.5, 0), low: tpose(0.08, -0.5, -0.3, 0.8, 0.3, 0) };
-const SL_ = { idle: tpose(0.13, -0.21, -0.34, -1.15, 0.1, 0.3), up: tpose(0.24, -0.06, -0.16, 0.35, 0.2, 0.4), hit: tpose(0.03, -0.3, -0.42, -1.95, 0.05, 0.05) };
+const SL_ = { idle: tpose(0.2, -0.5, -0.42, -0.3, 0.15, 0.22), up: tpose(0.25, -0.18, -0.12, 0.75, 0.25, 0.35), hit: tpose(0.03, -0.36, -0.52, -1.4, 0.05, 0.05) };
 const RM_ = { idle: tpose(-0.13, -0.2, -0.37, 0.25, 0.35, -0.1), up: tpose(-0.075, -0.125, -0.35, 0.12, 0.28, -0.05), tuck: tpose(-0.1, -0.29, -0.3, 0.4, 0.4, -0.1) };
 // ---- per frame
 function vmTools(dt) {
@@ -327,8 +329,12 @@ function bashLand() {
 // a fist, a gun butt or a sledgehammer through a soft wall: the same stamps on every machine (one message, a seed for the
 // scatter), so the hole someone smashed is there for everyone
 function meleeWall(p, d, E, n, spread, seed, local) {
-  _pr.set(p.clone().addScaledVector(d, -0.25), d); _pr.far = 0.6; const h = _pr.intersectObjects(worldMeshes, false)[0]; if (!h) return;
-  const ud = h.object.userData; if (!DESTR_OF[ud.kind] || DESTR_OF[ud.kind] === 'concrete' || DESTR_OF[ud.kind] === 'brick') return;
+  // (the one who swung uses exactly what everyone else will get over the network)
+  if (local) { p = new V3().fromArray(p.toArray().map(r4x)); d = new V3().fromArray(d.toArray().map(r4x)).normalize(); E = Math.round(Math.min(3000, E)); seed = (seed >>> 0) || 1; }
+  _pr.set(p.clone().addScaledVector(d, -0.25), d); _pr.far = 0.6; const h = _pr.intersectObjects(worldMeshes, false).find(x => x.object.userData.box && !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(d, 0.01)))); if (!h) return;
+  const ud = h.object.userData;
+  if (!ud.grid && !wallGrid(h.object)) { boxHit(h.object, E * n * 0.5); if (local && S.mode === 'online') net.send({ t: 'x', a: 'mw', p: p.toArray().map(r4x), v: d.toArray().map(r4x), n: Math.min(9, n), w: Math.round(Math.min(3000, E)), i: seed >>> 0, f: spread }); return; }
+  if (!DESTR_OF[ud.kind]) return;
   const nrm = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : d.clone().negate();
   let r = seed >>> 0; const rr = () => { r = (r * 1664525 + 1013904223) >>> 0; return r / 4294967296 * 2 - 1; };
   for (let i = 0; i < n; i++) { const q = h.point.clone().add(new V3(rr() * spread, rr() * spread, rr() * spread).projectOnPlane(nrm)); wallDamage(h.object, q, nrm, d, E, 2, 1, true); }
@@ -347,6 +353,8 @@ function onPunched(m) {
   if (!P.alive || !P.anat || !Array.isArray(m.p)) return;
   const an = P.anat, pw = clamp(Number(m.pw) || 0.6, 0, 1.2); an.lastBy = m.by; if (Array.isArray(m.wd)) an.lastDir.fromArray(m.wd);
   const res = an.blunt(String(m.f), new V3().fromArray(m.p), pw);
+  // a sledgehammer, not a fist: a second, far heavier blow on the same spot
+  if (m.sl) { an.blunt(String(m.f), new V3().fromArray(m.p), String(m.f) === 'head' ? 3 : 2.2); screenBlood(0.8); P.stun = Math.max(P.stun || 0, 1); }
   hurtFlash(); noiseHit(rnd(150, 260), 0.07, 0.45 * pw);
   P.pitch = clamp(P.pitch + rnd(0.05, 0.12) * pw, PITCH_MIN, 1.5); P.yaw += rnd(-0.12, 0.12) * pw; P.kick += 0.9 * pw; P.recShake = Math.min(0.08, (P.recShake || 0) + 0.03 * pw); noiseHit(rnd(90, 140), 0.12, 0.6 * pw);
   { const mm = localBody.hitMeshes && localBody.hitMeshes.find(x => x.userData.frame === String(m.f)); if (mm) punchMark(localBody, mm.parent, new V3().fromArray(m.p), String(m.f), pw); }

@@ -11,6 +11,7 @@ import { DESTR, dust, spawnDebris } from './15-destruction.js';
 import { P, S } from './17-dummies.js';
 import { esc, feed, flashMsg, wakeUp } from './18-player.js';
 import { DEF_TEAM, net, teamName } from './19-network.js';
+import { lampBreak } from './24-env.js';
 import { gadgetAdd } from './27-gadgets.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- Siege: the bomb, the defuser, boards, reinforcements, revives
@@ -64,6 +65,8 @@ function siegeRound(m, joining) {
   siegeSetDrop(Array.isArray(m.dz) ? m.dz : null);
   if (m.pl && !SG.plant) siegePlanted(m.pl.site, Number(m.pl.left) || 0);
   if (!m.pl && SG.plant && m.ph !== 'post') { SG.plant = null; sgDisposeModel(SG.plantM); SG.plantM = null; }
+  // lights already shot out
+  if (joining && Array.isArray(m.lo)) for (const i of m.lo) if (Number.isInteger(i) && TOWN.lampAll && TOWN.lampAll[i]) lampBreak(i, TOWN.lampAll[i].p, new V3(0, -1, 0));
   // gadgets already out when you join mid-round
   if (joining && Array.isArray(m.gdw)) for (const g of m.gdw) if (Array.isArray(g) && Array.isArray(g[3]) && g[3].length === 3 && g[3].every(Number.isFinite)) { const o = gadgetAdd(g[0], g[1], String(g[2]), new V3().fromArray(g[3]), Number(g[4]) || 0, g[5] === 'r' ? 'r' : 'b'); if (o && g[6]) { o.sprung = true; if (o.g && o.g.userData.jaws) o.g.userData.jaws.forEach((j, i) => { j.rotation.x = (i ? 1 : -1) * 1.35; }); } }
   if (joining && Array.isArray(m.sgw)) for (const e of m.sgw) if (Array.isArray(e)) e[0] === 'bd' ? boardWindow(e[1] | 0) : e[0] === 'bk' ? boardBreak(e[1] | 0, e[2] | 0, null, true) : e[0] === 'rf' && reinforceBox(e[1]);

@@ -10,7 +10,7 @@ import { impactFx } from './11-fx.js';
 import { DESTR_OF, gridOpenW } from './15-destruction.js';
 import { doorDent, doorLaunch, doorNet, hingeOff, knobOff } from './15b-doors.js';
 import { P, S, dummies, mouse } from './17-dummies.js';
-import { flashMsg, hurtFlash, selectEmpty } from './18-player.js';
+import { PITCH_MIN, flashMsg, hurtFlash, selectEmpty } from './18-player.js';
 import { DEF_TEAM, net } from './19-network.js';
 import { boomL, boomLight, explSeq, explode, los, r3, r4x } from './19b-explosives.js';
 import { TV, bashBoard, meleeWall, punchMark, seg } from './19c-toolvm.js';
@@ -31,7 +31,6 @@ const GADGETS = {
   // breaching (attackers only): its own slot (6)
   c4: { name: 'C4 (M112)', team: 'r', slot: 'b', n: 2, desc: 'stick it, set it off: walls, doors, floors' },
   sledge: { name: 'Sledgehammer', team: 'r', slot: 'b', n: 0, desc: 'smash through boards, plywood, drywall, doors' },
-  bcharge: { name: 'Breach charge', team: 'r', slot: 'b', n: 3, desc: 'frame charge on a wall or door, 3 s fuse' },
   // gadgets (3)
   claymore: { name: 'Claymore', team: 'r', slot: 2, n: 1, desc: 'laser tripwire, blasts forward' },
   beartrap: { name: 'Bear trap', team: 'b', slot: 2, n: 3, desc: 'snaps on the leg and takes them down' },
@@ -94,8 +93,9 @@ function gdModel(k) {
     const led = new THREE.Mesh(new THREE.SphereGeometry(0.008, 6, 4), new THREE.MeshBasicMaterial({ color: 0xff3020 })); led.position.set(0.025, 0.315, 0.05); g.add(led); g.userData.led = led;
   } else if (k === 'sledge') {
     // 10 lb sledge: hickory handle, forged head
-    cyl(0.016, 0.82, 0x8a6a42, 0, 0, 0, 8); const h = box(0.17, 0.065, 0.065, 0x3a3c40, 0, 0.8, 0);
-    for (const x of [-0.088, 0.088]) { const f = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.07, 0.07), gdMat(0x5a5c60)); f.position.set(x, 0.832, 0); g.add(f); }
+    // (the head runs front to back: one striking face leads, the other trails)
+    cyl(0.016, 0.82, 0x8a6a42, 0, 0, 0, 8); const h = box(0.07, 0.07, 0.19, 0x3a3c40, 0, 0.79, 0);
+    for (const z of [-0.098, 0.098]) { const f = new THREE.Mesh(new THREE.BoxGeometry(0.076, 0.076, 0.012), gdMat(0x6a6c70)); f.position.set(0, 0.825, z); g.add(f); }
     box(0.04, 0.12, 0.04, 0x1a1a1a, 0, 0, 0);   // grip
   } else if (k === 'smoke' || k === 'teargas' || k === 'flash') {
     // M18 smoke (olive can, coloured top band), CS (grey can, red band), M84 (perforated steel tube): held and thrown models
@@ -156,7 +156,7 @@ function gadgetBlast(p, W) { if (W < 0.1) return; for (const o of GD.slice()) if
 let gdGhost = null, gdGhostK = '';
 const GHOST_OK = new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.28, depthWrite: false }), GHOST_NO = new THREE.MeshBasicMaterial({ color: 0xff4030, transparent: true, opacity: 0.28, depthWrite: false });
 GHOST_OK.userData.shared = GHOST_NO.userData.shared = true;
-function gdCount(k) { return k === 'bcharge' ? P.bcN : P.gN; }
+function gdCount(k) { return P.gN; }
 function updateGadget(dt, kk) {
   if (typeof TV !== 'undefined' && TV.c4) TV.c4.visible = false;
   const k = kk || P.tool2, G = GADGETS[k]; if (!G) return;
@@ -190,12 +190,15 @@ function gadgetGhostOff() { if (gdGhost) gdGhost.visible = false; }
 // are hit very hard
 function updateSledge(dt) {
   const Sg = P.sledge || (P.sledge = { t: 0, ph: 'idle' });
-  if (Sg.ph === 'idle') { if (mouse.left && P.semiReady && P.switchT <= 0 && S.locked && !matchFrozen() && P.stun <= 0) { P.semiReady = false; Sg.ph = 'swing'; Sg.t = 0; Sg.hit = false; noiseHit(350, 0.2, 0.05); } return; }
+  if (Sg.ph === 'idle') { if (mouse.left && P.semiReady && P.switchT <= 0 && S.locked && !matchFrozen() && P.stun <= 0) { P.semiReady = false; Sg.ph = 'swing'; Sg.t = 0; Sg.hit = false; noiseHit(300, 0.25, 0.06); } return; }
   Sg.t += dt;
-  if (!Sg.hit && Sg.t > 0.42) { Sg.hit = true; sledgeLand(); }
-  if (Sg.t > 1.15) { Sg.ph = 'idle'; Sg.t = 0; }
+  // the wind-up drags the view back and up a little; the blow comes down fast and the whole body goes with it
+  if (Sg.t < 0.45) { P.pitch = clamp(P.pitch + dt * 0.12, PITCH_MIN, 1.5); }
+  else if (Sg.t < 0.56) { P.pitch = clamp(P.pitch - dt * 0.55, PITCH_MIN, 1.5); P.recShake = Math.min(0.08, (P.recShake || 0) + dt * 0.1); if (!Sg.whoosh) { Sg.whoosh = true; noiseHit(700, 0.12, 0.12); } }
+  if (!Sg.hit && Sg.t > 0.55) { Sg.hit = true; sledgeLand(); }
+  if (Sg.t > 1.3) { Sg.ph = 'idle'; Sg.t = 0; Sg.whoosh = false; }
 }
-function sledgeK() { const Sg = P.sledge; if (!Sg || Sg.ph !== 'swing') return 0; const t = Sg.t; return t < 0.3 ? -t / 0.3 : t < 0.45 ? -1 + (t - 0.3) / 0.15 * 2.2 : 1.2 - (t - 0.45) / 0.7 * 1.2; }
+function sledgeK() { const Sg = P.sledge; if (!Sg || Sg.ph !== 'swing') return 0; const t = Sg.t; return t < 0.45 ? -Math.sin(t / 0.45 * Math.PI / 2) : t < 0.56 ? -1 + (t - 0.45) / 0.11 * 2.3 : 1.3 - (t - 0.56) / 0.74 * 1.3; }
 function sledgeLand() {
   const q = camera.quaternion, d = new V3(0, 0, -1).applyQuaternion(q), o = camera.position.clone();
   const tg = worldMeshes.slice();
@@ -203,28 +206,34 @@ function sledgeLand() {
   if (S.remotes) for (const r of S.remotes.values()) if (r.hum && r.hum.root.visible && r.alive) tg.push(...r.hum.hitMeshes.filter(m => m.visible));
   _gdRay.set(o, d); _gdRay.far = 1.7;
   const h = _gdRay.intersectObjects(tg, false).find(x => !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(d, 0.01))));
-  P.kick += 1.2; P.recShake = Math.min(0.08, (P.recShake || 0) + 0.04);
+  P.kick += 2; P.recShake = Math.min(0.08, (P.recShake || 0) + 0.07);
   if (!h) return;
+  // the jolt of it landing comes back up the handle
+  P.stun = Math.max(P.stun || 0, 0.12); P.pitch = clamp(P.pitch + 0.05, PITCH_MIN, 1.5);
   const ud = h.object.userData, hum = ud.hum;
   if (hum && (hum.dummy || hum.remote)) {
-    const info = hitToFrame(hum, h.object, h.point, d); noiseHit(70, 0.2, 0.9);
-    if (hum.flinch && hum.root.visible) hum.flinch(info.frame, info.d, 3);
-    punchMark(hum, h.object.parent, h.object.parent.worldToLocal(h.point.clone()), info.frame, 2);
-    if (hum.dummy) hum.dummy.punched(info, d, 2.2); else net.send({ t: 'punch', id: hum.remote.id, f: info.frame, p: info.e.toArray().map(r4x), wd: d.toArray().map(r4x), pw: 1.2 });
+    const info = hitToFrame(hum, h.object, h.point, d); noiseHit(60, 0.3, 1); noiseHit(900, 0.06, 0.3);
+    if (hum.flinch && hum.root.visible) hum.flinch(info.frame, info.d, 5);
+    punchMark(hum, h.object.parent, h.object.parent.worldToLocal(h.point.clone()), info.frame, 2.5);
+    // a 10 lb sledge: bones break, skulls crack (several blows are as good as a bullet)
+    if (hum.dummy) { hum.dummy.punched(info, d, 3.5); try { hum.dummy.anat.blunt(info.frame, info.e, info.frame === 'head' ? 3 : 2.2); } catch (er) {} }
+    else net.send({ t: 'punch', id: hum.remote.id, f: info.frame, p: info.e.toArray().map(r4x), wd: d.toArray().map(r4x), pw: 1.2, sl: 1 });
     return;
   }
-  noiseHit(rnd(110, 160), 0.18, 0.9);
+  noiseHit(rnd(90, 130), 0.25, 1); noiseHit(rnd(1400, 1900), 0.05, 0.25);
   if (ud.board !== undefined) { bashBoard(h.object, d, true); return; }
   if (ud.door && !ud.door.fly) {
     const D = ud.door; D.sgDmg = (D.sgDmg || 0) + 0.7;
-    if (D.kind === 'metal') { const s = D.leaf.worldToLocal(o.clone()).z >= 0 ? 1 : -1; doorDent(D, h.point, 0.5, -s); doorNet({ i: D.i, a: 'dn', p: h.point.toArray().map(r3), k: 0.5, s: -s }); if (D.sgDmg >= 3.5 && !D.fallen) { for (const hg of [...D.hinges]) hingeOff(D, hg.userData.n, d); } }
+    D.sgDmg += 0.5;
+    if (D.kind === 'metal') { const s = D.leaf.worldToLocal(o.clone()).z >= 0 ? 1 : -1; doorDent(D, h.point, 0.7, -s); doorNet({ i: D.i, a: 'dn', p: h.point.toArray().map(r3), k: 0.7, s: -s }); if (D.sgDmg >= 3 && !D.fallen) { for (const hg of [...D.hinges]) hingeOff(D, hg.userData.n, d); } }
     else if (D.sgDmg >= 1.4) doorLaunch(D, d.clone().setY(0).normalize().multiplyScalar(3).add(new V3(0, 1, 0)), new V3(0, 1, 0).cross(d).multiplyScalar(2));
     else { const kn = D.knob; if (kn && kn.parent && kn.getWorldPosition(new V3()).distanceTo(h.point) < 0.35) knobOff(D, d); }
     return;
   }
   if (DESTR_OF[ud.kind] && DESTR_OF[ud.kind] !== 'concrete') {
-    if (DESTR_OF[ud.kind] === 'brick') { impactFx(h.point, d.clone().negate(), 'concrete'); return; }
-    meleeWall(h.point, d, 2600, 9, 0.14, (Math.random() * 1e9) | 0, true);
+    const masonry = DESTR_OF[ud.kind] === 'brick' || DESTR_OF[ud.kind] === 'concrete';
+    meleeWall(h.point, d, 3000, 9, masonry ? 0.12 : 0.2, (Math.random() * 1e9) | 0, true);
+    if (masonry) impactFx(h.point, d.clone().negate(), 'concrete');
     return;
   }
   impactFx(h.point, d.clone().negate(), 'concrete');
