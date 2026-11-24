@@ -473,5 +473,5 @@ const ATT_DESC = {
 };
 
 // ---- module exports: build.mjs strips this block ----
-export { breachHas, clearItems, closeInv, curSlot, drag, dragRotate, dropHeld, dropWeapon, eqSync, hlMesh, items, openAttMenu, openInv, pickUp, pressSlot, removeItem, spawnItem, toolSlotIndex, updateInv, updatePickup, updateToolbar };
+export { breachHas, clearItems, closeInv, curSlot, drag, dragRotate, dropHeld, dropWeapon, eqCat, eqLoad, eqSync, hlMesh, items, openAttMenu, openInv, pickUp, pressSlot, removeItem, spawnItem, toolSlotIndex, updateInv, updatePickup, updateToolbar };
 // ---- end module exports ----

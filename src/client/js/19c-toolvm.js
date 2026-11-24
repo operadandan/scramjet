@@ -13,10 +13,10 @@ import { impactFx } from './11-fx.js';
 import { addWound } from './14-wounds.js';
 import { DESTR_OF, gridOpenW, wallDamage, wallGrid } from './15-destruction.js';
 import { P, S, dummies, localBody, mouse } from './17-dummies.js';
-import { PITCH_MIN, flashMsg, hurtFlash, localDeath, selectEmpty } from './18-player.js';
+import { PITCH_MIN, flashMsg, hurtFlash, localDeath, selectEmpty, switchWeapon } from './18-player.js';
 import { net } from './19-network.js';
 import { c4Mine, makeC4, makeFrag, makeRemote, r4x, ragMeshes } from './19b-explosives.js';
-import { breachHas, pressSlot, toolSlotIndex } from './21-items-inventory.js';
+import { breachHas, eqCat, eqLoad, toolSlotIndex } from './21-items-inventory.js';
 import { screenBlood } from './21b-screenfx.js';
 import { frame } from './22-menu-loop.js';
 import { boardBreak } from './23-siege.js';
@@ -376,7 +376,8 @@ function keepSlot() {
   const empty = n => n < 2 ? P.activeLo[n] == null : toolSlotIndex(n - 2) < 0;
   if (P.slot === 4) {
     if (!(P.emptySel >= 0 && P.emptySel <= 5)) { const k = [0, 1, 2, 3, 4, 5].find(empty); P.emptySel = k === undefined ? 0 : k; }
-    if (P.emptySel >= 2 && !empty(P.emptySel) && !P.fist?.hit && (!P.fist || P.fist.ph === 'guard')) pressSlot(P.emptySel);
+    // (a slot that fills up again while its fists are out: taken up)
+    if (P.emptySel >= 2 && !empty(P.emptySel) && !P.fist?.hit && (!P.fist || P.fist.ph === 'guard')) { const i = P.emptySel - 2; eqLoad(i); switchWeapon(eqCat(P.eq[i].k)); }
   }
 }
 

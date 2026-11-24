@@ -12,7 +12,7 @@ import { Dummy, P, S, dummies, keys, mouse } from './17-dummies.js';
 import { esc, feed, hurtFlash, localDeath } from './18-player.js';
 import { net, teamName } from './19-network.js';
 import { EXPL, explode } from './19b-explosives.js';
-import { eqSync } from './21-items-inventory.js';
+import { eqLoad, eqSync } from './21-items-inventory.js';
 import { applyGfx, leave, setLoadout } from './22-menu-loop.js';
 import { siegeReset } from './23-siege.js';
 import { ENV, envClock, envCur, envSet, envShare, lampBreak } from './24-env.js';
@@ -98,9 +98,10 @@ const CMDS = {
     const it = (a[0] || '').toLowerCase(), n = Math.max(1, Math.min(99, parseInt(a[1]) || 0)), G = GADGETS[it];
     if (G) {
       // (into the slot that has it already, else the first empty one, else the last)
+      if (it === 'bcharge' || it === 'claymore') return conPrint('Not in the game any more.', '#ff8a7a');
       if (!P.eq) P.eq = [null, null, null, null]; eqSync(); const c = parseInt(a[1]) ? n : G.n;
       let i = P.eq.findIndex(e => e && e.k === it); if (i < 0) i = P.eq.findIndex(e => !e); if (i < 0) i = 3;
-      P.eq[i] = { k: it, n: c }; if (it === 'c4') P.c4N = c; if (P.eqSel === i) P.eqSel = -1;
+      P.eq[i] = { k: it, n: c }; if (it === 'c4') P.c4N = c; if (P.eqSel === i) eqLoad(i);
       return conPrint('Given: ' + G.name + (c ? ' x' + c : '') + '  (key ' + (i + 3) + ')');
     }
     if (HEADGEAR[it]) { P.head = it; P.nvgOn = false; return conPrint('Wearing: ' + HEADGEAR[it].name); }

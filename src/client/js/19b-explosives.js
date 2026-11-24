@@ -20,6 +20,7 @@ import { P, S, dummies, localBody, mouse } from './17-dummies.js';
 import { PITCH_MIN, flashMsg, onSelfHurt, selectEmpty } from './18-player.js';
 import { net } from './19-network.js';
 import { meleeWall } from './19c-toolvm.js';
+import { eqLoad, eqSync } from './21-items-inventory.js';
 import { WARMING } from './22b-warm.js';
 import { siegeBlast } from './23-siege.js';
 import { GADGETS, GD, flashBang, gadgetBlast, gadgetRemove, gadgetRx, gdKey, gdModel, smokeCloud } from './27-gadgets.js';
@@ -659,7 +660,7 @@ function updateFrag(dt) {
   if (N.cook) { N.fuse -= dt; if (N.fuse <= 0) { const hp = camera.position.clone().add(new V3(0.12, -0.15, -0.3).applyQuaternion(camera.quaternion)); N.cook = false; P.fragN = Math.max(0, P.fragN - 1); nadeReset(); if (S.mode === 'online') net.send({ t: 'x', a: 'boom', k: P.tool3 || 'frag', i: 0, p: hp.toArray().map(r3) }); explode(hp, P.tool3 || 'frag', S.myIdOr0(), true); return; } }
   if (N.ph === 'idle') {
     N.inHand = P.fragN > 0;
-    if (P.fragN <= 0) { if (N.t > 0.3) selectEmpty(3); return; }
+    if (P.fragN <= 0) { if (N.t > 0.3) selectEmpty(2 + Math.max(0, P.eqSel)); return; }
     if (P.switchT <= 0 && N.draw <= 0 && S.locked && (mouse.left || mouse.right)) { N.ph = 'pin'; N.t = 0; N.btn = mouse.left ? 0 : 2; }
   } else if (N.ph === 'pin') {
     if (N.t > 0.3 && !N.pinOut) { N.pinOut = true; noiseHit(3800, 0.05, 0.12); blip(2400, 0.03, 0.03, 'triangle'); }
@@ -710,7 +711,7 @@ function updateC4(dt) {
   const mine = c4Mine(), haveBlock = P.c4N > 0;
   if (C.ph === 'idle') {
     C.inHand = haveBlock;
-    if (!haveBlock && !mine.length) { if (C.t > 0.3) selectEmpty(2); return; }
+    if (!haveBlock && !mine.length) { if (C.t > 0.3) selectEmpty(2 + Math.max(0, P.eqSel)); return; }
     if (P.switchT > 0 || !S.locked || C.draw > 0) return;
     if (mouse.left && haveBlock && P.semiReady) { P.semiReady = false; C.ph = 'throw'; C.t = 0; }
     else if ((mouse.right || (mouse.left && !haveBlock && P.semiReady)) && mine.length) { P.semiReady = false; C.ph = 'det'; C.t = 0; C.fired = false; }
@@ -817,10 +818,10 @@ function updateExplosives(dt) {
   if (P.nade && P.nade.cook && P.slot !== 3) nadeAbandon();
   // on the test range the crates of explosives never run dry: a few seconds after the last one is used, more are there
   if (S.mode === 'test' && P.alive) {
-    if (P.c4N <= 0 && !c4Mine().length) { P.c4R = (P.c4R || 0) + dt; if (P.c4R > 4) { P.c4N = 2; P.c4R = 0; flashMsg('C4 RESTOCKED', 900); } } else P.c4R = 0;
-    if (P.gN <= 0 && GADGETS[P.tool2]) { P.gR = (P.gR || 0) + dt; if (P.gR > 4) { P.gN = GADGETS[P.tool2].n; P.gR = 0; flashMsg('GADGETS RESTOCKED', 900); } } else P.gR = 0;
-    if (P.toolB === 'bcharge' && P.bcN <= 0) { P.bcR = (P.bcR || 0) + dt; if (P.bcR > 4) { P.bcN = GADGETS.bcharge.n; P.bcR = 0; flashMsg('BREACH CHARGES RESTOCKED', 900); } } else P.bcR = 0;
-    if (P.fragN <= 0 && !NADES.some(o => o.local)) { P.fragR = (P.fragR || 0) + dt; if (P.fragR > 4) { P.fragN = 3; P.fragR = 0; flashMsg('GRENADES RESTOCKED', 900); } } else P.fragR = 0;
+    // (each equipment slot that has run dry fills back up to what it carries)
+    eqSync();
+    const dry = (P.eq || []).filter(e => e && e.k !== 'sledge' && (e.k === 'c4' ? P.c4N <= 0 && !c4Mine().length : e.n <= 0));
+    if (dry.length && !NADES.some(o => o.local)) { P.eqR = (P.eqR || 0) + dt; if (P.eqR > 4) { P.eqR = 0; for (const e of dry) { e.n = GADGETS[e.k].n; if (e.k === 'c4') P.c4N = e.n; } if (P.eqSel >= 0 && P.eq[P.eqSel]) eqLoad(P.eqSel); flashMsg('EQUIPMENT RESTOCKED', 900); } } else P.eqR = 0;
   }
 }
 // ---------------------------------------------------------------- from the network

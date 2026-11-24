@@ -206,7 +206,6 @@ class AIBot extends Dummy {
     const engaged = this.tgtVis() || !!this.wb;
     // the hands busy: standing (or kneeling) still till it is done
     if (this.act) { const A = this.act; A.t += dt; if (!A.done && A.t / A.dur >= A.rel) { A.done = true; try { A.fn(); } catch (er) {} } if (A.t >= A.dur) this.act = null; }
-    for (const n of this.myNades.slice()) { n.t -= dt; if (n.t <= 0) { this.myNades.splice(this.myNades.indexOf(n), 1); this.nadeBoom(n); } }
     if (this.avert) { this.avert.t -= dt; if (this.avert.t <= 0) this.avert = null; }
     if (!this.act && (live && this.path && this.path.length && !engaged && this.dodgeT <= 0 || (live && this.dodgeT > 0 && this.path && this.path.length))) {
       const n = this.path[0], dx = n.x - this.pos.x, dz = n.z - this.pos.z, L = Math.hypot(dx, dz);
@@ -348,7 +347,8 @@ class AIBot extends Dummy {
   // standing, kneeling or lying down, for what it is doing
   pickStance() {
     let st = 0; const eng = this.tgtVis(), now = performance.now();
-    if (this.state === 'camp') st = this.campStance || 0;
+    if (this.dodgeT > 0 || this.state === 'dodge' || this.state === 'fall') st = 0;
+    else if (this.state === 'camp') st = this.campStance || 0;
     else if (eng && this.speedNow < 0.5) {
       if (this.proneFor === this.tgt.id && this.stance === 2) st = 2;
       else if (this.dist > 14 && Math.abs(this.leanK) < 0.2 && (this.w === 2 || Math.random() < 0.03) && this.roomToLie(this.tgt.pos)) { this.proneFor = this.tgt.id; st = 2; }
@@ -406,7 +406,7 @@ class AIBot extends Dummy {
     for (const n of (typeof NADES !== 'undefined' ? NADES : [])) {
       const d = n.p.distanceTo(this.pos);
       if (n.kind === 'frag' && d < 5.5 && this.dodgeT <= 0) { this.dodgeT = 1.4; this.runFrom(n.p); return; }
-      if (n.kind === 'flash' && d < 12 && n.owner !== this.pid && aiSees(this.eye, n.p)) { this.avert = { x: n.p.x, z: n.p.z, t: Math.max(0.3, n.fuse + 0.3) }; this.tgt = null; return; }
+      if (n.kind === 'flash' && d < 12 && (!this.hostP || n.owner !== this.pid) && aiSees(this.eye, n.p)) { this.avert = { x: n.p.x, z: n.p.z, t: Math.max(0.3, n.fuse + 0.3) }; this.tgt = null; return; }
     }
     if (this.dodgeT > 0) return;
     if (this.tgtVis()) {
@@ -667,8 +667,10 @@ class AIBot extends Dummy {
     for (const t of this.traps) { t.done = false; t.tries = 0; }
     this.gN = this.lo.gN; this.tN = this.lo.tN; this.act = null; this.myNades = []; this.stance = 0; this.proneK = 0; this.crouchK = 0; this.yawV = 0; this.avert = null; this.shieldCamp = null; this.proneFor = 0; this.threat = null; this.throwCD = rnd(2, 5);
   }
-  hide() { this.out = true; this.hum.root.visible = false; if (this.rag) { this.rag.keep = false; this.rag = null; } }
+  hide() { for (const n of this.myNades.splice(0)) this.nadeBoom(n); this.out = true; this.hum.root.visible = false; if (this.rag) { this.rag.keep = false; this.rag = null; } }
   update(dt) {
+    // (its grenades go off on time whatever happens to it)
+    for (const n of this.myNades.slice()) { n.t -= dt; if (n.t <= 0) { this.myNades.splice(this.myNades.indexOf(n), 1); this.nadeBoom(n); } }
     super.update(dt);
     // in a raid the others see it as a player (down or on its feet), a bit less often when nobody is near
     if (this.hostP && this.hostP.alive && !this.out) { this.sendT -= dt; if (this.sendT <= 0) { this.sendT = this.tgt || this.state === 'hunt' ? 0.08 : 0.14; this.sendState(); } }

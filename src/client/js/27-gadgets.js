@@ -164,7 +164,7 @@ function gdCount(k) { return P.gN; }
 function updateGadget(dt, kk) {
   if (typeof TV !== 'undefined' && TV.c4) TV.c4.visible = false;
   const k = kk || P.tool2, G = GADGETS[k]; if (!G) return;
-  if (gdCount(k) <= 0) { selectEmpty(kk ? 5 : 2); return; }
+  if (gdCount(k) <= 0) { selectEmpty(2 + Math.max(0, P.eqSel)); return; }
   const o = camera.getWorldPosition(new V3()), d = camera.getWorldDirection(new V3());
   _gdRay.set(o, d); _gdRay.far = 3; _gdRay.firstHitOnly = true; const h = _gdRay.intersectObjects(worldMeshes, false)[0]; _gdRay.firstHitOnly = false;
   let ok = false, at = null, n = null, yaw = P.yaw;
