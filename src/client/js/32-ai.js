@@ -216,8 +216,15 @@ class AIBot extends Dummy {
     if (this.avert) { this.avert.t -= dt; if (this.avert.t <= 0) this.avert = null; }
     if (!this.act && (live && this.path && this.path.length && !engaged && this.dodgeT <= 0 || (live && this.dodgeT > 0 && this.path && this.path.length))) {
       const n = this.path[0], dx = n.x - this.pos.x, dz = n.z - this.pos.z, L = Math.hypot(dx, dz);
-      if (L < 0.25) this.path.shift();
-      else { sp = this.moveSpeed(); mv = new V3(dx / L, 0, dz / L); }
+      // (a waypoint counts as reached only at its height too: one on a step is not reached standing on the floor beside it)
+      const dy = Math.abs(n.y - this.pos.y);
+      if (L < 0.25 && dy < 0.3) { this.path.shift(); this.pgD = 1e9; }
+      else if (L < 0.05) { this.path = null; this.pgD = 1e9; }   // (right under or over it and not at its height: no way there from here)
+      else {
+        sp = this.moveSpeed(); mv = new V3(dx / L, 0, dz / L);
+        // (no closer to the next waypoint for two seconds, though it keeps sliding about: give the path up and work out another)
+        const d3 = L + dy; if (this.pgN !== n) { this.pgN = n; this.pgD = 1e9; this.pgT = 0; } if (!(d3 < this.pgD - 0.05)) { this.pgT = (this.pgT || 0) + dt; if (this.pgT > 2) { this.path = null; this.pgT = 0; this.pgD = 1e9; } } else { this.pgD = d3; this.pgT = 0; }
+      }
     }
     if (this.dodgeT > 0) this.dodgeT -= dt;
     if (live && engaged && this.strafeT > 0) { this.strafeT -= dt; const s = new V3(Math.cos(this.ayaw), 0, -Math.sin(this.ayaw)).multiplyScalar(this.strafe); const q = this.pos.clone().addScaledVector(s, 0.4); if (this.inA(q)) { mv = s; sp = 2; } }

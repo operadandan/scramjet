@@ -16,7 +16,7 @@ import { P, S, dummies, mouse } from './17-dummies.js';
 import { PITCH_MIN, flashMsg, hurtFlash, selectEmpty } from './18-player.js';
 import { DEF_TEAM, net } from './19-network.js';
 import { boomL, boomLight, deafen, explSeq, explode, los, r3, r4x } from './19b-explosives.js';
-import { TV, bashBoard, meleeWall, punchMark, seg } from './19c-toolvm.js';
+import { TV, bashBoard, discPts, meleeWall, punchMark, seg } from './19c-toolvm.js';
 import { screenBlood } from './21b-screenfx.js';
 import { sgDisposeMarker, sgMarker } from './23-siege.js';
 import { matchFrozen } from './28-match.js';
@@ -226,7 +226,7 @@ function sledgeDoorFx(D, p, dir, seed) {
   let r = seed || 1; const rr = () => { r = (r * 1664525 + 1013904223) >>> 0; return r / 4294967296 * 2 - 1; };
   if (D.kind === 'metal') { impactFx(p, nrm, 'metal'); noiseHit(700, 0.2, 0.6); return; }
   // a wooden leaf caves in round the blow: a splintered crater and cracks out from it
-  if (wallGrid(L)) for (let i = 0; i < 10; i++) { const q = p.clone().add(new V3(rr() * 0.16, rr() * 0.16, rr() * 0.16).projectOnPlane(nrm)); wallDamage(L, q, nrm, dir, 3000, 2, 1, true); }
+  if (wallGrid(L)) discPts(p, nrm, 0.16, 10, rr, (q, f) => wallDamage(L, q, nrm, dir, 3000 * (1 - 0.4 * f), 2, 1, true));
   particles(p.clone().addScaledVector(nrm, 0.03), 26, PMAT.chip, 4, 0.03, 1.2, 1, nrm);
   noiseHit(260, 0.2, 0.9); noiseHit(1700, 0.06, 0.35);
 }
@@ -270,7 +270,7 @@ function sledgeLand() {
   }
   if (DESTR_OF[ud.kind]) {
     const masonry = DESTR_OF[ud.kind] === 'brick' || DESTR_OF[ud.kind] === 'concrete';
-    meleeWall(h.point, d, 4500, 16, masonry ? 0.16 : 0.3, (Math.random() * 1e9) | 0, true);
+    meleeWall(h.point, d, 4500, 16, masonry ? 0.13 : 0.2, (Math.random() * 1e9) | 0, true);
     // (it knocks a chunk clean out, and the dust and splinters of it fly)
     particles(h.point.clone().addScaledVector(d, -0.04), 30, PMAT.chip, 4.5, 0.035, 1.3, 1, d.clone().negate()); dust(h.point, d.clone().negate(), DESTR[DESTR_OF[ud.kind]].dust, 0.9, 0.5, 3);
     if (masonry) impactFx(h.point, d.clone().negate(), 'concrete');

@@ -12,7 +12,7 @@ import { blip, noiseHit, shotSound } from './10-audio.js';
 import { fx, tracer } from './11-fx.js';
 import { muzzleSmoke } from './12-blood.js';
 import { tpAim } from './13-third-person.js';
-import { CAL, addWound, clearWounds, floorAt } from './14-wounds.js';
+import { clearWounds, floorAt } from './14-wounds.js';
 import { gridOpenW, gridPass } from './15-destruction.js';
 import { addProp, ejectShell, spawnBullet } from './16-ballistics.js';
 import { P, S, arteryRate, bleedDrips, deathMasks, fpBody, fpClip, keys, localBody, mouse, reactRun, reactStart } from './17-dummies.js';
@@ -44,11 +44,9 @@ const PITCH_MIN = -1.05;
 function playerWoundMasks(an) { return (an.hitPts || []).map(h => ({ frame: h.frame, p: h.e.clone(), n: h.d.clone().negate(), tear: 0 })); }
 // your own body gets the same wound marks anyone else's does (seen in third person, in mirrors of it, on your arms and legs)
 function selfWound(frame, e, d, w) {
-  // (only the body others see and your shadow: none on the arms and legs you look down at)
-  for (const hum of [localBody]) {
-    const m = hum && hum.hitMeshes && hum.hitMeshes.find(x => x.userData.frame === frame); if (!m) continue;
-    try { addWound(hum, frame, m.parent, e.clone(), d.clone().normalize().negate(), 'rim', (CAL[w] || CAL[0])[0] * 5.2); } catch (er) {}
-  }
+  // nothing drawn on you: the body that casts your shadow is invisible, and a wound mesh on it would float in front of your
+  // eyes (others see your wounds on their copy of you; your corpse gets them from playerWoundMasks)
+  return;
 }
 function enterDowned(extra) {
   const an = P.anat;

@@ -342,8 +342,18 @@ function meleeWall(p, d, E, n, spread, seed, local) {
   if (!DESTR_OF[ud.kind]) return;
   const nrm = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : d.clone().negate();
   let r = seed >>> 0; const rr = () => { r = (r * 1664525 + 1013904223) >>> 0; return r / 4294967296 * 2 - 1; };
-  for (let i = 0; i < n; i++) { const q = h.point.clone().add(new V3(rr() * spread, rr() * spread, rr() * spread).projectOnPlane(nrm)); wallDamage(h.object, q, nrm, d, E, 2, 1, true); }
+  // one round crater: the centre takes the full blow and the rest fills a disc out from it (sunflower spacing), weaker at the rim
+  discPts(h.point, nrm, spread, n, rr, (q, f) => wallDamage(h.object, q, nrm, d, E * (1 - 0.45 * f), 2, 1, true));
   if (local && S.mode === 'online') net.send({ t: 'x', a: 'mw', p: p.toArray().map(r4x), v: d.toArray().map(r4x), n: Math.min(16, n), w: Math.round(Math.min(4500, E)), i: seed >>> 0, f: spread });
+}
+// n points filling a disc of radius R round p, flat to the surface normal: the first at the centre, the rest evenly out to the
+// rim (golden-angle spiral, a touch of seeded jitter so it is not a perfect pattern); cb(point, distance from centre 0..1)
+function discPts(p, nrm, R, n, rr, cb) {
+  const t1 = new V3(Math.abs(nrm.y) < 0.9 ? 0 : 1, Math.abs(nrm.y) < 0.9 ? 1 : 0, 0).cross(nrm).normalize(), t2 = nrm.clone().cross(t1).normalize();
+  for (let i = 0; i < n; i++) {
+    const f = n > 1 ? Math.sqrt(i / (n - 1)) * (0.97 + 0.03 * rr()) : 0, a = i * 2.39996 + rr() * 0.1, r = f * R;
+    cb(p.clone().addScaledVector(t1, Math.cos(a) * r).addScaledVector(t2, Math.sin(a) * r), f);
+  }
 }
 // a board (and the one next to it, half the time) splinters off the window
 function bashBoard(m, d, two) {
@@ -382,5 +392,5 @@ function keepSlot() {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { TV, bashBoard, bashK, ez, keepSlot, meleeBash, meleeWall, onPunched, punchMark, seg, updateBash, updateFists, vmTools };
+export { TV, bashBoard, bashK, discPts, ez, keepSlot, meleeBash, meleeWall, onPunched, punchMark, seg, updateBash, updateFists, vmTools };
 // ---- end module exports ----

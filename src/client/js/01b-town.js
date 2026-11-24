@@ -157,9 +157,12 @@ function buildTown(pair) {
   addDoor(-7, -3, Math.PI / 2, 'plywood', 1, 0); addDoor(0, -5, Math.PI / 2, 'plywood', -1, 0);
   addDoor(-4, 4, Math.PI / 2, 'plywood', 1, 0); addDoor(2, 5, Math.PI / 2, 'plywood', -1, 0); addDoor(8, 4, Math.PI / 2, 'plywood', 1, 0);
   townFlat(0, 0, x1 - x0, z1 - z0, 'pave', 1.2, 0.004, 0xa98d6c); worldMeshes[worldMeshes.length - 1].userData.surf = 'wood';
-  // the stairs, up along the north wall of the stair hall: 16 steps of 19 cm
-  const sz0 = z0 + t / 2 + 0.02, sz1 = sz0 + 1.15, sN = 16, rise = f1 / sN, run = 0.28, sx0 = -6.6;
+  // the stairs, up along the north wall of the stair hall: 16 steps of 19 cm, 1.3 m wide, with a clear landing at the foot
+  // (75 cm to the laundry wall) and a solid banister wall up the open side from the third step, so the only way on is from the
+  // foot or the first two steps: a body walking beside the flight can never be taken to be on it
+  const sz0 = z0 + t / 2 + 0.02, sz1 = sz0 + 1.3, sN = 16, rise = f1 / sN, run = 0.28, sx0 = -6.2;
   for (let i = 0; i < sN; i++) addBox(sx0 + i * run + run / 2, 0, (sz0 + sz1) / 2, run, (i + 1) * rise, sz1 - sz0, 'crate', 0x7a5a3a);
+  for (let i = 2; i < sN; i++) addBox(sx0 + i * run + run / 2, 0, sz1 + 0.04, run, (i + 1) * rise + 0.9, 0.08, 'crate', 0xe8e3d8, 'concrete');
   const sTop = sx0 + sN * run;
   // ---- the upper floor: its floor (with the stair well left open), then its walls
   slab(0, f1 - 0.2, (sz1 + z1) / 2, x1 - x0 + t, 0.2, z1 - sz1 + t / 2, 'crate', 0x8a7458);
@@ -224,7 +227,8 @@ function buildTown(pair) {
   addBox(-13.5, 0, -5, 0.45, 1.8, 1.6, 'crate', 0x6a5a4a); addBox(-8, 0, -9.4, 0.8, 1.7, 0.6, 'metal', 0x9a9a92);
   // stair hall: a shoe rack and the banister up the stairs
   addBox(-1, 0, -0.45, 1.2, 0.45, 0.32, 'crate', 0x5a4632);
-  for (let k = 0; k < 5; k++) deco(sx0 + 0.4 + k * 0.8, k * 0.8 * 0.67, sz1 + 0.02, 0.05, 1.0, 0.05, 0x5a4632);
+  // (the banister itself is the solid wall up the side of the flight, built with the stairs; a newel post at its foot)
+  deco(sx0 + 2 * run, 0, sz1 + 0.04, 0.1, 1.45, 0.1, 0x4a3828);
   // upstairs. Main bedroom (north-east): bed, bedside tables, wardrobe, dresser
   addBox(9, f1, -7.8, 2.2, 0.5, 2, 'crate', 0x8a96a8); deco(9, f1 + 0.5, -8.7, 2.2, 0.55, 0.15, 0x5a4632);
   addBox(7.45, f1, -9.3, 0.5, 0.55, 0.45, 'crate', 0x6a4e34); addBox(10.55, f1, -9.3, 0.5, 0.55, 0.45, 'crate', 0x6a4e34);

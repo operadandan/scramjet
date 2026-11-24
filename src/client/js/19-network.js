@@ -632,7 +632,10 @@ function resetRoundWorld() {
 let bannerT = 0, leftT = 0;
 function teamLeft(tm) {
   if (!tm || !S.R || S.R.ph !== 'live') return;
-  let n = 0; if (S.team[S.myId] === tm && P.alive) n++; for (const [id, r] of S.remotes) if (r.alive && S.team[id] === tm) n++;
+  // the host's own table is the truth (it holds the raid bots, which never get a remote here); everyone else counts remotes
+  let n = 0;
+  if (net.mode === 'host' && net.host) { for (const p of net.host.players.values()) if (p.alive && S.team[p.id] === tm) n++; }
+  else { if (S.team[S.myId] === tm && P.alive) n++; for (const [id, r] of S.remotes) if (r.alive && S.team[id] === tm) n++; }
   const el = $('teamleft'), nm = tm === 'r' ? '<span style="color:#ff6a5a">RED</span>' : '<span style="color:#6aa0ff">BLUE</span>';
   el.innerHTML = n ? 'There ' + (n === 1 ? 'is' : 'are') + ' only ' + n + ' player' + (n === 1 ? '' : 's') + ' left on the ' + nm + ' team.' : 'The ' + nm + ' team has no one left.';
   el.style.opacity = '1'; leftT = performance.now() + 4500;

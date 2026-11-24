@@ -421,7 +421,7 @@ function blastBodies(p, kind, owner, isOwner, onBody) {
       fragsAt(p, tgt, nF, 0, owner, (h, fd, v) => {
         if (an.dead) return;
         const info = hitToFrame(localBody, h.object, h.point, fd); an.lastDir.copy(fd);
-        fragGore(h, fd, v); an.frag = true; const r = an.hit(info.frame, info.e, info.d, v, 5, info.armor, info.pd); an.frag = false; if (!res || (r && r.blast)) res = r;
+        an.frag = true;   // (no fragGore: this body is the invisible shadow one, its spray would hang in front of your eyes) const r = an.hit(info.frame, info.e, info.d, v, 5, info.armor, info.pd); an.frag = false; if (!res || (r && r.blast)) res = r;
       }, vs);
     }
     if (P.downed && P.rag) fragsAt(p, ragMeshes(P.rag), nF, 0, owner, (h, fd, v, L) => fragHit(h, fd, v, L, shot, p), vs);

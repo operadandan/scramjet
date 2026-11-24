@@ -317,14 +317,19 @@ function onBulletHit(b, hit, dir, dist) {
     const an0 = ud.hum.dummy ? ud.hum.dummy.anat : null, plateLeft = an0 ? an0.armor[info.armor] > 0 : true;
     const stopped = (plate && plateLeft && Eh < 2200 && b.w !== 2) || (info.armor === 'helmet' && Eh < 700);
     if (info.armor === 'helmet' && b.local && ud.hum.remote) setHelmet(ud.hum, false, dir);
-    if (stopped || info.armor) { impactFx(hit.point, dir.clone().negate(), 'metal'); noiseHit(2600, 0.06, 0.06); }
-    if (stopped) markPlate(hit, dir, b.w);
+    // your own body (the invisible one that casts your shadow): no wound meshes or spray on it, they would hang in front of your eyes
+    const selfB = ud.hum === localBody;
+    if ((stopped || info.armor) && !selfB) { impactFx(hit.point, dir.clone().negate(), 'metal'); noiseHit(2600, 0.06, 0.06); }
+    if (stopped && !selfB) markPlate(hit, dir, b.w);
     let cont = null;
     if (!stopped) {
       // only this body segment counts as "the solid" here; whatever is behind it gets hit as the round carries on
       const tg = ud.hum.hitMeshes.filter(m => m.visible && m.userData.frame === hit.object.userData.frame), ex = exitThrough(tg, hit.point, dir, 0.8);
       const pen = bodyPen(info.frame, info.e, info.d, ex ? ex.len : 0.3, afterArmor(info.armor, info.d), b.w);
-      info.pd = pen.depth; bodyWound(hit, dir, b.w, pen, ex, ud.hum, b.frag);
+      info.pd = pen.depth;
+      if (selfB) { if (pen.v > 0 && ex) { cont = { point: ex.point, dir, v: pen.v }; if (!b.frag && (info.frame === 'head' || info.frame === 'neck')) wallSpatter(ex.point, dir, rnd(0.6, 0.9), true); } }
+      else {
+      bodyWound(hit, dir, b.w, pen, ex, ud.hum, b.frag);
       bloodFx(hit.point, dir, false, b.frag ? 0.6 : pen.v > 0 && ex ? 1 : 0.4);
       // a grenade fragment or one pellet going out the far side throws a little; a bullet the full exit spray
       if (pen.v > 0 && ex) { bloodFx(ex.point, dir, !b.frag, b.frag ? 0.6 : WEAPONS[b.w].pellets ? 0.35 : 1); b.tumble = (b.tumble || 0) + 1; cont = { point: ex.point, dir, v: pen.v }; exitBits(ex.point, dir, b, info); if (!b.frag && (info.frame === 'head' || info.frame === 'neck')) wallSpatter(ex.point, dir, rnd(0.6, 0.9), true); }
@@ -334,6 +339,7 @@ function onBulletHit(b, hit, dir, dist) {
       if (b.shot) blastVisual(b.shot, hit, dir, info, ud.hum, ud.hum);
       if (b.w === 2 && !b.shot && b.local) erode(ud.hum, hit.object.parent, info.frame, hit.object.parent.worldToLocal(hit.point.clone()), 0.045, info, dir);
       if (b.w === 2 && !b.shot) { const cr = chunkShot(ud.hum.root, hit.point, dir, info.frame, ud.hum.pal && ud.hum.pal.skin); if (cr && cr.h) { ud.hum._skullOpen = true; b.headDone = ud.hum; } }
+      }
     }
     if (!b.local) return cont;
     if (ud.hum.remote) aiHitOr(b, { t: 'hit', id: ud.hum.remote.id, f: info.frame, p: info.e.toArray().map(r4), d: info.d.toArray().map(r4), v: Math.round(v), w: b.w, ar: info.armor || '', wd: dir.toArray().map(r4), dist: Math.round(dist), pd: r4(info.pd === undefined ? 1 : info.pd) });
