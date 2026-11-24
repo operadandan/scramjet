@@ -125,8 +125,12 @@ function suppress(k, speed) {
   // flinch
   P.pitch = clamp(P.pitch + rnd(-0.02, 0.035) * (0.5 + k), PITCH_MIN, 1.5); P.yaw += rnd(-0.03, 0.03) * (0.5 + k); P.kick += 0.4 * k;
 }
+// (at most a dozen of these start in any 40 ms: a grenade's fragments all hitting at once are heard as one roar of hits
+// anyway, and a hundred sets of audio nodes made in one frame was a hitch on every blast)
+const NH = { t: 0, n: 0 };
 function noiseHit(freq, dur, vol) {
   if (vol < 0.002) return;
+  const nw = performance.now(); if (nw - NH.t > 40) { NH.t = nw; NH.n = 0; } if (++NH.n > 12) return;
   const a = audio(), t = a.currentTime, src = a.createBufferSource(); src.buffer = noiseBuf;
   const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 1.2;
   const g = a.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);

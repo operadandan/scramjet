@@ -140,8 +140,8 @@ function updateEyes(dt) {
   const blur = EYE.smokeK * 1.2 + EYE.gasK * 3.5;
   if (blur > 0.05) f += 'blur(' + blur.toFixed(2) + 'px) ';
   if (EYE.gasK > 0.05) f += 'saturate(' + (1 - EYE.gasK * 0.5).toFixed(2) + ') ';
-  // (through closing lids the world goes dim and soft before it goes dark)
-  const lk = EYE.lidK || 0; if (lk > 0.05) f += 'brightness(' + (1 - lk * 0.55).toFixed(2) + ') blur(' + (lk * 2.2).toFixed(2) + 'px) ';
+  // (no filter on the whole view for a blink: a full-screen blur every few seconds cost frames on real machines; the lids
+  // and the light through them do the dimming)
   S.eyeFilt = f.trim();
   eyeEls.nvgTube.style.display = nvg ? 'block' : 'none';
   if (!eyeEls.bloom) { const d = document.createElement('div'); d.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:4;background:radial-gradient(circle at 50% 50%,rgba(220,255,210,.95),rgba(140,255,140,.6) 35%,rgba(60,200,80,.2) 70%,rgba(0,0,0,0) 100%);opacity:0;mix-blend-mode:screen'; document.body.appendChild(d); eyeEls.bloom = d; }

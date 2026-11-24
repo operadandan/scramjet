@@ -244,9 +244,11 @@ function blastWalls(p, W, owner, only) {
   const cW = Math.cbrt(W); blastWalls.shot = null;
   for (const mesh of worldMeshes) {
     const ud = mesh.userData; if (only && ud.door !== only && ud.doorFrame !== only) continue; const kind = DESTR_OF[ud.kind]; if (!kind || !ud.box) continue;
-    const G = wallGrid(mesh); if (!G) continue;
+    // (out of reach first: a wall's grid is only built when something reaches it; this used to build one for every wall in
+    // the map on the first blast of a match, megabytes each)
     const D = DESTR[kind], b = ud.box, near = new V3(clamp(p.x, b.min.x, b.max.x), clamp(p.y, b.min.y, b.max.y), clamp(p.z, b.min.z, b.max.z));
     const d = near.distanceTo(p); if (d > 3.2 * cW) continue;
+    const G = wallGrid(mesh); if (!G) continue;
     const gp = mesh.geometry.parameters, th = [gp.width, gp.height, gp.depth][G.ax], z = Math.max(0.02, d) / cW;
     // breach radius at contact, and how fast it falls off with scaled distance, by material
     let Rb, zc, amt;

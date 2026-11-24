@@ -59,6 +59,14 @@ const BRK = 32, PIT0 = 32, SLOTS = 48;
 // falls out as chunks, so nothing hangs in the air. The same grid lets players, bodies, blood and rounds through the openings.
 // 1.2 cm cells (1.5 cm on concrete): fine enough that a single rifle round through plywood makes a hole its own size
 const GRID_CS = 0.012;
+// is this mesh a wall that gets a grid (thin upright box)? The same test wallGrid makes, without building the grid: for
+// code that only needs to know, so it does not allocate a grid for every wall it looks at
+function wallShape(mesh) {
+  const ud = mesh.userData; if (ud.grid !== undefined) return !!ud.grid;
+  const gp = mesh.geometry && mesh.geometry.parameters; if (!gp || gp.width === undefined || !ud.box) return false;
+  const dims = [gp.width, gp.height, gp.depth]; let ax = 0; for (let k = 1; k < 3; k++) if (dims[k] < dims[ax]) ax = k;
+  return ax !== 1 && dims[ax] <= 0.4;
+}
 function wallGrid(mesh) {
   const ud = mesh.userData; if (ud.grid !== undefined) return ud.grid;
   const gp = mesh.geometry.parameters; if (!gp || gp.width === undefined || !ud.box) return ud.grid = null;
@@ -104,13 +112,21 @@ function updateWallGrid(mesh, D, dir) {
   // flood fill the solid part from whatever holds it up; the rest breaks away
   // only sound material carries load: a cell damaged past the point it shows as open does not hold anything up, so a piece
   // hanging on by cracked rubble alone comes away
-  const WEAK = 0.42, dm = G.dmg;
-  const seen = new Uint8Array(n1 * n2), st = [], push = k => { if (!cell[k] && !seen[k] && dm[k] < WEAK) { seen[k] = 1; st.push(k); } };
-  if (G.hold.bottom) for (let i = 0; i < n1; i++) push(i);
-  if (G.hold.top) for (let i = 0; i < n1; i++) push((n2 - 1) * n1 + i);
-  if (G.hold.s0) for (let j = 0; j < n2; j++) push(j * n1);
-  if (G.hold.s1) for (let j = 0; j < n2; j++) push(j * n1 + n1 - 1);
-  while (st.length) { const k = st.pop(), i = k % n1, j = (k - i) / n1; if (i > 0) push(k - 1); if (i < n1 - 1) push(k + 1); if (j > 0) push(k - n1); if (j < n2 - 1) push(k + n1); }
+  // (a typed stack and no closure: on a big wall this runs over thousands of cells and a blast can ask for it on several walls)
+  const WEAK = 0.42, dm = G.dmg, N = n1 * n2;
+  const seen = new Uint8Array(N), st = G.fillSt && G.fillSt.length >= N ? G.fillSt : (G.fillSt = new Int32Array(N)); let sp = 0;
+  const seed = k => { if (!cell[k] && !seen[k] && dm[k] < WEAK) { seen[k] = 1; st[sp++] = k; } };
+  if (G.hold.bottom) for (let i = 0; i < n1; i++) seed(i);
+  if (G.hold.top) for (let i = 0; i < n1; i++) seed((n2 - 1) * n1 + i);
+  if (G.hold.s0) for (let j = 0; j < n2; j++) seed(j * n1);
+  if (G.hold.s1) for (let j = 0; j < n2; j++) seed(j * n1 + n1 - 1);
+  while (sp > 0) {
+    const k = st[--sp], i = k % n1; let q;
+    if (i > 0) { q = k - 1; if (!cell[q] && !seen[q] && dm[q] < WEAK) { seen[q] = 1; st[sp++] = q; } }
+    if (i < n1 - 1) { q = k + 1; if (!cell[q] && !seen[q] && dm[q] < WEAK) { seen[q] = 1; st[sp++] = q; } }
+    if (k >= n1) { q = k - n1; if (!cell[q] && !seen[q] && dm[q] < WEAK) { seen[q] = 1; st[sp++] = q; } }
+    if (k + n1 < N) { q = k + n1; if (!cell[q] && !seen[q] && dm[q] < WEAK) { seen[q] = 1; st[sp++] = q; } }
+  }
   // cracked cells stay only where they cling to sound wall that is held up
   const held = k => { const i = k % n1; return (i > 0 && seen[k - 1]) || (i < n1 - 1 && seen[k + 1]) || (k >= n1 && seen[k - n1]) || (k + n1 < n1 * n2 && seen[k + n1]); };
   const fall = []; for (let k = 0; k < n1 * n2; k++) if (!cell[k] && !seen[k] && !(dm[k] >= WEAK && held(k))) { cell[k] = 2; fall.push(k); }
@@ -211,6 +227,11 @@ function warmShaders() {
     add(wallClipMat(tubeMat(w), w, 0)); add(bmat('tear')); add(goreWet); add(goreDry); add(boneIn);
     const cam = new THREE.PerspectiveCamera(60, 1, 0.1, 10); renderer.compile(ws, cam);
     ws.traverse(o => { if (o.isMesh && o.customDepthMaterial) renderer.compile(o, cam); });
+    // and drawn once (into one pixel the next frame paints over), so the GPU finishes each one now and not on the first
+    // shot that needs it
+    const vp = renderer.getViewport(new THREE.Vector4()), sc = renderer.getScissor(new THREE.Vector4()), st = renderer.getScissorTest();
+    renderer.setViewport(0, 0, 1, 1); renderer.setScissor(0, 0, 1, 1); renderer.setScissorTest(true); renderer.render(ws, cam);
+    renderer.setViewport(vp); renderer.setScissor(sc); renderer.setScissorTest(st);
   } catch (e) { console.warn('shader warm-up skipped', e); }
 }
 function cutSlot(mesh, i, p, d, len, r0, r1, inner, t0, t1, cap) {
@@ -371,7 +392,21 @@ function spawnDebris(p, n, dir, spread, speed, D, sz, slab) {
   }
 }
 const _dprev = new V3();
+// the colliders filed by 2 m squares of ground (by their extent), so a falling piece checks the dozen boxes round it and
+// not all of the map's; rebuilt when the list changes and a few times a second besides (walls come down, doors swing)
+const CG = { cell: 2, map: new Map(), n: -1, t: 0, none: [], big: [] };
+function cgBuild() {
+  CG.map.clear(); CG.big.length = 0; CG.n = colliders.length; CG.t = performance.now(); const C = CG.cell;
+  for (const c of colliders) {
+    const x0 = Math.floor((c.min.x - 0.3) / C), x1 = Math.floor((c.max.x + 0.3) / C), z0 = Math.floor((c.min.z - 0.3) / C), z1 = Math.floor((c.max.z + 0.3) / C);
+    if (!isFinite(x0 + x1 + z0 + z1) || (x1 - x0 + 1) * (z1 - z0 + 1) > 2500) { CG.big.push(c); continue; }   // (anything huge is always checked)
+    for (let ix = x0; ix <= x1; ix++) for (let iz = z0; iz <= z1; iz++) { const k = (ix + 4096) * 8192 + iz + 4096; let a = CG.map.get(k); if (!a) CG.map.set(k, a = []); a.push(c); }
+  }
+}
+function colNear(p) { return CG.map.get((Math.floor(p.x / CG.cell) + 4096) * 8192 + Math.floor(p.z / CG.cell) + 4096) || CG.none; }
 function updateDebris(dt) {
+  if (debris.length && (CG.n !== colliders.length || performance.now() - CG.t > 300)) cgBuild();
+  wallFlush();
   let w = 0;
   for (let i = 0; i < debris.length; i++) {
     const d = debris[i]; if (d.dead) continue; debris[w++] = d;
@@ -382,8 +417,9 @@ function updateDebris(dt) {
     _dprev.copy(d.p); d.p.addScaledVector(d.v, dt);
     d.rot.x += d.w.x * dt; d.rot.y += d.w.y * dt; d.rot.z += d.w.z * dt;
     let floor = d.r;
-    for (const c of colliders) {
-      const p = d.p;
+    const near = colNear(d.p), nN = near.length;
+    for (let ci = 0, cn = nN + CG.big.length; ci < cn; ci++) {
+      const c = ci < nN ? near[ci] : CG.big[ci - nN], p = d.p;
       if (p.x > c.min.x && p.x < c.max.x && p.z > c.min.z && p.z < c.max.z && p.y < c.max.y + d.r && p.y > c.min.y && !(c.mesh && gridOpenW(c.mesh, p))) {
         if (_dprev.y >= c.max.y + d.r * 0.5) floor = Math.max(floor, c.max.y + d.r);
         else { d.p.x = _dprev.x; d.p.z = _dprev.z; if (_dprev.x <= c.min.x || _dprev.x >= c.max.x) d.v.x *= -0.3; else d.v.z *= -0.3; }
@@ -532,7 +568,8 @@ function stampWall(mesh, G, D, u0, v0, E, cal, w, side, through, dir, d0, dl) {
 function settleWall(mesh, G, D, dir, U, V, opened, spd) {
   spd = spd || 1;
   const ud = mesh.userData, gp = mesh.geometry.parameters, thick = [gp.width, gp.height, gp.depth][G.ax], q = new V3();
-  const fw = dir.clone().normalize(), area = opened * G.cs1 * G.cs2, n = clamp(Math.round(area * 9000), 2, 90);
+  // (a frame's worth of rubble is budgeted: 110 grenade fragments all biting walls in one frame used to throw thousands)
+  const fw = dir.clone().normalize(), area = opened * G.cs1 * G.cs2, n0 = clamp(Math.round(area * 9000), 2, 90), n = Math.min(n0, Math.max(1, WALL_Q.deb)); WALL_Q.deb -= n;
   for (let i = 0; i < n; i++) {
     q.set(0, 0, 0); q.setComponent(G.a1, U + rnd(-1, 1) * Math.sqrt(area) * 0.6); q.setComponent(G.a2, V + rnd(-1, 1) * Math.sqrt(area) * 0.6); q.setComponent(G.ax, rnd(-0.5, 0.5) * thick);
     const fwd = Math.random() < 0.75;
@@ -540,8 +577,28 @@ function settleWall(mesh, G, D, dir, U, V, opened, spd) {
       D.deb === 'rock' ? rnd(0.008, 0.025) : D.deb === 'wood' ? rnd(0.01, 0.03) : rnd(0.008, 0.022));
   }
   q.set(0, 0, 0); q.setComponent(G.a1, U); q.setComponent(G.a2, V);
-  dust(mesh.localToWorld(q.clone()), fw, D.dust, 0.4 + Math.sqrt(area) * 6, 0.6, 2.2);
+  if (WALL_Q.dust-- > 0) dust(mesh.localToWorld(q.clone()), fw, D.dust, 0.4 + Math.sqrt(area) * 6, 0.6, 2.2);
   ud.brokeT = performance.now();
+  // what comes loose, the chips left hanging over new holes and the rebar are worked out once per wall per frame (at the
+  // next updateDebris), not once per round that bit it
+  WALL_Q.pend.set(mesh, { G, D, dir: dir.clone(), thick });
+}
+// (a wall's grid is fine, 1 to 1.5 cm cells, so working out what falls is a pass over a few hundred thousand cells: a wall
+// is settled at most every 120 ms and at most two walls a frame, so a blast that bites several walls spreads that over a
+// few frames instead of doing it all in one)
+const WALL_Q = { pend: new Map(), deb: 160, dust: 12 };
+function wallFlush() {
+  WALL_Q.deb = 160; WALL_Q.dust = 12; if (!WALL_Q.pend.size) return;
+  const now = performance.now(); let n = 0;
+  for (const [mesh, w] of [...WALL_Q.pend]) {
+    if (!mesh.parent) { WALL_Q.pend.delete(mesh); continue; }
+    if (n >= 2 || now - (w.G.settleT || 0) < 120) continue;
+    WALL_Q.pend.delete(mesh); w.G.settleT = now; n++;
+    try { settleWallNow(mesh, w.G, w.D, w.dir, w.thick); } catch (e) { console.warn(e); }
+  }
+}
+function settleWallNow(mesh, G, D, dir, thick) {
+  const ud = mesh.userData, q = new V3();
   updateWallGrid(mesh, D, dir); structDirty();
   for (const c of ud.dmg || []) c.chips = c.chips.filter(ch => { q.set(0, 0, 0); q.setComponent((c.ax + 1) % 3, ch.u); q.setComponent((c.ax + 2) % 3, ch.v); if (gridOpenW(mesh, mesh.localToWorld(q.clone()))) { dropDecal(ch.m); return false; } return true; });
   if (D.deb === 'rock' && thick > 0.12) rebuildRebar(mesh, G, thick);
@@ -602,5 +659,5 @@ function updateFx(dt) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { DEB_POOLS, DESTR, DESTR_OF, REBAR_GEO, REBAR_MAT, SLOTS, _sh, cutSlot, debris, dust, edgeClipMat, gridOpenW, gridPass, holePass, markPlate, packHit, pick, ragHitInfo, settleWall, shade, spawnDebris, updateDebris, updateFx, wallClipMat, wallDamage, wallGrid, wallMask, warmShaders };
+export { DEB_POOLS, DESTR, DESTR_OF, REBAR_GEO, REBAR_MAT, SLOTS, _sh, cutSlot, debris, dust, edgeClipMat, gridOpenW, gridPass, holePass, markPlate, packHit, pick, ragHitInfo, settleWall, shade, spawnDebris, updateDebris, updateFx, wallClipMat, wallDamage, wallGrid, wallMask, wallShape, warmShaders };
 // ---- end module exports ----

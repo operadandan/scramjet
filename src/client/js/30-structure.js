@@ -6,7 +6,7 @@ import { HOUSE, TOWN } from './01b-town.js';
 import { inside, noiseHit } from './10-audio.js';
 import { decals, splatGeo } from './11-fx.js';
 import { holeify } from './14-wounds.js';
-import { DESTR, DESTR_OF, SLOTS, debris, dust, spawnDebris, wallGrid, wallMask } from './15-destruction.js';
+import { DESTR, DESTR_OF, SLOTS, debris, dust, spawnDebris, wallGrid, wallMask, wallShape } from './15-destruction.js';
 import { doorLaunch, doorQuiet, doors } from './15b-doors.js';
 import { P, S, dummies } from './17-dummies.js';
 import { flashMsg, hurtFlash, localDeath } from './18-player.js';
@@ -167,7 +167,7 @@ const BOX_K = { crate: 1, plywood: 0.6, drywall: 0.8, wood: 1, metal: 4, concret
 // (who: 'peer' for someone else's bullet, which wears it down but never breaks it here, since only the shooter's machine
 // decides that and tells everyone; 'own' for our bullet; nothing for blasts and blows, which every machine works out the same)
 function boxHit(m, E, who) {
-  const ud = m.userData, b = ud.box; if (!b || ud.falling || ud.door || ud.doorFrame || ud.bomb || ud.lamp !== undefined || ud.board !== undefined || ud.grid || wallGrid(m)) return;
+  const ud = m.userData, b = ud.box; if (!b || ud.falling || ud.door || ud.doorFrame || ud.bomb || ud.lamp !== undefined || ud.board !== undefined || ud.grid || wallShape(m)) return;
   const vol = (b.max.x - b.min.x) * (b.max.y - b.min.y) * (b.max.z - b.min.z); if (vol > 30 || b.max.y - b.min.y > 3.4) return;   // (hedges, the ground)
   if (ud.bhp === undefined) ud.bhp = (3000 + vol * 20000) * (BOX_K[ud.kind] || 1);
   if (who === 'peer') { ud.bhp = Math.max(1, ud.bhp - E); return; }
@@ -183,12 +183,12 @@ function boxBreak(m) {
 // someone's round broke a piece of furniture on their machine: it breaks here too
 function boxBreakAt(c) {
   const m = worldMeshes.find(o => { const u = o.userData, b = u.box; return b && !u.falling && !u.door && !u.bomb && !u.grid && Math.abs((b.min.x + b.max.x) / 2 - c.x) < 0.02 && Math.abs((b.min.y + b.max.y) / 2 - c.y) < 0.02 && Math.abs((b.min.z + b.max.z) / 2 - c.z) < 0.02; });
-  if (m && !wallGrid(m)) boxBreak(m);
+  if (m && !wallShape(m)) boxBreak(m);
 }
 function blastBoxes(p, W) {
   if (W < 0.1) return;
   const r = 2.2 * Math.cbrt(W);
-  for (const m of worldMeshes.slice()) { const ud = m.userData, b = ud.box; if (!b || ud.grid || ud.slab || ud.door || wallGrid(m)) continue; const q = new V3(clamp(p.x, b.min.x, b.max.x), clamp(p.y, b.min.y, b.max.y), clamp(p.z, b.min.z, b.max.z)), d = q.distanceTo(p); if (d < r) boxHit(m, W * 60000 / (0.15 + d * d)); }
+  for (const m of worldMeshes.slice()) { const ud = m.userData, b = ud.box; if (!b || ud.grid || ud.slab || ud.door || wallShape(m)) continue; const q = new V3(clamp(p.x, b.min.x, b.max.x), clamp(p.y, b.min.y, b.max.y), clamp(p.z, b.min.z, b.max.z)), d = q.distanceTo(p); if (d < r) boxHit(m, W * 60000 / (0.15 + d * d)); }
 }
 // the host's demolition: every load-bearing wall on the ground floor gives way, one after another along the house, and the
 // rest comes down by itself (the same on every machine: same order, same timing)
@@ -222,7 +222,7 @@ function damageApply(s) {
   if (!Array.isArray(s)) return;
   const fin = k => Array.isArray(k) && k.length === 3 && k.every(Number.isFinite);
   if (s[0] === 'w' && fin(s[1]) && Array.isArray(s[2])) {
-    const m = byKey(s[1], o => !o.userData.door && !!wallGrid(o)); if (!m) return; const G = wallGrid(m), D = DESTR[DESTR_OF[m.userData.kind]]; if (!D) return;
+    const m = byKey(s[1], o => !o.userData.door && wallShape(o)); if (!m) return; const G = wallGrid(m), D = DESTR[DESTR_OF[m.userData.kind]]; if (!D) return;
     if (m.userData.holeN === undefined) holeify(m, SLOTS, D.inner); m.userData.holeMax = SLOTS; wallMask(m);
     const data = G.tex.image.data;
     for (let r = 0; r + 1 < s[2].length; r += 2) { const a = s[2][r] | 0, L = s[2][r + 1] | 0; for (let k = Math.max(0, a); k < Math.min(G.cell.length, a + L); k++) { G.cell[k] = 1; G.dmg[k] = 1; data[k] = 255; } }

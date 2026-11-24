@@ -1,6 +1,6 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
-import { V3, camera, renderer, scene, scopeRT, sun, sunDir } from './00-setup.js';
+import { V3, camera, renderer, rnd, scene, scopeRT, sun, sunDir } from './00-setup.js';
 import { worldMeshes } from './01-world.js';
 import { chunkCopy, destroyChunks, headCrater } from './02b-chunks.js';
 import { Humanoid } from './03-humanoid.js';
@@ -10,7 +10,7 @@ import { bmat, drops } from './12-blood.js';
 import { GORE_GEO, dropGore, gore, spawnGore } from './12b-gore.js';
 import { PIERCE_MAT, addWound, bloodFx, blowSpatter, feedPool, goreBurst, holeInGroup, pools, seeds, spawnDrop } from './14-wounds.js';
 import { addSoak } from './14b-soak.js';
-import { DESTR, DESTR_OF, REBAR_GEO, REBAR_MAT, cutSlot, edgeClipMat, wallClipMat, wallGrid } from './15-destruction.js';
+import { DESTR, DESTR_OF, REBAR_GEO, REBAR_MAT, cutSlot, debris, edgeClipMat, spawnDebris, wallClipMat, wallGrid } from './15-destruction.js';
 import { props } from './16-ballistics.js';
 import { PALS, SKINS, dummies } from './17-dummies.js';
 import { BOOM_FX, EXPL, boomVisual } from './19b-explosives.js';
@@ -119,6 +119,11 @@ async function warmFx() {
     { const rb = new THREE.Mesh(REBAR_GEO, REBAR_MAT); rb.position.copy(F).add(new V3(0, 0.5, 6)); scene.add(rb); made.push(rb); }   // (the bars in broken concrete)
     boomVisual(F.clone().add(new V3(20, 0.1, 0)), new V3(0, 1, 0), EXPL.frag.W, 'frag');
     boomVisual(F.clone().add(new V3(-20, 0.1, 0)), new V3(0, 1, 0), EXPL.c4.W, 'c4');
+    // rubble of every kind (each kind of piece is its own instanced batch, with its own shader, empty till the first wall
+    // breaks): a few of each, so they are drawn in the rehearsal; they are gone again a moment after it
+    { const n0 = debris.length, up = new V3(0, 1, 0);
+      for (const k in DESTR) { const D = DESTR[k]; if (!D || !D.deb) continue; spawnDebris(F.clone().add(new V3(rnd(-3, 3), 1, rnd(-3, 3))), 4, up, 0.3, 0.2, D, 0.02); spawnDebris(F.clone().add(new V3(0, 1, 2)), 1, up, 0.3, 0.2, D, 0, [0.1, 0.1, 0.05]); }
+      for (let i = n0; i < debris.length; i++) debris[i].life = 1.5; }
     await step(); await step();
   } catch (e) { console.warn('warm-up', e); }
   // take away exactly what the rehearsal made (anything the player made meanwhile stays)

@@ -16,7 +16,7 @@ import { door50, doorPartHit, doorShotgun } from './15b-doors.js';
 import { P, S, dummies, localBody } from './17-dummies.js';
 import { pointBlocked } from './18-player.js';
 import { applyHurt, net } from './19-network.js';
-import { seg } from './19c-toolvm.js';
+import { ez, seg } from './19c-toolvm.js';
 import { frame } from './22-menu-loop.js';
 import { lampBreak } from './24-env.js';
 import { GD, gadgetDisarm, gadgetTargets } from './27-gadgets.js';
@@ -116,8 +116,9 @@ function aiHitOr(b, m) {
   if (S.mode === 'online' && net.mode === 'host' && net.host && b.aiBot && b.aiBot.hostP) net.host.hit(b.aiBot.hostP, m);
   else if (S.mode === 'test' && m.id === (S.myId || 1)) applyHurt(Object.assign({ t: 'hurt', by: 0 }, m));
 }
-function bulletTargets() {
-  const arr = worldMeshes.slice();
+// (noWorld: only the bodies, ragdolls and gadgets; updateBullets finds the world meshes on each round's path from the grid)
+function bulletTargets(noWorld) {
+  const arr = noWorld ? [] : worldMeshes.slice();
   for (const rg of ragdolls) if (rg !== P.rag && rg.owner) rg.group.traverse(o => { if (o.isMesh && !o.userData.keep && !o.userData.organ && !o.userData.inner && !o.userData.tube && o.visible) arr.push(o); });
   for (const r of S.remotes.values()) if (r.alive && r.st && !r.rag) for (const m of r.hum.hitMeshes) if (m.visible) arr.push(m);
   for (const d of dummies) if (!d.dead && !d.rag && !d.out && d.hum.root.visible) for (const m of d.hum.hitMeshes) if (m.visible) arr.push(m);
@@ -129,10 +130,73 @@ function bulletTargets() {
   if (P.alive && !P.downed && localBody && bullets.some(b => !b.local || b.ai)) for (const m of localBody.hitMeshes) if (m.visible) arr.push(m);
   return arr;
 }
+// ---- a flat grid over the world's meshes (2 m cells, by their world bounds) so a round only tests the few meshes along its
+// path this frame instead of every mesh in the map: a grenade's 110 fragments against a whole town's worth of meshes, every
+// frame, was most of the hitch on every blast. Rebuilt when the mesh list changes and a few times a second besides (walls
+// fall, things get placed); doors swing, so they (and anything too big for a few cells, like the ground) are always tested.
+const RG = { cell: 2, map: new Map(), dyn: [], n: -1, t: 0, stamp: 0, cst: new Map() }, _rgB = new THREE.Box3();
+const rgKey = (ix, iz) => (ix + 4096) * 8192 + (iz + 4096);
+function rgBuild() {
+  RG.map.clear(); RG.dyn.length = 0; RG.n = worldMeshes.length; RG.t = performance.now();
+  for (const m of worldMeshes) {
+    const ud = m.userData;
+    if (!m.geometry || ud.falling || ud.gadget !== undefined) { RG.dyn.push(m); continue; }
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+    _rgB.copy(m.geometry.boundingBox).applyMatrix4(m.matrixWorld);
+    // (a door and its knobs and hinges swing round a fixed hinge: filed over everywhere the swing can take them)
+    if (ud.door || ud.doorPart) _rgB.expandByScalar(1.1);
+    const x0 = Math.floor(_rgB.min.x / RG.cell), x1 = Math.floor(_rgB.max.x / RG.cell), z0 = Math.floor(_rgB.min.z / RG.cell), z1 = Math.floor(_rgB.max.z / RG.cell);
+    if (!isFinite(x0 + x1 + z0 + z1) || (x1 - x0 + 1) * (z1 - z0 + 1) > 120) { RG.dyn.push(m); continue; }
+    for (let ix = x0; ix <= x1; ix++) for (let iz = z0; iz <= z1; iz++) { const k = rgKey(ix, iz); let a = RG.map.get(k); if (!a) RG.map.set(k, a = []); a.push(m); }
+  }
+}
+function rgFresh() { if (RG.n !== worldMeshes.length || performance.now() - RG.t > 300) rgBuild(); }
+// the world meshes near the segment a to b (plus every always-tested one), pushed onto out
+function rgNear(a, b, out) {
+  const st = ++RG.stamp, pad = 0.3, C = RG.cell, dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz);
+  if (L > 300) { for (const m of worldMeshes) out.push(m); return out; }   // (a very long step: test them all)
+  // walk the cells along the path (every half cell, with a little either side), not the whole box round it
+  const steps = Math.max(1, Math.ceil(L / (C * 0.5))), cs = RG.cst; cs.clear();
+  for (let s = 0; s <= steps; s++) {
+    const x = a.x + dx * s / steps, z = a.z + dz * s / steps;
+    const x0 = Math.floor((x - pad) / C), x1 = Math.floor((x + pad) / C), z0 = Math.floor((z - pad) / C), z1 = Math.floor((z + pad) / C);
+    for (let ix = x0; ix <= x1; ix++) for (let iz = z0; iz <= z1; iz++) {
+      const k = rgKey(ix, iz); if (cs.has(k)) continue; cs.set(k, 1);
+      const c = RG.map.get(k); if (!c) continue;
+      for (const m of c) if (m._rgS !== st) { m._rgS = st; if (m.parent) out.push(m); }
+    }
+  }
+  for (const m of RG.dyn) if (m.parent) out.push(m);
+  return out;
+}
+const _rgOut = [];
+// the moving targets (bodies, ragdolls, gadgets): each one's bounding sphere worked out once a frame, so a round only
+// tests the meshes whose sphere its path passes through
+const MV = { list: null, s: new Float32Array(0) }, _mvS = new THREE.Sphere();
+function mvPrep(list) {
+  MV.list = list; if (MV.s.length < list.length * 4) MV.s = new Float32Array(list.length * 8);
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i], g = m.geometry, o = i * 4;
+    if (!g) { MV.s[o + 3] = 1e9; continue; }
+    if (!g.boundingSphere) g.computeBoundingSphere();
+    _mvS.copy(g.boundingSphere).applyMatrix4(m.matrixWorld);
+    MV.s[o] = _mvS.center.x; MV.s[o + 1] = _mvS.center.y; MV.s[o + 2] = _mvS.center.z; MV.s[o + 3] = _mvS.radius + (m.isSkinnedMesh ? 0.8 : 0.05);
+  }
+}
+function mvNear(a, b, out) {
+  const L = MV.list, S = MV.s, dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, ll = dx * dx + dy * dy + dz * dz || 1e-9;
+  for (let i = 0; i < L.length; i++) {
+    const o = i * 4, r = S[o + 3]; if (r >= 1e9) { out.push(L[i]); continue; }
+    const px = S[o] - a.x, py = S[o + 1] - a.y, pz = S[o + 2] - a.z, t = Math.min(1, Math.max(0, (px * dx + py * dy + pz * dz) / ll));
+    const ex = px - dx * t, ey = py - dy * t, ez = pz - dz * t;
+    if (ex * ex + ey * ey + ez * ez <= r * r) out.push(L[i]);
+  }
+}
 function updateBullets(dt) {
   if (!bullets.length) return;
   scene.updateMatrixWorld();
-  const targets = bulletTargets();
+  rgFresh();
+  mvPrep(bulletTargets(true));
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     _bp.copy(b.pos);
@@ -142,6 +206,7 @@ function updateBullets(dt) {
     b.pos.addScaledVector(b.vel, dt);
     _bd.subVectors(b.pos, _bp); const len = _bd.length(); if (len > 0) _bd.multiplyScalar(1 / len);
     bray.set(_bp, _bd); bray.far = len;
+    _rgOut.length = 0; const targets = len > 0 ? rgNear(_bp, b.pos, _rgOut) : _rgOut; if (len > 0) mvNear(_bp, b.pos, targets);
     const hit = len > 0 ? (b.local && !b.ai ? bray.intersectObjects(targets, false).find(h => h.object.userData.hum !== localBody && !h.object.userData.selfRag) : b.ai ? bray.intersectObjects(targets, false).find(h => { const hm = h.object.userData.hum; return !(hm && hm.dummy instanceof AIBot); }) : bray.intersectObjects(targets, false)[0]) || null : null;
     b.life += dt;
     if (!b.local && !b.whizz && S.mode && P.alive && len > 0) {
