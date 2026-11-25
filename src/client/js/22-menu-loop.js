@@ -8,6 +8,7 @@ import { limbBodies, ragdolls, updateLimbs } from './04-ragdoll.js';
 import { freshGuns } from './06-weapons.js';
 import { updateDevices } from './09-attachments.js';
 import { audio, inside } from './10-audio.js';
+import { sfxAmbience } from './10c-sfx.js';
 import { decals, splatGeo, updateHeats } from './11-fx.js';
 import { drops } from './12-blood.js';
 import { clearGore, updateGore } from './12b-gore.js';
@@ -278,7 +279,7 @@ function frame(now, hidden) {
   }
   updateBullets(wdt);
   for (const r of ragdolls) r.update(wdt);
-  updateFx(wdt); updateDebris(wdt); updateStructure(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); siegeUpdate(wdt); roundHud(); matchHud(); screenFx(wdt); updateEyes(wdt); updateConsole(dt); updateEnv(dt); updateLights(dt); updateLimbs(wdt); updateHeats(wdt);
+  updateFx(wdt); updateDebris(wdt); updateStructure(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); siegeUpdate(wdt); roundHud(); matchHud(); screenFx(wdt); updateEyes(wdt); updateConsole(dt); updateEnv(dt); updateLights(dt); updateLimbs(wdt); updateHeats(wdt); sfxAmbience(dt);
   updateCamera(dt); if (S.mode && P.alive && !P.downed) tpCamera();
   if (S.mode) { updateViewmodel(dt); vmCamera.updateMatrixWorld(true); updateDevices(); } else updateDevices();
   updateTPBody(dt);

@@ -9,6 +9,7 @@ import { Anatomy, DEATH_TEXT, LIMB_NAME, PART_OF_REGION, REGION_NAME, hitToFrame
 import { MEDKIT_W, WEAPONS, flashMat, freshGuns, isPistol, pelletDirs } from './06-weapons.js';
 import { SG_SEQ, VMW, makeReloadSeq } from './08-hands.js';
 import { blip, noiseHit, shotSound } from './10-audio.js';
+import { rackCues, reloadCues, runCues, sfxHas } from './10c-sfx.js';
 import { fx, tracer } from './11-fx.js';
 import { muzzleSmoke } from './12-blood.js';
 import { tpAim } from './13-third-person.js';
@@ -306,6 +307,8 @@ function startReload() {
   const stress = clamp(P.anat.pain * 0.8 + (P.supp || 0) * 0.8 + (P.stamina < 35 ? 0.2 : 0), 0, 1);
   P.rlSeq = makeReloadSeq(P.reloadEmpty, stress);
   P.reloadDur = w.tac * 1.3 * rnd(0.86, 1.16) * (1 + P.anat.pain * 0.35 + (P.supp || 0) * 0.45) * (P.rlSeq.fumble ? 1.1 : 0.95) * (P.anat.handBroken('L') || P.anat.handBroken('R') ? 1.6 : 1) * (P.anat.anyArm() ? 1.3 : 1);
+  // the recorded sounds of this reload, each timed to its frame (10c-sfx)
+  P.rlCues = reloadCues(w, P.rlSeq, P.reloadDur);
 }
 // ---------------------------------------------------------------- working the action by hand (F)
 // Nothing chambers by itself after an empty reload. Locked back (AR, pistols, Barrett): F hits the bolt catch / drops the slide
@@ -323,24 +326,24 @@ function workAction() {
   else if (G.lockBack && R.stop) P.rack = RK([[0, 'H0'], [0.42, 'HT'], [0.58, 'HTp'], [0.72, 'HT'], [1, 'H0']], { type: 'stop', dur: 0.55, ev: 0.58 });
   else if (G.lockBack) P.rack = RK([[0, 'H0'], [0.4, 'HC'], [0.55, 'HCb'], [0.62, 'HCb'], [1, 'H0']], { type: 'tug', dur: 0.7, ev: 0.6 });
   else P.rack = RK([[0, 'H0'], [0.48, 'HC'], [0.6, 'HC'], [1, 'HCb']], { type: 'back', dur: 0.6, ev: 0.85 });
-  P.rack.t = 0; P.rack.done = false;
-  blip(420, 0.02, 0.03);
+  P.rack.t = 0; P.rack.done = false; P.rack.cues = rackCues(WEAPONS[P.weapon], P.rack);
+  if (!P.rack.cues) blip(420, 0.02, 0.03);
 }
-function boltHome(G) {
+function boltHome(G, quiet) {
   G.held = false; G.lockBack = false;
   if (!G.chamber && G.mag > 0) { G.mag--; G.chamber = 1; }
-  noiseHit(1700, 0.09, 0.1); blip(950, 0.04, 0.08); P.kick += 0.25;
+  if (!quiet) { noiseHit(1700, 0.09, 0.1); blip(950, 0.04, 0.08); } P.kick += 0.25;
 }
 function updateRack(w, G, V, dt) {
   const R = P.rack; if (!R) return;
-  R.t += dt / R.dur;
+  R.t += dt / R.dur; runCues(R.cues, R.t * R.dur);
   if (!R.done && R.t >= R.ev) {
     R.done = true;
     if (R.type === 'back') {
       // the bolt comes back past the ejector: a round in the chamber flies out
       if (G.chamber) { G.chamber = 0; vmCamera.updateMatrixWorld(true); const q = V.g.getWorldQuaternion(new THREE.Quaternion()); ejectShell(V.port.getWorldPosition(new V3()), new V3(1, 0, 0).applyQuaternion(q), new V3(0, 1, 0).applyQuaternion(q), new V3(0, 0, -1).applyQuaternion(q), P.vel, w.shell); }
-      noiseHit(1300, 0.06, 0.06); blip(600, 0.03, 0.04);
-    } else boltHome(G);
+      if (!R.cues) { noiseHit(1300, 0.06, 0.06); blip(600, 0.03, 0.04); }
+    } else boltHome(G, !!R.cues);
   }
   if (R.t >= 1) { if (R.type === 'back') G.held = true; P.rack = null; }
 }
@@ -383,19 +386,20 @@ function startShellLoad(w, G) {
 }
 function sgPhase(ph, first) {
   P.sgPhase = ph; P.reloadT = 0; P.sgIn = false;
-  if (ph === 'load') { P.rlSeq = first ? SG_SEQ.first : SG_SEQ.shell; P.reloadDur = shellTime(WEAPONS[P.weapon]) * (first ? 1.15 : 1); }
+  P.rlCues = null;
+  if (ph === 'load') { P.rlSeq = first ? SG_SEQ.first : SG_SEQ.shell; P.reloadDur = shellTime(WEAPONS[P.weapon]) * (first ? 1.15 : 1); if (sfxHas('sg_shell')) P.rlCues = [{ t: P.rlSeq.seat * P.reloadDur, n: 'sg_shell', v: 1, i: Math.floor(Math.random() * 3) }]; }
   else if (ph === 'rack') { P.rlSeq = P.sgLoaded ? SG_SEQ.rackH1 : SG_SEQ.rack; P.reloadDur = 0.62; }
   else { P.rlSeq = SG_SEQ.end; P.reloadDur = 0.28; }
 }
 function updateShellLoad(w, G, dt) {
-  P.reloadT += dt; const r = P.reloadT / P.reloadDur;
+  P.reloadT += dt; const r = P.reloadT / P.reloadDur; runCues(P.rlCues, P.reloadT);
   if (P.sgPhase === 'load') {
-    if (r > 0.4 && P.reloadStage === 0) { P.reloadStage = 1; noiseHit(2600, 0.03, 0.03); }
+    if (r > 0.4 && P.reloadStage === 0) { P.reloadStage = 1; if (!P.rlCues) noiseHit(2600, 0.03, 0.03); }
     if (r > 0.84 && !P.sgIn) {
       // take from the emptiest carrier that still has shells, so carriers run dry one at a time
       let k = -1; for (let i = 0; i < G.pouch.length; i++) if (G.pouch[i] > 0 && (k < 0 || G.pouch[i] < G.pouch[k])) k = i;
       if (k >= 0) { G.pouch[k]--; G.mag++; P.sgLoaded++; }
-      P.sgIn = true; noiseHit(1300, 0.05, 0.08); blip(820, 0.025, 0.05); P.rlJ = (P.rlJ || 0) + 0.5;
+      P.sgIn = true; if (!P.rlCues) { noiseHit(1300, 0.05, 0.08); blip(820, 0.025, 0.05); } P.rlJ = (P.rlJ || 0) + 0.5;
     }
     if (r >= 1) {
       P.reloadStage = 0;
@@ -461,13 +465,13 @@ function updateWeapons(dt) {
   }
   if (P.reloading && w.pellets) updateShellLoad(w, G, dt);
   else if (P.reloading) {
-    P.reloadT += dt; const r = P.reloadT / P.reloadDur;
+    P.reloadT += dt; const r = P.reloadT / P.reloadDur, rc = P.rlCues; runCues(rc, P.reloadT);
     if (P.reloadStage === 0 && r > (P.reloadEmpty ? 0.13 : 0.14)) {
-      P.reloadStage = 1; blip(900, 0.04, 0.06); noiseHit(1200, 0.06, 0.06);
+      P.reloadStage = 1; if (!rc) { blip(900, 0.04, 0.06); noiseHit(1200, 0.06, 0.06); }
     }
     const sq = P.rlSeq;
-    if (!P.reloadFum && r > sq.fum) { P.reloadFum = true; noiseHit(1900, 0.03, 0.05); blip(520, 0.02, 0.03); P.rlJ = (P.rlJ || 0) - 0.5; }
-    if (P.reloadStage === 1 && r > sq.seat) { P.reloadStage = 2; blip(700, 0.05, 0.08); noiseHit(900, 0.07, 0.09); P.rlJ = (P.rlJ || 0) + 1.2; }
+    if (!P.reloadFum && r > sq.fum) { P.reloadFum = true; if (!rc) { noiseHit(1900, 0.03, 0.05); blip(520, 0.02, 0.03); } P.rlJ = (P.rlJ || 0) - 0.5; }
+    if (P.reloadStage === 1 && r > sq.seat) { P.reloadStage = 2; if (!rc) { blip(700, 0.05, 0.08); noiseHit(900, 0.07, 0.09); } P.rlJ = (P.rlJ || 0) + 1.2; }
     if (P.reloadT >= P.reloadDur) finishReload();
   }
   if (P.inspecting) {

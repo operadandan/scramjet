@@ -8,6 +8,7 @@ import { LIMB_OF, LSEG, hitToFrame, regionOf } from './05-anatomy.js';
 import { WEAPONS, isPistol } from './06-weapons.js';
 import { copperMat } from './07-gun-models.js';
 import { blip, noiseHit, suppress } from './10-audio.js';
+import { sfxDrop, sfxHas } from './10c-sfx.js';
 import { bulletHole, fragScuff, impactFx, puffTex, tracer } from './11-fx.js';
 import { goreBlast, spawnGore } from './12b-gore.js';
 import { addWound, bloodFx, blowSpatter, bodyPen, bodyWound, exitThrough, holeInGroup, wallSpatter, worldPen } from './14-wounds.js';
@@ -59,7 +60,7 @@ function ejectShell(pos, right, up, fwd, base, type) {
   // a shotgun hull: brass head plus red plastic body, open end forward. Pumped out of the port with less snap than a rifle case
   if (type === '12g') { const h = new THREE.Mesh(hullGeo, hullMat); h.castShadow = true; m.add(h); const head = SHELL_GEO['12g']; head.computeBoundingBox(); h.position.y = head.boundingBox.max.y + 0.034 - 0.0006; }
   const v = right.clone().multiplyScalar(rnd(2.2, 3.4)).addScaledVector(up, rnd(1.2, 2)).addScaledVector(fwd, rnd(-0.6, 0.1)).add(base);
-  addProp(m, type === '12g' ? v.multiplyScalar(0.7) : v, new V3(rnd(-25, 25), rnd(-10, 10), rnd(15, 35)), type === '12g' ? 0.011 : 0.005, 'shell', 25);
+  addProp(m, type === '12g' ? v.multiplyScalar(0.7) : v, new V3(rnd(-25, 25), rnd(-10, 10), rnd(15, 35)), type === '12g' ? 0.011 : 0.005, 'shell', 25); props[props.length - 1].type = type;
 }
 function updateProps(dt) {
   for (let i = props.length - 1; i >= 0; i--) {
@@ -78,7 +79,8 @@ function updateProps(dt) {
       const sp = -p.v.y;
       if (sp > 0.5) {
         const dist = m.position.distanceTo(camera.position), vol = clamp(sp / 4, 0, 1) / (1 + dist * 0.5);
-        if (p.kind === 'shell') blip(rnd(3800, 5600), 0.05, 0.03 * vol, 'sine');
+        // (a recorded case or hull hitting the floor carries its own bounces: it plays on the first knock only)
+        if (p.kind === 'shell') { if (p.knocked) { if (!sfxHas('brass')) blip(rnd(3800, 5600), 0.05, 0.03 * vol, 'sine'); } else { p.knocked = true; if (!sfxDrop(p.type, m.position, sp)) blip(rnd(3800, 5600), 0.05, 0.03 * vol, 'sine'); } }
         else noiseHit(p.kind === 'gun' ? 400 : 700, 0.08, 0.08 * vol);
       }
       p.v.y = sp * (p.kind === 'shell' ? 0.35 : 0.2); p.v.x *= 0.55; p.v.z *= 0.55; p.w.multiplyScalar(0.5);

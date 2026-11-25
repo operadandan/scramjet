@@ -4,6 +4,7 @@ import { V3, camera, clamp, rnd } from './00-setup.js';
 import { HOUSE } from './01b-town.js';
 import { S_ } from './05-anatomy.js';
 import { WEAPONS } from './06-weapons.js';
+import { sfxLoad, sfxShot } from './10c-sfx.js';
 import { wmFor } from './16-ballistics.js';
 import { P, S } from './17-dummies.js';
 import { PITCH_MIN } from './18-player.js';
@@ -17,6 +18,7 @@ function audio() {
     noiseBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     aMaster = actx.createBiquadFilter(); aMaster.type = 'lowpass'; aMaster.frequency.value = 20000; aMaster.connect(actx.destination);
+    sfxLoad();   // (the recordings: 10c-sfx)
   }
   return actx;
 }
@@ -76,6 +78,8 @@ function shotSound(wi, dist, sup, pos) {
   if (GUN_BUF[W.id]) {
     const b = a.createBufferSource(); b.buffer = GUN_BUF[W.id]; const g = a.createGain(); g.gain.value = att * room * (sup ? 0.35 : 1); b.connect(g).connect(S_.input); b.start(at); return;
   }
+  // the recorded report for this gun (10c-sfx), once it has loaded
+  if (sfxShot(W, dist, sup, pos, Math.min(1, att * room))) return;
   const src = a.createBufferSource(); src.buffer = noiseBuf;
   const f = a.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = P_[0];
   const g = a.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.setValueAtTime(P_[1] * att * room, at); g.gain.exponentialRampToValueAtTime(0.0008, at + P_[2]);
@@ -138,5 +142,5 @@ function noiseHit(freq, dur, vol) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { GUN_SOUNDS, aMaster, actx, audio, blip, footSound, inside, loadGunSound, noiseBuf, noiseHit, shotSound, suppress, surfaceAt };
+export { GUN_SOUNDS, aMaster, actx, audio, blip, footSound, inside, loadGunSound, noiseBuf, noiseHit, shotSound, spatial, suppress, surfaceAt };
 // ---- end module exports ----

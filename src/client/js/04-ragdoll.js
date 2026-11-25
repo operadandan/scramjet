@@ -7,12 +7,13 @@ import { chunkCopy, chunkIslands, headCrater } from './02b-chunks.js';
 import { WEAPONS } from './06-weapons.js';
 import { ATT_DEFAULT } from './09-attachments.js';
 import { inside, noiseHit } from './10-audio.js';
+import { sfxDeath } from './10c-sfx.js';
 import { decals, puff, splatGeo } from './11-fx.js';
 import { bmat } from './12-blood.js';
 import { addStump, bloodFx, clipGroup, copySegment, feedPool, floorAt, goreBurst, holeInGroup, liquidBlood, setSoak, soakMesh, spawnDrop, tearMesh, trimDecals } from './14-wounds.js';
 import { gridOpenW, pick } from './15-destruction.js';
 import { addProp } from './16-ballistics.js';
-import { P, S, dummies } from './17-dummies.js';
+import { P, S, dummies, localBody } from './17-dummies.js';
 import { spawnItem } from './21-items-inventory.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- ragdoll (verlet with anatomical joint limits)
@@ -496,6 +497,8 @@ class Ragdoll {
 }
 function spawnRagdoll(hum, vel, dir, part, head, masks) {
   masks = Object.assign({ nh: !!hum.helmetOff, w: hum.wounds, h: hum.holes }, masks);
+  // a cry as they go down (not a shot through the head, not your own body: the others hear yours on their copy of you)
+  if (!head && !masks.gib && hum !== localBody && hum.root.visible) sfxDeath(hum, hum.root.getWorldPosition(new V3()).add(new V3(0, 1.4, 0)));
   if (masks.gib && hum.root.visible) {
     goreBurst(hum.headMark.getWorldPosition(new V3()), dir.clone().normalize(), hum.pal && hum.pal.skin);
   }
