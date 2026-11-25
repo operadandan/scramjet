@@ -1,0 +1,75 @@
+newmtl Base1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka Adjust1_diff.png
+map_Kd Adjust1_diff.png
+map_d Adjust1_diff.png
+
+map_Bump Adjust1_nmap.png
+
+map_Ns Adjust1_spec.png
+
+map_Ke Base1_emap.png
+
+rbx_doublesided 1
+
+rbx_alphamode overlay
+
+newmtl Handle1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka Adjust1_diff.png
+map_Kd Adjust1_diff.png
+map_d Adjust1_diff.png
+
+map_Bump Adjust1_nmap.png
+
+map_Ns Adjust1_spec.png
+
+map_Ke Handle1_emap.png
+
+rbx_doublesided 1
+
+rbx_alphamode overlay
+
+newmtl Adjust1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka Adjust1_diff.png
+map_Kd Adjust1_diff.png
+map_d Adjust1_diff.png
+
+map_Bump Adjust1_nmap.png
+
+map_Ns Adjust1_spec.png
+
+map_Ke Adjust1_emap.png
+
+rbx_doublesided 1
+
+rbx_alphamode overlay
+

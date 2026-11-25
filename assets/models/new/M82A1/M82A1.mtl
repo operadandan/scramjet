@@ -1,0 +1,124 @@
+newmtl Bullets1Mtl
+Material Color
+Ka 0.511398 0.334458 0.108711
+Kd 0.511398 0.334458 0.108711
+Ks 0.340932 0.222972 0.0724741 
+
+d 1
+
+Ns 255
+
+map_Ka Meshpart1_diff.png
+map_Kd Meshpart1_diff.png
+map_d Meshpart1_diff.png
+
+map_Bump Meshpart1_nmap.png
+
+map_Ns Meshpart1_spec.png
+
+newmtl Meshesgooglemeshermesher1Mtl
+Material Color
+Ka 0.0445526 0.0445526 0.0445526
+Kd 0.0445526 0.0445526 0.0445526
+Ks 0.0297018 0.0297018 0.0297018 
+
+d 1
+
+Ns 255
+
+map_Ka Meshpart1_diff.png
+map_Kd Meshpart1_diff.png
+map_d Meshpart1_diff.png
+
+map_Bump Meshpart1_nmap.png
+
+map_Ns Meshpart1_spec.png
+
+newmtl MeshesgunkKitMomentc14scope005c14scope0041Mtl
+Material Color
+Ka 0.00258583 0.00258583 0.00258583
+Kd 0.00258583 0.00258583 0.00258583
+Ks 0.00258583 0.00258583 0.00258583 
+
+d 0.501961
+
+Ns 0
+
+map_Ka MeshesgunkKitMomentc14scope005c14scope0041_diff.png
+map_Kd MeshesgunkKitMomentc14scope005c14scope0041_diff.png
+map_d MeshesgunkKitMomentc14scope005c14scope0041_diff.png
+
+map_Bump MeshesgunkKitMomentc14scope005c14scope0041_nmap.png
+
+map_Ns MeshesgunkKitMomentc14scope005c14scope0041_spec.png
+
+newmtl Bolt1Mtl
+Material Color
+Ka 0.133209 0.133209 0.133209
+Kd 0.133209 0.133209 0.133209
+Ks 0.0888057 0.0888057 0.0888057 
+
+d 1
+
+Ns 255
+
+map_Ka Meshpart1_diff.png
+map_Kd Meshpart1_diff.png
+map_d Meshpart1_diff.png
+
+map_Bump Meshpart1_nmap.png
+
+map_Ns Meshpart1_spec.png
+
+newmtl MeshesgunkKitMomentc14scope002c14scope0011Mtl
+Material Color
+Ka 0.0315514 0.0315514 0.0328759
+Kd 0.0315514 0.0315514 0.0328759
+Ks 0.0210343 0.0210343 0.0219173 
+
+d 1
+
+Ns 255
+
+map_Ka Meshpart1_diff.png
+map_Kd Meshpart1_diff.png
+map_d Meshpart1_diff.png
+
+map_Bump Meshpart1_nmap.png
+
+map_Ns Meshpart1_spec.png
+
+newmtl Meshesgooglemesher004mesher0041Mtl
+Material Color
+Ka 0.0103978 0.0103978 0.0103978
+Kd 0.0103978 0.0103978 0.0103978
+Ks 0.000652411 0.000652411 0.000652411 
+
+d 1
+
+Ns 0
+
+map_Ka Meshesgooglemesher004mesher0041_diff.png
+map_Kd Meshesgooglemesher004mesher0041_diff.png
+map_d Meshesgooglemesher004mesher0041_diff.png
+
+map_Bump Meshesgooglemesher004mesher0041_nmap.png
+
+newmtl Meshpart1Mtl
+Material Color
+Ka 0.0179364 0.0179364 0.018913
+Kd 0.0179364 0.0179364 0.018913
+Ks 0.0119576 0.0119576 0.0126087 
+
+d 1
+
+Ns 255
+
+map_Ka Meshpart1_diff.png
+map_Kd Meshpart1_diff.png
+map_d Meshpart1_diff.png
+
+map_Bump Meshpart1_nmap.png
+
+map_Ns Meshpart1_spec.png
+

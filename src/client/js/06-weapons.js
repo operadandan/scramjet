@@ -11,7 +11,7 @@ import { seg } from './19c-toolvm.js';
 const WEAPONS = [
   { id: 'm4', name: 'M4A1', kind: 'rifle', auto: true, rpm: 800, cap: 30, spare: 5, tac: 2.3, empty: 2.9, inspect: 2.1, recoil: 0.011, fovAds: 48, shell: '556', vel: 910, mass: 0.004, drag: 0.00095, disp: 0.00045, tracerEvery: 4, snd: 0, gap: 55 },
   { id: 'g17', name: 'Glock 17', kind: 'pistol', auto: false, rpm: 450, cap: 17, spare: 3, tac: 1.7, empty: 2.0, inspect: 1.7, recoil: 0.028, fovAds: 62, shell: '9mm', vel: 375, mass: 0.0075, drag: 0.0014, disp: 0.0012, tracerEvery: 0, snd: 1, gap: 95 },
-  { id: 'm107', name: 'Barrett M107', kind: 'sniper', auto: false, rpm: 110, cap: 10, spare: 4, tac: 3.2, empty: 3.8, inspect: 2.4, recoil: 0.085, fovAds: 5.5, scope: true, shell: '50', vel: 853, mass: 0.0428, drag: 0.00032, disp: 0.00025, tracerEvery: 0, snd: 2, gap: 350 },
+  { id: 'm107', name: 'Barrett M82A1', kind: 'sniper', auto: false, rpm: 110, cap: 10, spare: 4, tac: 3.2, empty: 3.8, inspect: 2.4, recoil: 0.085, fovAds: 5.5, scope: true, shell: '50', vel: 853, mass: 0.0428, drag: 0.00032, disp: 0.00025, tracerEvery: 0, snd: 2, gap: 350 },
   { id: 'ak74', name: 'AK-74M', kind: 'rifle', auto: true, rpm: 650, cap: 30, spare: 5, tac: 2.5, empty: 3.1, inspect: 2.1, recoil: 0.013, fovAds: 55, shell: '545', vel: 900, mass: 0.0034, drag: 0.00105, disp: 0.0006, tracerEvery: 4, snd: 3, gap: 70 },
   { id: 'm9', name: 'Beretta M9', kind: 'pistol', auto: false, rpm: 450, cap: 15, spare: 3, tac: 1.8, empty: 2.1, inspect: 1.7, recoil: 0.03, fovAds: 62, shell: '9mm', vel: 381, mass: 0.008, drag: 0.0014, disp: 0.0013, tracerEvery: 0, snd: 1, gap: 95 },
   // Remington 870 with an 18.5 in cylinder-bore barrel and a +2 extension (6 in the tube). 2 3/4 in 00 buck: 9 pellets of 3.49 g at 404 m/s,

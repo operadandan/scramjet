@@ -5,7 +5,7 @@ import { GM, canvasTex, fineNoise } from './01-world.js';
 import { GC, plateGeo } from './02-body-parts.js';
 import { _Y } from './04-ragdoll.js';
 import { WEAPONS, glassFront, glassRear, rail, reticleTex, rubber, vbox, vcyl, vm, vrbox } from './06-weapons.js';
-import { IMPORTED } from './06b-imported-models.js';
+import { IMPORTED, impMat } from './06b-imported-models.js';
 import { KMAT, compact, lensMat } from './07-gun-models.js';
 import { VMW, VM_KIT, ell, fingerChain, gloveCuff, vsleeve } from './08-hands.js';
 import { blip, noiseHit } from './10-audio.js';
@@ -15,15 +15,14 @@ import { P, S, mouse } from './17-dummies.js';
 import { flashMsg, ray, shotRay } from './18-player.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- attachments
+// only what there is a real model of: the EOTech and the MRO on top, the vertical grip underneath
 const ATT = {
-  optic: { irons: 'Iron sights', holo: 'Holographic sight', reddot: 'Micro red dot', acog: '4x prism scope' },
-  muzzle: { std: 'Standard muzzle device', supp: 'Suppressor' },
-  under: { none: 'None', vert: 'Vertical grip', angled: 'Angled grip' },
-  side: { none: 'None', laser: 'Visible laser', light: 'Weapon light' }
+  optic: { irons: 'Iron sights', holo: 'EOTech 552', reddot: 'Trijicon MRO' },
+  under: { none: 'None', vert: 'Vertical grip' }
 };
-const ATT_SLOT_NAME = { optic: 'Optic', muzzle: 'Muzzle', under: 'Underbarrel', side: 'Laser / light' };
-const ATT_SLOTS = { m4: ['optic', 'muzzle', 'under', 'side'], ak74: ['optic', 'muzzle', 'under', 'side'], m107: ['muzzle'], g17: ['muzzle', 'side'], m9: ['muzzle', 'side'], m870: ['side'] };
-const ATT_DEFAULT = { m4: { optic: 'holo', muzzle: 'std', under: 'none', side: 'none' }, ak74: { optic: 'irons', muzzle: 'std', under: 'none', side: 'none' }, m107: { muzzle: 'std' }, g17: { muzzle: 'std', side: 'none' }, m9: { muzzle: 'std', side: 'none' }, m870: { side: 'none' } };
+const ATT_SLOT_NAME = { optic: 'Optic', under: 'Underbarrel' };
+const ATT_SLOTS = { m4: ['optic', 'under'], ak74: ['optic', 'under'], m107: [], g17: [], m9: [], m870: [] };
+const ATT_DEFAULT = { m4: { optic: 'holo', under: 'none' }, ak74: { optic: 'irons', under: 'none' }, m107: {}, g17: {}, m9: {}, m870: {} };
 const MOUNTS = {
   m4: { optic: [0, 0.0315, -0.005], rearIron: [0, 0.0315, 0.072], frontIron: [0, 0.0315, -0.37], muzzle: [0, 0.003, -0.5], muzR: 0.0185, supLen: 0.17, under: [0, -0.0185, -0.3], side: [0.0245, 0.003, -0.33], ironsH: 0.0665, adsZ: -0.25 },
   ak74: { optic: [0, 0.03, -0.01], muzzle: [0, 0.0, -0.47], muzR: 0.019, supLen: 0.17, under: [0, -0.028, -0.25], side: [0.023, -0.006, -0.25], ironsH: 0.04, sideMount: true, adsZ: -0.27 },
@@ -72,6 +71,17 @@ function buildHoloSight(parent, at) {
   vbox(0.003, 0.01, 0.022, A, e, -0.0225, 0.003, -0.022);
   const ret = reticlePlane(reticleTex, 0.0095); ret.position.set(0, 0.046, -0.006); e.add(ret);
   return { g: e, ret, sightY: at[1] + 0.046 };
+}
+// an imported attachment on its mount point (no moving parts): the Studio models from assets/models/build_new.py
+function impPart(parent, at, I) {
+  const e = new THREE.Group(); e.position.fromArray(at); parent.add(e);
+  for (const n in I.parts) { if (n === '_sets') continue; const p = I.parts[n], m = new THREE.Mesh(p.geo, impMat(I, p, null)); m.userData.keep = true; m.castShadow = p.mat !== -1; if (p.mat === -1) m.renderOrder = 2; e.add(m); }
+  return { g: e };
+}
+// an imported optic: the model, its reticle floating in the window (ry high over the rail, rz along it)
+function impOptic(parent, at, I, tex, size, ry, rz) {
+  const o = impPart(parent, at, I), ret = reticlePlane(tex, size); ret.position.set(0, ry, rz); o.g.add(ret);
+  return { g: o.g, ret, sightY: at[1] + ry };
 }
 // micro red dot on a riser
 function buildRedDot(parent, at) {
@@ -179,18 +189,15 @@ for (const [wi, W] of VMW.entries()) {
     else W.parts.optic.irons = { g: new THREE.Group(), ret: null, sightY: M.ironsH };
     if (M.sideMount) { const sm = new THREE.Group(); W.g.add(sm); vrbox(0.006, 0.05, 0.06, 0.002, GM.anod, sm, -0.021, 0.005, -0.01); vrbox(0.04, 0.006, 0.07, 0.002, GM.anod, sm, -0.002, 0.03, -0.01); rail(sm, -0.045, 0.025, 0.033); W.sideMountG = sm; }
     const top = M.sideMount ? [0, 0.036, -0.01] : M.optic;
-    W.parts.optic.holo = buildHoloSight(W.g, top);
-    W.parts.optic.reddot = buildRedDot(W.g, top);
-    W.parts.optic.acog = buildPrism(W.g, top);
+    W.parts.optic.holo = IMPORTED.eotech ? impOptic(W.g, top, IMPORTED.eotech, reticleTex, 0.0095, 0.0491, -0.036) : buildHoloSight(W.g, top);
+    W.parts.optic.reddot = IMPORTED.mro ? impOptic(W.g, top, IMPORTED.mro, dotTex, 0.008, 0.0424, -0.012) : buildRedDot(W.g, top);
   }
-  if (ATT_SLOTS[id].includes('muzzle')) {
-    const at = W.muzzle.position.toArray(); at[2] += M.pistol ? 0.006 : 0.04;
-    W.parts.muzzle.supp = buildSuppressor(W.g, at, M.muzR, M.supLen); W.parts.muzzle.supp.endZ = at[2] - M.supLen;
-  }
-  if (ATT_SLOTS[id].includes('under')) { W.parts.under.vert = buildVertGrip(W.g, M.under); W.parts.under.angled = buildAngledGrip(W.g, M.under); W.vfgHand = buildVfgHand(W, M.under, W.elbow); }
-  if (ATT_SLOTS[id].includes('side')) { W.parts.side.laser = buildLaser(W.g, M.side, M.pistol); W.parts.side.light = buildLight(W.g, M.side, M.pistol); }
+  if (ATT_SLOTS[id].includes('under')) { W.parts.under.vert = IMPORTED.vfg ? impPart(W.g, M.under, IMPORTED.vfg) : buildVertGrip(W.g, M.under); W.vfgHand = buildVfgHand(W, M.under, W.elbow); }
 }
-function loadAtt() { let a = {}; try { a = JSON.parse(localStorage.getItem('breach_att') || '{}') || {}; } catch (e) {} const out = {}; for (const id in ATT_DEFAULT) out[id] = Object.assign({}, ATT_DEFAULT[id], a[id] || {}); return out; }
+// (a saved choice of something that is no longer in the game falls back to the default)
+function loadAtt() { let a = {}; try { a = JSON.parse(localStorage.getItem('breach_att') || '{}') || {}; } catch (e) {} const out = {};
+  for (const id in ATT_DEFAULT) { out[id] = Object.assign({}, ATT_DEFAULT[id]); const s = a[id] || {}; for (const k of ATT_SLOTS[id]) if (s[k] && ATT[k][s[k]]) out[id][k] = s[k]; }
+  return out; }
 const ATTS = loadAtt();
 function attOf(wi) { return ATTS[WEAPONS[wi].id] || {}; }
 function applyAttachments(wi) {
@@ -199,7 +206,7 @@ function applyAttachments(wi) {
   if (W.parts.optic.irons) {
     const o = W.parts.optic[A.optic] || W.parts.optic.irons;
     W.ret = o.ret; W.sightH = o.sightY; W.zoom = o.zoom || 1; W.lens = o.lens || W.scopeLens || null;
-    W.ads.set(0, -o.sightY, A.optic === 'irons' ? (id === 'ak74' ? -0.34 : -0.25) : A.optic === 'acog' ? -0.27 : (M.adsZ || -0.25));
+    W.ads.set(0, -o.sightY, A.optic === 'irons' ? (id === 'ak74' ? -0.34 : -0.25) : (M.adsZ || -0.25));
     if (W.sideMountG) W.sideMountG.visible = A.optic !== 'irons';
     // with an optic on, the iron sights come off (front sight and flip-up rear)
     if (W.imported) W.g.traverse(o => { if (o.userData.part === 'RearBackupIronSightUp' || o.userData.part === 'ForwardIronSight') o.visible = A.optic === 'irons'; });
@@ -209,12 +216,9 @@ function applyAttachments(wi) {
   if (!W.H0base) W.H0base = { p: W.poses.H0.p.clone(), q: W.poses.H0.q.clone() };
   W.vfgOn = A.under === 'vert';
   W.poses.H0.p.copy(W.H0base.p); W.poses.H0.q.copy(W.H0base.q);
-  if (A.under === 'angled') { W.poses.H0.p.add(new V3(0, -0.009, 0.02)); W.poses.H0.q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0.16, 0, 0))); }
   if (W.vfgOn) W.poses.H0.p.set(W.H0base.p.x, MOUNTS[id].under[1] - 0.03, MOUNTS[id].under[2] + 0.01);
-  W.supp = A.muzzle === 'supp';
-  W.muzzle.position.z = W.supp ? W.parts.muzzle.supp.endZ - 0.005 : W.muzzleBaseZ;
-  W.side = A.side || 'none';
-  W.mods = { recoil: (A.under === 'vert' ? 0.82 : A.under === 'angled' ? 0.9 : 1) * (W.supp ? 0.9 : 1), ads: A.under === 'angled' ? 1.3 : 1, hipSway: A.side === 'laser' ? 0.6 : 1 };
+  W.supp = false; W.muzzle.position.z = W.muzzleBaseZ; W.side = 'none';
+  W.mods = { recoil: A.under === 'vert' ? 0.82 : 1, ads: 1, hipSway: 1 };
 }
 function saveAtt() { try { localStorage.setItem('breach_att', JSON.stringify(ATTS)); } catch (e) {} }
 VMW.forEach((W, i) => applyAttachments(i));

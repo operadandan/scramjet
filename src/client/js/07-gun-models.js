@@ -5,7 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { V3 } from './00-setup.js';
 import { GM, fineNoise, stipple } from './01-world.js';
 import { rubber } from './06-weapons.js';
-import { IMPORTED } from './06b-imported-models.js';
+import { IMPORTED, impMat } from './06b-imported-models.js';
 import { dust } from './15-destruction.js';
 import { P, S } from './17-dummies.js';
 import { seg } from './19c-toolvm.js';
@@ -283,7 +283,30 @@ function gunAK(K) {
   K.rb(0.0245, 0.007, 0.064, 0.002, 'plum', mag, 0, -0.1485, -0.05, 0.445); K.b(0.012, 0.01, 0.006, 'plum', mag, 0, 0.004, -0.033);
   return { g, mag, chg: null, slide: null, bolt, boltMode: 'slide', travel: 0.085, muzzle: [0, 0, -0.56], port: [0.02, 0.012, -0.03], brass: [0.008, '545'] };
 }
+// the Studio M82A1 (it is the Barrett in game): the charging handle and bolt carrier slide back together on the right, the
+// magazine drops with its rounds; everything else is fixed. The scope's rear lens is where the scope picture is drawn.
+function gunM82Imported(K) {
+  const I = IMPORTED.m82, g = new THREE.Group(), own = ['Magazine', 'MagazineCartridges', 'ChargingHandle'], MAG = new V3(0, -0.09, -0.009);
+  const mesh = (name, P, off) => { const p = I.parts[name]; if (!p) return null; const m = new THREE.Mesh(p.geo, impMat(I, p, brassMatVM)); m.userData.keep = true; m.userData.part = name; m.castShadow = p.mat !== -1; if (off) m.position.copy(off).negate(); P.add(m); return m; };
+  for (const n in I.parts) if (n !== '_sets' && !own.includes(n)) mesh(n, g);
+  const mag = K.grp(g, MAG.x, MAG.y, MAG.z); mesh('Magazine', mag, MAG);
+  const cart = K.grp(mag); cart.userData.keep = true; mesh('MagazineCartridges', cart, MAG);
+  const bolt = K.grp(g); mesh('ChargingHandle', bolt);
+  return { g, mag, chg: null, slide: null, bolt, boltMode: 'slide', travel: 0.085, cart, imported: true, textured: true, muzzle: [0, 0, -0.95], port: [0.03, 0.006, -0.06], brass: [0, '50'], eye: [0, 0.0753, 0.1668], eyeR: 0.026 };
+}
+// the Studio M870: the forend and its action bars ride the pump; the shell in the loading port is the hand-built one
+function gunM870Imported(K) {
+  const I = IMPORTED.m870, g = new THREE.Group(), pump = K.grp(g);
+  const mesh = (name, P) => { const p = I.parts[name]; if (!p) return null; const m = new THREE.Mesh(p.geo, impMat(I, p, brassMatVM)); m.userData.keep = true; m.userData.part = name; m.castShadow = true; P.add(m); return m; };
+  for (const n in I.parts) if (n !== '_sets' && n !== 'Pump' && n !== 'ActionBars') mesh(n, g);
+  mesh('Pump', pump); mesh('ActionBars', pump);
+  const mag = K.grp(g, 0, -0.036, -0.06);
+  K.c(0.0101, 0.052, 'red', mag, 0, 0, -0.008, 16); K.c(0.0086, 0.002, 'red', mag, 0, 0, -0.0345, 12);
+  K.c(0.0104, 0.014, 'brass', mag, 0, 0, 0.025, 16); K.c(0.0112, 0.0014, 'brass', mag, 0, 0, 0.0327, 16);
+  return { g, mag, chg: null, slide: null, bolt: pump, boltMode: 'slide', travel: 0.088, boltIn: null, imported: true, textured: true, muzzle: [0, 0, -0.6], port: [0.018, 0.0, -0.05], brass: [0, '12g'] };
+}
 function gunM107(K) {
+  if (IMPORTED.m82) return gunM82Imported(K);
   const g = new THREE.Group(), A = 'anod';
   const sec = [[-0.031, -0.03], [0.031, -0.03], [0.031, 0.02], [0.02, 0.04, 0.004], [-0.02, 0.04, 0.004], [-0.031, 0.02]];
   K.ez(sec, 0.49, -0.33, A, g, { r: 0.002, bev: 0.002 });
@@ -357,6 +380,7 @@ function gunM9(K) {
 // Remington 870 Police: 18.5 in barrel with brass bead, +2 magazine extension and clamp, parkerized receiver, ribbed synthetic pump on twin
 // action bars, cross-bolt safety, synthetic stock with recoil pad. Bore axis at y = 0, magazine tube underneath.
 function gunM870(K) {
+  if (IMPORTED.m870) return gunM870Imported(K);
   const g = new THREE.Group(), R = 'park', ty = -0.0255;
   // receiver: flat top with a sighting groove, rear sloping into the stock tang
   K.e([[-0.104, 0.008], [-0.099, 0.0135], [0.058, 0.0135], [0.084, 0.0065], [0.096, -0.004], [0.096, -0.042], [-0.104, -0.042]], 0.029, R, g, { r: 0.002, bev: 0.0018 });

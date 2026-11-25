@@ -445,7 +445,7 @@ class Dummy {
 function spawnDummies() {
   const defs = [['idle', 'Idle'], ['walk', 'Walk'], ['run', 'Run'], ['sprint', 'Sprint'], ['reload', 'Reload M4'], ['reloadp', 'Reload G17'],
     ['crouch', 'Crouch'], ['crouchwalk', 'Crouch walk'], ['lean', 'Lean L/R'], ['aim', 'Aim pitch'], ['pistol', 'Pistol'], ['jump', 'Jump'],
-    ['prone', 'Prone'], ['crawl', 'Crawl'], ['medkit', 'Medkit'], ['ak', 'AK-74M'], ['barrett', 'M107'], ['m9', 'M9']];
+    ['prone', 'Prone'], ['crawl', 'Crawl'], ['medkit', 'Medkit'], ['ak', 'AK-74M'], ['barrett', 'M82A1'], ['m9', 'M9']];
   defs.forEach((d, i) => dummies.push(new Dummy(-27.2 + i * 3.2, -10, d[0], d[1])));
   dummies.push(new Dummy(0, -20, 'patrol', 'Patrol'));
   for (const d of RANGE_DISTS) dummies.push(new Dummy(RANGE_X, 8 - d, 'idle', d + ' m'));

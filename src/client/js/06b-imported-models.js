@@ -16,9 +16,9 @@ async function loadModelBin(url) {
     g.setAttribute('normal', new THREE.BufferAttribute(new Int8Array(b, o + p.nr, p.n * 3), 3, true));
     g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(b, o + p.uv, p.n * 2), 2));
     g.setIndex(new THREE.BufferAttribute(p.i32 ? new Uint32Array(b, o + p.ix, p.ni) : new Uint16Array(b, o + p.ix, p.ni), 1));
-    g.computeBoundingSphere(); parts[p.name] = { geo: g, mat: p.mat, min: p.min, max: p.max };
+    g.computeBoundingSphere(); parts[p.name] = { geo: g, mat: p.mat, col: p.col || null, min: p.min, max: p.max };
   }
-  return parts;
+  parts._sets = H.sets || null; return parts;
 }
 async function loadTexSet(base) {
   const L = new THREE.TextureLoader(), an = renderer.capabilities.getMaxAnisotropy();
@@ -33,9 +33,22 @@ await Promise.all([
     .then(([parts, body, cart]) => { IMPORTED.m4 = { parts, mats: [body, cart] }; }).catch(e => console.warn('imported M4 not loaded, using the built-in model', e)),
   // G17: frame, slide, magazine and barrel each have their own maps (brightened to the M4's tone); sights and the top round are painted in code
   Promise.all([loadModelBin('/models/g17/g17.bin'), ...['frame', 'slide', 'mag', 'barrel'].map(t => loadTexSet('/models/g17/' + t))])
-    .then(([parts, ...mats]) => { IMPORTED.g17 = { parts, mats }; }).catch(e => console.warn('imported G17 not loaded, using the built-in model', e))
+    .then(([parts, ...mats]) => { IMPORTED.g17 = { parts, mats }; }).catch(e => console.warn('imported G17 not loaded, using the built-in model', e)),
+  // the second batch from Studio (assets/models/build_new.py): the M82A1, the M870 and the attachments. Each bin names its
+  // texture sets; a part carries a tint (col) that brings it to the M4's finish, or is glass (-1) or brass (-2)
+  ...['m82', 'm870', 'mro', 'eotech', 'vfg'].map(k => loadModelBin('/models/' + k + '/' + k + '.bin')
+    .then(parts => Promise.all(parts._sets.map(t => loadTexSet('/models/' + k + '/' + t))).then(mats => { IMPORTED[k] = { parts, mats, tinted: new Map() }; }))
+    .catch(e => console.warn('imported ' + k + ' not loaded, using the built-in model', e)))
 ]);
+// the material for one part of a tinted model: its texture set with the part's tint (one per set and tint), glass or brass
+const IMP_GLASS = new THREE.MeshPhysicalMaterial({ color: 0x1a2a30, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.35, depthWrite: false });
+function impMat(I, p, brass) {
+  if (p.mat === -1) return IMP_GLASS; if (p.mat === -2) return brass;
+  const k = p.mat + ':' + (p.col ? p.col.join(',') : ''); let m = I.tinted.get(k);
+  if (!m) { m = I.mats[p.mat].clone(); if (p.col) m.color.setRGB(p.col[0], p.col[1], p.col[2], THREE.SRGBColorSpace); I.tinted.set(k, m); }
+  return m;
+}
 
 // ---- module exports: build.mjs strips this block ----
-export { IMPORTED };
+export { IMPORTED, impMat };
 // ---- end module exports ----

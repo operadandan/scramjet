@@ -252,7 +252,7 @@ function updateToolbar() {
 }
 function attSummary(wi) {
   const A = attOf(wi), out = [];
-  if (A.optic && A.optic !== 'irons') out.push({ holo: 'Holo', reddot: 'RDS', acog: '4x' }[A.optic]);
+  if (A.optic && A.optic !== 'irons') out.push({ holo: 'EOTech', reddot: 'MRO' }[A.optic]);
   if (A.muzzle === 'supp') out.push('Supp');
   if (A.under && A.under !== 'none') out.push({ vert: 'VFG', angled: 'AFG' }[A.under]);
   if (A.side && A.side !== 'none') out.push({ laser: 'Laser', light: 'Light' }[A.side]);
@@ -264,6 +264,7 @@ let attWi = 0;
 function openAttMenu(wi) {
   attWi = wi; const id = WEAPONS[wi].id, A = ATTS[id];
   let h = '<div class="ah"><b>' + WEAPONS[wi].name + '</b> attachments<button id="attx">Close</button></div>';
+  if (!ATT_SLOTS[id].length) h += '<div class="ls">No attachments for this weapon.</div>';
   for (const slot of ATT_SLOTS[id]) {
     h += '<div class="arow"><label>' + ATT_SLOT_NAME[slot] + '</label><div class="aopts">';
     for (const k in ATT[slot]) h += '<button class="aopt' + (A[slot] === k ? ' on' : '') + '" data-s="' + slot + '" data-k="' + k + '">' + ATT[slot][k] + '<small>' + ATT_DESC[slot][k] + '</small></button>';
@@ -274,9 +275,9 @@ function openAttMenu(wi) {
   $('attm').querySelectorAll('.aopt').forEach(b => b.onclick = () => { ATTS[id][b.dataset.s] = b.dataset.k; saveAtt(); applyAttachments(wi); blip(1000, 0.03, 0.04); openAttMenu(wi); });
 }
 const ATT_DESC = {
-  optic: { irons: 'Flip-up BUIS, widest view', holo: 'EXPS3-style, 1x, 68 MOA ring', reddot: 'Micro dot on a riser, 1x', acog: 'Fixed 4x, chevron reticle' },
+  optic: { irons: 'Flip-up BUIS, widest view', holo: '1x, 68 MOA ring and 1 MOA dot', reddot: '1x, 2 MOA dot, wide objective' },
   muzzle: { std: 'Flash hider / bare muzzle', supp: 'Quieter, no flash, -10% recoil' },
-  under: { none: 'Bare handguard', vert: 'Vertical grip, -18% recoil', angled: 'Angled grip, faster aim' },
+  under: { none: 'Bare handguard', vert: 'Vertical grip, -18% recoil' },
   side: { none: 'Nothing mounted', laser: 'Visible laser (T toggles)', light: 'Weapon light (T toggles)' }
 };
 

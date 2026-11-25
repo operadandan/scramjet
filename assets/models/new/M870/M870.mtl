@@ -1,0 +1,90 @@
+newmtl MeshesimportMiscsawnoffm870mo003sawnoffm870md0031Mtl
+Material Color
+Ka 0.0384727 0.0384727 0.0384727
+Kd 0.0384727 0.0384727 0.0384727
+Ks 0.0256485 0.0256485 0.0256485 
+
+d 1
+
+Ns 255
+
+map_Ka MagazineTube1_diff.png
+map_Kd MagazineTube1_diff.png
+map_d MagazineTube1_diff.png
+
+map_Bump MagazineTube1_nmap.png
+
+map_Ns MagazineTube1_spec.png
+
+newmtl MeshesimportMiscsawnoffm870mo005sawnoffm870md0051Mtl
+Material Color
+Ka 0.101145 0.101145 0.101145
+Kd 0.101145 0.101145 0.101145
+Ks 0.0674301 0.0674301 0.0674301 
+
+d 1
+
+Ns 255
+
+map_Ka MagazineTube1_diff.png
+map_Kd MagazineTube1_diff.png
+map_d MagazineTube1_diff.png
+
+map_Bump MagazineTube1_nmap.png
+
+map_Ns MagazineTube1_spec.png
+
+newmtl Stock1Mtl
+Material Color
+Ka 0.0103978 0.0103978 0.0103978
+Kd 0.0103978 0.0103978 0.0103978
+Ks 0.000652411 0.000652411 0.000652411 
+
+d 1
+
+Ns 0
+
+map_Ka Stock1_diff.png
+map_Kd Stock1_diff.png
+map_d Stock1_diff.png
+
+map_Bump Stock1_nmap.png
+
+rbx_doublesided 1
+
+newmtl MeshesimportMiscm870mo005m870md0051Mtl
+Material Color
+Ka 0.0103978 0.0103978 0.0103978
+Kd 0.0103978 0.0103978 0.0103978
+Ks 0.000652411 0.000652411 0.000652411 
+
+d 1
+
+Ns 0
+
+map_Ka Stock1_diff.png
+map_Kd Stock1_diff.png
+map_d Stock1_diff.png
+
+map_Bump Stock1_nmap.png
+
+newmtl MagazineTube1Mtl
+Material Color
+Ka 0.0384727 0.0384727 0.0384727
+Kd 0.0384727 0.0384727 0.0384727
+Ks 0.0256485 0.0256485 0.0256485 
+
+d 1
+
+Ns 255
+
+map_Ka MagazineTube1_diff.png
+map_Kd MagazineTube1_diff.png
+map_d MagazineTube1_diff.png
+
+map_Bump MagazineTube1_nmap.png
+
+map_Ns MagazineTube1_spec.png
+
+rbx_doublesided 1
+

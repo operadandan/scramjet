@@ -1,0 +1,108 @@
+newmtl Part0b2d1Mtl
+Material Color
+Ka 0 0 0
+Kd 0 0 0
+Ks 0 0 0 
+
+d 1
+
+Ns 0
+
+map_Ka Part0b2d1_diff.png
+map_Kd Part0b2d1_diff.png
+map_d Part0b2d1_diff.png
+
+map_Bump Part0b2d1_nmap.png
+
+newmtl Partc81e1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka Partce3b1_diff.png
+map_Kd Partce3b1_diff.png
+map_d Partce3b1_diff.png
+
+map_Bump Partce3b1_nmap.png
+
+map_Ns Partce3b1_spec.png
+
+map_Ke Partc81e1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Object201c1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka Partce3b1_diff.png
+map_Kd Partce3b1_diff.png
+map_d Partce3b1_diff.png
+
+map_Bump Partce3b1_nmap.png
+
+map_Ns Partce3b1_spec.png
+
+map_Ke Object201c1_emap.png
+
+rbx_alphamode overlay
+
+newmtl Object3ba71Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka Partce3b1_diff.png
+map_Kd Partce3b1_diff.png
+map_d Partce3b1_diff.png
+
+map_Bump Partce3b1_nmap.png
+
+map_Ns Partce3b1_spec.png
+
+map_Ke Object3ba71_emap.png
+
+rbx_alphamode overlay
+
+newmtl Partce3b1Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ke 1 1 1
+Ks 0.0322335 0.0318 0.03311 
+
+d 1
+
+Ns 255
+
+map_Ka Partce3b1_diff.png
+map_Kd Partce3b1_diff.png
+map_d Partce3b1_diff.png
+
+map_Bump Partce3b1_nmap.png
+
+map_Ns Partce3b1_spec.png
+
+map_Ke Partce3b1_emap.png
+
+rbx_alphamode overlay
+
