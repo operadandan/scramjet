@@ -1,11 +1,11 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { V3, scene } from './00-setup.js';
-import { TEX } from './01-world.js';
+import { TEX, mat } from './01-world.js';
 import { townTree } from './01b-town.js';
-import { Kit, MT, TDM, TEXD, tdCar, tdMat, tdPanel, tdRnd, tdTex } from './01c-town-detail.js';
+import { Kit, MT, TDM, TEXD, tdCar, tdCarBody, tdMat, tdPanel, tdRnd, tdTex } from './01c-town-detail.js';
 import { fx } from './11-fx.js';
-import { P, S } from './17-dummies.js';
+import { S } from './17-dummies.js';
 import { ENV } from './24-env.js';
 // ---- end module links ----
 // The neighbourhood round the house: proper trees (a branching trunk, leaves on cards that move in the wind), the
@@ -147,15 +147,9 @@ function tdNbr(cx, cz, ry, o) {
 }
 // a parked car drawn into a kit (no solids: the neighbours' cars and the far ones are only to look at)
 function tdCarK(K, x, y, z, ry, color) {
-  const BM = tdMat('car' + color, { color, metalness: 0.55, roughness: 0.28 }), L = 4.3, W = 1.8, c = Math.cos(ry), sn = Math.sin(ry);
-  const P = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c];
-  const at = (fn, lx, ly, lz, ...a) => { const [px, pz] = P(lx, lz); fn(px, y + ly, pz, ...a); };
-  at((px, py, pz) => K.rbox(BM, px, py, pz, L, 0.58, W, 0.12, { ry }), 0, 0.32, 0);
-  at((px, py, pz) => K.rbox(BM, px, py, pz, 2.3, 0.62, W - 0.16, 0.2, { ry }), -0.15, 0.82, 0);
-  at((px, py, pz) => K.rbox(MT.blackG, px, py, pz, 2.2, 0.5, W - 0.1, 0.16, { ry }), -0.15, 0.86, 0);
-  for (const a of [-1, 1]) for (const b of [-1, 1]) at((px, py, pz) => K.cyl(MT.black, px, py, pz, 0.33, 0.33, 0.24, 14, { rx: Math.PI / 2, ry }), a * 1.35, 0.0, b * (W / 2 - 0.12));
-  for (const b of [-1, 1]) { at((px, py, pz) => K.box(MT.glow, px, py, pz, 0.04, 0.12, 0.3, { ry }), L / 2 - 0.02, 0.62, b * 0.6); at((px, py, pz) => K.box(tdMat('tail', { color: 0x8a1010, emissive: 0x500000, roughness: 0.4 }), px, py, pz, 0.04, 0.12, 0.32, { ry }), -L / 2 + 0.02, 0.65, b * 0.62); }
-  at((px, py, pz) => K.box(MT.chrome, px, py, pz, 0.04, 0.12, W - 0.2, { ry }), L / 2 + 0.01, 0.4, 0); at((px, py, pz) => K.box(MT.chrome, px, py, pz, 0.04, 0.12, W - 0.2, { ry }), -L / 2 - 0.01, 0.4, 0);
+  const T = new Kit(), BM = tdMat('car' + color, { color, metalness: 0.55, roughness: 0.28 }), M = new THREE.Matrix4().makeRotationY(ry).setPosition(x, y, z);
+  tdCarBody(T, BM);
+  for (const [mat, list] of T.b) { let Lst = K.b.get(mat); if (!Lst) K.b.set(mat, Lst = []); for (const g of list) { g.applyMatrix4(M); Lst.push(g); } } T.b.clear();
 }
 
 // ---- everything round the house

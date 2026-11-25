@@ -946,14 +946,35 @@ function tdCar(x, z, along, color) {
   const [w, d] = X ? [L, W] : [W, L], [cw, cd] = X ? [2.3, 1.6] : [1.6, 2.3];
   addBox(x, 0, z, w * 0.94, 0.2, d * 0.9, 'metal', 0x161616); addBox(x, 0.2, z, w, 0.7, d, 'metal', color); addBox(x, 0.9, z, cw, 0.62, cd, 'metal', color);
   for (let i = 0; i < 3; i++) { const m = worldMeshes[worldMeshes.length - 1 - i]; m.material.visible = false; m.castShadow = false; m.userData.furn = true; }
-  // the car itself, built along +x
-  K.rbox(BM, 0, 0.32, 0, L, 0.58, W, 0.12); K.rbox(BM, -0.15, 0.82, 0, 2.3, 0.62, W - 0.16, 0.2);
-  K.rbox(MT.blackG, -0.15, 0.86, 0, 2.2, 0.5, W - 0.1, 0.16, { sx: 1, sy: 1, sz: 1 });
-  K.rbox(BM, -0.15, 1.38, 0, 1.7, 0.06, W - 0.2, 0.03);
-  for (const a of [-1, 1]) for (const b of [-1, 1]) { K.cyl(MT.black, a * 1.35, 0.33, b * (W / 2 - 0.12), 0.33, 0.33, 0.24, 18, { rx: Math.PI / 2 }); K.cyl(MT.steel, a * 1.35, 0.33, b * (W / 2 - 0.0), 0.2, 0.2, 0.02, 14, { rx: Math.PI / 2 }); }
-  for (const b of [-1, 1]) { K.box(MT.glow, L / 2 - 0.02, 0.62, b * 0.6, 0.04, 0.12, 0.3); K.box(tdMat('tail', { color: 0x8a1010, emissive: 0x500000, roughness: 0.4 }), -L / 2 + 0.02, 0.65, b * 0.62, 0.04, 0.12, 0.32); K.box(BM, 0.85, 0.95, b * (W / 2 + 0.06), 0.12, 0.08, 0.1); }
-  K.box(MT.chrome, L / 2 + 0.01, 0.4, 0, 0.04, 0.12, W - 0.2); K.box(MT.chrome, -L / 2 - 0.01, 0.4, 0, 0.04, 0.12, W - 0.2); K.box(MT.paper, -L / 2 - 0.035, 0.52, 0, 0.01, 0.11, 0.5);
+  tdCarBody(K, BM);
   K.build(x, 0, z, X ? 0 : Math.PI / 2, { shadow: true, deco: false });
+}
+// the car itself, built along +x into a kit. Nothing in it shares a face or cuts through another part: the wheels sit in
+// dark arches on the body sides (the tyre stands just proud of the panel, the hub cap proud of the tyre), the glass is
+// thin panes on the faces of the cabin, the lamps are lenses on the front and back faces, the bumpers stand off the ends
+function tdCarBody(K, BM) {
+  const L = 4.3, W = 1.8, hw = W / 2, tail = tdMat('tail', { color: 0x8a1010, emissive: 0x500000, roughness: 0.4 }), arch = tdMat('carArch', { color: 0x0a0a0b, roughness: 0.9 }), tyre = MT.black;
+  K.rbox(BM, 0, 0.28, 0, L, 0.56, W, 0.12);                                   // the lower body: 0.28 to 0.84
+  K.rbox(BM, -0.15, 0.84, 0, 2.3, 0.56, W - 0.16, 0.16);                    // the cabin: 0.84 to 1.40
+  const cw = (W - 0.16) / 2;
+  for (const b of [-1, 1]) {
+    K.box(MT.blackG, -0.15, 0.94, b * (cw + 0.004), 1.95, 0.38, 0.006);       // side windows
+    K.box(BM, -0.05, 0.94, b * (cw + 0.009), 0.07, 0.38, 0.004);                 // the pillar between the doors
+  }
+  K.box(MT.blackG, -0.15 + 1.15 + 0.004, 0.92, 0, 0.006, 0.42, W - 0.36);    // windscreen
+  K.box(MT.blackG, -0.15 - 1.15 - 0.004, 0.94, 0, 0.006, 0.36, W - 0.4);     // rear window
+  for (const a of [-1, 1]) for (const b of [-1, 1]) {
+    K.add(arch, new THREE.CircleGeometry(0.39, 20, 0, Math.PI), a * 1.35, 0.3, b * (hw + 0.004), { ry: b > 0 ? 0 : Math.PI });
+    K.cyl(tyre, a * 1.35, 0.33, b * (hw - 0.1), 0.33, 0.33, 0.22, 18, { rx: Math.PI / 2 });     // tyre: outer face at hw + 0.01
+    K.cyl(MT.steel, a * 1.35, 0.33, b * (hw + 0.02), 0.2, 0.2, 0.02, 14, { rx: Math.PI / 2 }); // hub cap: hw + 0.01 to + 0.03
+  }
+  for (const b of [-1, 1]) {
+    K.box(MT.glow, L / 2 + 0.004, 0.55, b * 0.58, 0.012, 0.12, 0.3);
+    K.box(tail, -L / 2 - 0.004, 0.58, b * 0.6, 0.012, 0.12, 0.3);
+    K.box(BM, 0.88, 0.95, b * (hw + 0.06), 0.12, 0.08, 0.1);                 // mirrors, clear of the cabin side
+  }
+  K.box(MT.chrome, L / 2 + 0.03, 0.34, 0, 0.06, 0.12, W - 0.24); K.box(MT.chrome, -L / 2 - 0.03, 0.34, 0, 0.06, 0.12, W - 0.24);
+  K.box(MT.paper, -L / 2 - 0.007, 0.43, 0, 0.008, 0.1, 0.48);                // the plate, above the bumper
 }
 function tdStreet(H, E) {
   // kerbs along the pavements, centre lines
@@ -979,10 +1000,10 @@ function tdStreet(H, E) {
   { const P = tdPiece(-21.1, 0, 17.1, 0); E.cyl(MT.steel, -21.1, 0, 17.1, 0.03, 0.03, 2.3, 8); E.cyl(tdMat('stop', { color: 0xc0201a, roughness: 0.5 }), -21.1, 2.3, 17.13, 0.32, 0.32, 0.02, 8, { rx: Math.PI / 2, ry: Math.PI / 8 }); tdCol(P, 0, 0, 0.12, 0.12, 2.3, 0, 'metal', 'metal'); }
   // the van
   { tdHideAt(-3.5, 31, 0); const K = new Kit(), M = tdMat('van', { color: 0xe8e8e0, metalness: 0.4, roughness: 0.35 });
-    K.rbox(M, 0, 0.35, 0, 5.2, 1.9, 2.1, 0.15); K.rbox(MT.blackG, 2.15, 1.25, 0, 0.6, 0.65, 2.0, 0.1); K.rbox(MT.blackG, 1.0, 1.35, 0, 0.9, 0.5, 2.12, 0.06);
-    for (const a of [-1, 1]) for (const b of [-1, 1]) { K.cyl(MT.black, a * 1.8, 0.36, b * 0.92, 0.36, 0.36, 0.26, 18, { rx: Math.PI / 2 }); K.cyl(MT.steel, a * 1.8, 0.36, b * 1.05, 0.2, 0.2, 0.02, 14, { rx: Math.PI / 2 }); }
+    K.rbox(M, 0, 0.35, 0, 5.2, 1.9, 2.1, 0.15); K.box(MT.blackG, 2.604, 1.3, 0, 0.008, 0.6, 1.8); for (const b of [-1, 1]) K.box(MT.blackG, 1.6, 1.38, b * 1.054, 1.4, 0.5, 0.006);
+    for (const a of [-1, 1]) for (const b of [-1, 1]) { K.add(tdMat('carArch', { color: 0x0a0a0b, roughness: 0.9 }), new THREE.CircleGeometry(0.43, 20, 0, Math.PI), a * 1.8, 0.34, b * 1.054, { ry: b > 0 ? 0 : Math.PI }); K.cyl(MT.black, a * 1.8, 0.36, b * 0.95, 0.36, 0.36, 0.22, 18, { rx: Math.PI / 2 }); K.cyl(MT.steel, a * 1.8, 0.36, b * 1.075, 0.2, 0.2, 0.02, 14, { rx: Math.PI / 2 }); }
     K.box(tdMat('vanstripe', { color: 0x2a5a9a, roughness: 0.4 }), -0.4, 0.9, 1.051, 3.6, 0.18, 0.006); K.box(tdMat('vanstripe', { color: 0x2a5a9a, roughness: 0.4 }), -0.4, 0.9, -1.051, 3.6, 0.18, 0.006);
-    for (const b of [-1, 1]) K.box(MT.glow, 2.6, 0.75, b * 0.7, 0.03, 0.14, 0.3); K.build(-3.5, 0, 31, 0, { shadow: true, deco: false }); }
+    for (const b of [-1, 1]) K.box(MT.glow, 2.606, 0.75, b * 0.7, 0.012, 0.14, 0.3); K.build(-3.5, 0, 31, 0, { shadow: true, deco: false }); }
   // concrete barriers (jersey profile) where the attackers take cover
   for (const [bx, bz] of [[-17, 30], [12, 32], [-30, 26], [30, 30]]) { tdHideAt(bx, bz, 0); const K = new Kit(), sh = new THREE.Shape([[-0.6, 0], [0.6, 0], [0.6, 0.08], [0.22, 0.35], [0.12, 1.2], [-0.12, 1.2], [-0.22, 0.35], [-0.6, 0.08]].map(p => new THREE.Vector2(p[0], p[1])));
     const g = new THREE.ExtrudeGeometry(sh, { depth: 2.6, bevelEnabled: false }); g.translate(0, 0, -1.3); K.add(MT.conc, g, 0, 0, 0, { uv: [0.6, 0.6] }); K.build(bx, 0, bz, Math.PI / 2, { shadow: true, deco: false }); }
@@ -1134,5 +1155,5 @@ function townDetail(H) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { Kit, MT, TDM, TEXD, tdBatch, tdCar, tdHoleCut, tdMat, tdPanel, tdRelease, tdRnd, tdTex, tdTree, townDetail };
+export { Kit, MT, TDM, TEXD, tdBatch, tdCar, tdCarBody, tdHoleCut, tdMat, tdPanel, tdRelease, tdRnd, tdTex, tdTree, townDetail };
 // ---- end module exports ----

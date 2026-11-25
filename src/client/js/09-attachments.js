@@ -35,8 +35,9 @@ const MOUNTS = {
 // the Studio M4: rails on its shorter quad-rail handguard
 // the imported M4's rails, measured: top rail teeth at y 0.0246, bottom rail teeth at -0.0383, both 19 mm across. Each
 // attachment sits with its clamp's underside on the teeth (EOTech base 7.9 mm up from its jaw tips, MRO 9.7 mm, the grip's
-// slot 8.5 mm deep), the jaws hugging the rail's sides
-if (IMPORTED.m4) Object.assign(MOUNTS.m4, { under: [0, -0.0383 + 0.0085, -0.2], side: [0.0315, -0.007, -0.205], holoAt: [0, 0.0246 - 0.0079, -0.005], dotAt: [0, 0.0246 - 0.0097, -0.005] });
+// slot 8.5 mm deep), the jaws hugging the rail's sides. Across, each is set by its own clamp: the models' clamps sit 3.2 mm
+// (EOTech) and 1.5 mm (MRO) off their centre lines, so they are moved over to straddle the rail, and the reticle is kept on the bore
+if (IMPORTED.m4) Object.assign(MOUNTS.m4, { under: [0, -0.0383 + 0.0085, -0.2], side: [0.0315, -0.007, -0.205], holoAt: [0.0028, 0.0246 - 0.0079, -0.005], dotAt: [0.0014, 0.0246 - 0.0097, -0.005] });
 const dotTex = canvasTex((g, s) => { g.clearRect(0, 0, s, s); g.fillStyle = '#ff2a1a'; g.shadowColor = '#ff2a1a'; g.shadowBlur = 10; g.beginPath(); g.arc(s / 2, s / 2, s * 0.06, 0, 7); g.fill(); }, 128, false);
 const lensGlow = new THREE.MeshBasicMaterial({ color: 0xff2020, toneMapped: false });
 const lightLens = new THREE.MeshBasicMaterial({ color: 0xfff6dd, toneMapped: false });
@@ -83,7 +84,7 @@ function impPart(parent, at, I) {
 }
 // an imported optic: the model, its reticle floating in the window (ry high over the rail, rz along it)
 function impOptic(parent, at, I, tex, size, ry, rz) {
-  const o = impPart(parent, at, I), ret = reticlePlane(tex, size); ret.position.set(0, ry, rz); o.g.add(ret);
+  const o = impPart(parent, at, I), ret = reticlePlane(tex, size); ret.position.set(-at[0], ry, rz); o.g.add(ret);
   return { g: o.g, ret, sightY: at[1] + ry };
 }
 // micro red dot on a riser

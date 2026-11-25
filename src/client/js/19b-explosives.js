@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { V3, camera, clamp, rnd, scene } from './00-setup.js';
 import { canvasTex, colliders, worldMeshes } from './01-world.js';
+import { TOWN } from './01b-town.js';
 import { sph } from './02-body-parts.js';
 import { CH_GIB, chunkCenters, chunkCount, chunkRx, destroyChunks, headCrater } from './02b-chunks.js';
 import { ragdolls, syncLost } from './04-ragdoll.js';
@@ -13,7 +14,7 @@ import { killNotice } from './12-blood.js';
 import { spawnGore } from './12b-gore.js';
 import { blowSpatter, floorAt, holeify } from './14-wounds.js';
 import { addBurn } from './14b-soak.js';
-import { DESTR, DESTR_OF, SLOTS, _sh, dust, gridOpenW, settleWall, spawnDebris, wallGrid, wallMask } from './15-destruction.js';
+import { DESTR, DESTR_OF, SLOTS, _sh, dust, gridIdx, gridOpenW, settleWall, spawnDebris, updateWallGrid, wallGrid, wallMask, wallShape } from './15-destruction.js';
 import { doorAt, doorBlast } from './15b-doors.js';
 import { bullets, onBulletHit, spawnBullet, wmFor } from './16-ballistics.js';
 import { P, S, dummies, localBody, mouse } from './17-dummies.js';
@@ -22,9 +23,9 @@ import { net } from './19-network.js';
 import { meleeWall } from './19c-toolvm.js';
 import { eqLoad, eqSync } from './21-items-inventory.js';
 import { WARMING } from './22b-warm.js';
-import { siegeBlast } from './23-siege.js';
+import { boardBreak, siegeBlast } from './23-siege.js';
 import { GADGETS, GD, flashBang, gadgetBlast, gadgetRemove, gadgetRx, gdKey, gdModel, smokeCloud } from './27-gadgets.js';
-import { blastBoxes, blastSlabs, boxBreakAt } from './30-structure.js';
+import { blastBoxes, blastSlabs, boxBreakAt, structDirty } from './30-structure.js';
 import { aiNoise } from './32-ai.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- explosives: M112 C4 (slot 3) and the M67 fragmentation grenade (slot 4)
@@ -241,7 +242,7 @@ function los(a, b) { const d = b.clone().sub(a), L = d.length(); if (L < 1e-3) r
 // ---------------------------------------------------------------- walls: the blast punches out and cracks what it reaches
 // only: a door the charge is on; then only that door's leaf and frame are hurt
 function blastWalls(p, W, owner, only) {
-  const cW = Math.cbrt(W); blastWalls.shot = null;
+  const cW = Math.cbrt(W); blastWalls.shot = null; const fresh = new Map();
   for (const mesh of worldMeshes) {
     const ud = mesh.userData; if (only && ud.door !== only && ud.doorFrame !== only) continue; const kind = DESTR_OF[ud.kind]; if (!kind || !ud.box) continue;
     // (out of reach first: a wall's grid is only built when something reaches it; this used to build one for every wall in
@@ -272,7 +273,7 @@ function blastWalls(p, W, owner, only) {
       else if (r < Rh * L) { const t = 1 - (r - Rb * L) / Math.max(0.01, Rh * L - Rb * L); add = amt * t * t * (0.5 + _sh(i, j, seed)); }
       if (!add) continue;
       G.dmg[k] += add * (1 + 0.6 * Math.min(1, G.dmg[k]));
-      if (G.dmg[k] >= 1) { G.cell[k] = 1; G.any = true; data[k] = 255; opened++; ou += cu; ov += cv; }
+      if (G.dmg[k] >= 1) { G.cell[k] = 1; G.any = true; data[k] = 255; opened++; ou += cu; ov += cv; let F = fresh.get(mesh); if (!F) fresh.set(mesh, F = new Set()); F.add(k); }
       else data[k] = Math.round(Math.min(0.92, G.dmg[k]) * 255);
     }
     G.tex.needsUpdate = true;
@@ -286,6 +287,57 @@ function blastWalls(p, W, owner, only) {
           spawnBullet(c.clone().addScaledVector(out, th / 2 + 0.06), fd, 5, false, mine, owner, mine ? (blastWalls.shot || (blastWalls.shot = { hits: new Map(), frag: true })) : null);
           const b = bullets[bullets.length - 1]; b.vel.setLength((kind === 'concrete' || kind === 'brick' ? rnd(140, 320) : rnd(90, 220)) * clamp(1.6 / (z + 0.5), 0.4, 1.4)); b.drag *= 9; b.frag = true; b.spall = true;
         } } }
+  }
+  blastLayers(fresh, p); boardsLoose(p);
+}
+// boards nailed across a window hang on the wall at both ends: blow the wall away under either end and the board comes off
+function boardsLoose(p) {
+  if (typeof TOWN === 'undefined' || !TOWN.windows) return; const q = new V3();
+  TOWN.windows.forEach((w, i) => { if (!w.boards || w.p.distanceTo(p) > 4) return; w.boards.forEach((m, k) => { if (!m || !m.userData.box) return;
+    const b = m.userData.box, alongX = w.ax === 'x', yc = (b.min.y + b.max.y) / 2;
+    let loose = false;
+    for (const e of [0, 1]) { q.set((b.min.x + b.max.x) / 2, yc, (b.min.z + b.max.z) / 2); if (alongX) q.x = e ? b.max.x - 0.03 : b.min.x + 0.03; else q.z = e ? b.max.z - 0.03 : b.min.z + 0.03;
+      // (the wall the end is nailed to: any layer that the end sits in front of; gone there if every one of them is open)
+      let held = false, any = false;
+      for (const c of worldMeshes) { const u = c.userData, cb = u.box; if (!cb || c === m || u.board !== undefined || u.door || u.falling || !DESTR_OF[u.kind]) continue;
+        if (alongX ? (q.x < cb.min.x || q.x > cb.max.x || q.y < cb.min.y || q.y > cb.max.y || Math.abs(q.z - (cb.min.z + cb.max.z) / 2) > 0.25) : (q.z < cb.min.z || q.z > cb.max.z || q.y < cb.min.y || q.y > cb.max.y || Math.abs(q.x - (cb.min.x + cb.max.x) / 2) > 0.25)) continue;
+        any = true; const pt = q.clone(); if (alongX) pt.z = (cb.min.z + cb.max.z) / 2; else pt.x = (cb.min.x + cb.max.x) / 2;
+        if (!gridOpenW(c, pt)) { held = true; break; } }
+      if (any && !held) loose = true; }
+    if (loose) { boardBreak(i, k, m.position.clone().sub(p).normalize(), false); if (typeof net !== 'undefined' && net.mode === 'host' && net.host && net.host.R && net.host.R.sgw) net.host.R.sgw.push(['bk', i, k]); }
+  }); });
+}
+// A wall is several layers (drywall on studs, a brick skin outside it, a board over a window): a charge that blows a hole
+// in one blows it through all of them. Whatever opened in a layer this blast is opened in every layer lying against it, cell
+// for cell, so the hole goes right through instead of leaving the skin (and the trim on it) standing across it.
+function blastLayers(fresh, p) {
+  const _q = new V3(), _w = new V3();
+  for (const [A, F] of fresh) {
+    const GA = A.userData.grid, bA = A.userData.box; if (!GA || !F.size) continue;
+    // the part of the wall that opened, in the world
+    let mn1 = 1e9, mx1 = -1e9, mn2 = 1e9, mx2 = -1e9;
+    for (const k of F) { const i = k % GA.n1, j = (k - i) / GA.n1; mn1 = Math.min(mn1, i); mx1 = Math.max(mx1, i); mn2 = Math.min(mn2, j); mx2 = Math.max(mx2, j); }
+    const ax = GA.ax, a1 = GA.a1, lo1 = A.position.getComponent(a1) + GA.min1 + mn1 * GA.cs1 - 0.05, hi1 = A.position.getComponent(a1) + GA.min1 + (mx1 + 1) * GA.cs1 + 0.05, lo2 = A.position.y + GA.min2 + mn2 * GA.cs2 - 0.05, hi2 = A.position.y + GA.min2 + (mx2 + 1) * GA.cs2 + 0.05;
+    for (const B of worldMeshes) {
+      if (B === A) continue; const u = B.userData, b = u.box; if (!b || u.falling || u.door || u.board !== undefined || !DESTR_OF[u.kind] || !wallShape(B)) continue;
+      // lying against it: the same way up, overlapping across the opening, no more than a few centimetres apart through it
+      const gap = Math.max(b.min.getComponent(ax) - bA.max.getComponent(ax), bA.min.getComponent(ax) - b.max.getComponent(ax)); if (gap > 0.08) continue;
+      if (b.max.getComponent(a1) < lo1 || b.min.getComponent(a1) > hi1 || b.max.y < lo2 || b.min.y > hi2) continue;
+      const GB = wallGrid(B); if (!GB || GB.ax !== ax) continue;
+      const pB = B.position, i0 = Math.max(0, Math.floor((lo1 - pB.getComponent(a1) - GB.min1) / GB.cs1)), i1 = Math.min(GB.n1 - 1, Math.ceil((hi1 - pB.getComponent(a1) - GB.min1) / GB.cs1));
+      const j0 = Math.max(0, Math.floor((lo2 - pB.y - GB.min2) / GB.cs2)), j1 = Math.min(GB.n2 - 1, Math.ceil((hi2 - pB.y - GB.min2) / GB.cs2));
+      let n = 0, su = 0, sv = 0; const data = GB.tex.image.data;
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * GB.n1 + i; if (GB.cell[k]) continue;
+        _q.set(0, 0, 0); _q.setComponent(GB.a1, GB.min1 + (i + 0.5) * GB.cs1); _q.setComponent(GB.a2, GB.min2 + (j + 0.5) * GB.cs2); _w.copy(_q).add(pB);
+        _w.setComponent(ax, A.position.getComponent(ax));
+        const kA = gridIdx(GA, A, _w.x, _w.y, _w.z); if (kA < 0 || !F.has(kA)) continue;
+        GB.cell[k] = 1; GB.dmg[k] = Math.max(GB.dmg[k], 1); data[k] = 255; GB.any = true; n++; su += _q.getComponent(GB.a1); sv += _q.getComponent(GB.a2); }
+      if (!n) continue;
+      const D = DESTR[DESTR_OF[u.kind]]; holeify(B, SLOTS, D.inner); u.holeMax = SLOTS; wallMask(B); u.dmg = u.dmg || []; GB.tex.needsUpdate = true;
+      _q.set(0, 0, 0); _q.setComponent(GB.a1, su / n); _q.setComponent(GB.a2, sv / n); const c = _q.clone().add(pB), dir = c.clone().sub(p); dir.y = 0; if (dir.lengthSq() < 1e-6) dir.setComponent(ax, 1); dir.normalize();
+      spawnDebris(c, Math.min(14, 3 + Math.round(Math.sqrt(n) * 0.5)), dir, 0.6, rnd(1.5, 4), D, 0.03);
+      updateWallGrid(B, D, dir); structDirty && structDirty();
+    }
   }
 }
 // ---------------------------------------------------------------- bodies

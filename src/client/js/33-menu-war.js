@@ -1,10 +1,12 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
-import { $, V3, camera, rnd } from './00-setup.js';
+import { $, V3, camera, clamp, rnd } from './00-setup.js';
 import { TOWN } from './01b-town.js';
-import { ragdolls } from './04-ragdoll.js';
+import { Anatomy } from './05-anatomy.js';
 import { WEAPONS } from './06-weapons.js';
-import { Dummy, S, dummies } from './17-dummies.js';
+import { clearWounds } from './14-wounds.js';
+import { S, dummies } from './17-dummies.js';
 import { clearWorldFx } from './22-menu-loop.js';
+import { ENV, envSet } from './24-env.js';
 import { floorUnder } from './30-structure.js';
 import { AIBot, AI_PAL, aiSees } from './32-ai.js';
 // ---- end module links ----
@@ -15,9 +17,10 @@ import { AIBot, AI_PAL, aiSees } from './32-ai.js';
 // few seconds later where they fell. The camera drifts between a few slow shots of it.
 const MW = { on: false, list: [], shot: 0, shotT: 0, t: 0 };
 const MW_RED = { shirt: 0x6e2a22, vest: 0x58241f, vest2: 0x4a1e1a, pack: 0x4e2420, helmet: 0x5a2a24 };
+// (bunched across the middle of the street, so the whole fight fits the clear part of the screen beside the menu)
 const MW_SPOTS = {
-  r: [[-6.8, 31.2, 0], [0.4, 31.5, 5], [4.5, 31.7, 3], [6.4, 31.75, 0]],
-  b: [[-6.4, 11.7, 0], [3.4, 12.1, 5], [-10.5, 12.0, 3], [-1.8, 12.9, 0]]
+  r: [[-0.3, 31.5, 5], [2.8, 31.75, 3], [5.0, 31.75, 0]],
+  b: [[-2.4, 12.4, 0], [2.6, 12.2, 5], [0.2, 13.4, 3]]
 };
 class MenuFighter extends AIBot {
   constructor(p, side, w) {
@@ -48,19 +51,21 @@ class MenuFighter extends AIBot {
   }
   reload() { if (this.reloadT > 0) return; this.reloadT = WEAPONS[this.w].pellets ? 2.8 : 2.6; this.burst = 0; this.up = false; this.popT = rnd(0.4, 1.2); }
   doorAhead() {} claymores() {} tryThrow() {}
-  die() {
-    if (this.dead) return;
-    Dummy.prototype.die.call(this); this.respawnT = rnd(7, 11); this.tgt = null;
-  }
+  // nobody falls in the menu's fight: the rounds hit (blood, holes, a flinch), but whatever would drop it is shrugged off
+  // and its body starts over sound; the wounds it has taken stay on it for a while, then heal over
+  die() { this.anat = new Anatomy(); }
+  goLimp() {}
+  startReaction() { this.react = undefined; }
   update(dt) {
-    // (back on its feet: its old body goes, it stands up in its spot again)
-    if (this.rag && !this.dead) { this.downT = (this.downT || 0) + dt; if (this.downT > 9) this.die(); } else this.downT = 0;
-    if (this.dead && this.respawnT - dt <= 0) { const R = this.rag; if (R) { const i = ragdolls.indexOf(R); if (i >= 0) ragdolls.splice(i, 1); R.dispose(); } this.pos.copy(this.spot); this.mag = WEAPONS[this.w].cap; this.reloadT = 0; }
+    const a = this.anat;
+    if (a.dead || a.isDowned() || a.bothLegs() || a.koT > 0 || a.paralyzed || a.legBroken('L') || a.legBroken('R') || a.blood < 3800) this.anat = new Anatomy();
+    this.forceDown = false; this.react = undefined; this.stag = undefined; this.dead = false;
+    this.healT = (this.healT || 0) + dt; if (this.healT > 45) { this.healT = 0; clearWounds(this.hum); this.hum.erosion = []; }
     super.update(dt);
   }
 }
 function menuWarStart() {
-  if (MW.on) return; MW.on = true; MW.list.length = 0; MW.t = 0; MW.shot = Math.floor(Math.random() * 3); MW.shotT = 0;
+  if (MW.on) return; MW.on = true; if (typeof ENV !== 'undefined' && ENV.w === 'fog') envSet('cloudy', true); MW.list.length = 0; MW.t = 0; MW.shot = Math.floor(Math.random() * 3); MW.shotT = 0;
   for (const side of ['r', 'b']) MW_SPOTS[side].forEach(([x, z, w]) => {
     const p = new V3(x, 0, z); p.y = floorUnder(x, z, 3);
     const f = new MenuFighter(p, side, w); f.spot = p.clone(); MW.list.push(f); dummies.push(f);
@@ -77,24 +82,47 @@ function updateMenuWar(dt) {
   MW.t += dt;
   for (const f of MW.list) f.update(dt);
 }
-// ---- the camera: a few slow shots, each a gentle drift, cutting from one to the next
+// ---- the camera: a few slow shots, each a gentle drift, cutting from one to the next. The menu covers the left of the
+// screen, so each shot is framed into the clear part on the right: the lens is pointed so the whole fight (both sides) sits
+// in that strip, and opened just wide enough to hold it
+// (high and along the line between the two sides, so one side is near the bottom of the picture and the other far up it:
+// both fit the strip big enough to see)
 const MW_SHOTS = [
-  // down the street from the east, both sides in frame
-  { a: [23, 3.9, 23.0], b: [19.5, 3.6, 23.2], la: [-1, 1.0, 21.5], lb: [-3, 1.1, 21.8] },
-  // over the attackers' heads behind the van, toward the house
-  { a: [-3.5, 4.1, 35.4], b: [-1.5, 4.2, 35.8], la: [-1, 0.8, 12], lb: [0.5, 0.8, 12] },
-  // from the west end of the front garden, past the defenders, out at the street
-  { a: [-12.5, 1.7, 10.8], b: [-12.2, 1.85, 11.4], la: [6, 1.5, 24], lb: [4, 1.4, 25] },
-  // high and wide from the west end of the street
-  { a: [-30, 6.5, 24], b: [-27, 6, 19], la: [0, 1, 21], lb: [2, 1, 22] }
+  // up behind the attackers, down across the street at the house
+  { a: [0.5, 10, 45], b: [2.5, 9.4, 44.5], la: [0, 0.6, 22], lb: [0.5, 0.6, 22] },
+  // low over the van
+  { a: [-1.5, 4.8, 39], b: [1.5, 5.2, 39.5], la: [0.5, 0.8, 14], lb: [0.5, 0.8, 14] },
+  // from the attackers' right rear
+  { a: [12, 9, 40.5], b: [10.5, 9.4, 41.5], la: [1.5, 0.6, 21], lb: [1.5, 0.6, 21] },
+  // from the attackers' left rear
+  { a: [-9, 8.5, 41], b: [-7.5, 8, 42], la: [1.5, 0.6, 21], lb: [1.5, 0.6, 21] }
 ];
-const _mwA = new V3(), _mwB = new V3();
+const _mwA = new V3(), _mwB = new V3(), _mwP = new V3();
+function mwFree() {
+  // (the right edge of what the menu shows: its column and the open pane)
+  const now = performance.now(); if (MW.freeT && now - MW.freeT < 500) return MW.free; MW.freeT = now;
+  let r = 0; for (const el of document.querySelectorAll('#menu .mcol, #menu .mpane')) { if (el.offsetParent === null) continue; const b = el.getBoundingClientRect(); if (b.width > 0 && b.height > 0) r = Math.max(r, b.right - (el.classList.contains('mpane') ? 50 : 0)); }
+  return MW.free = clamp(r / innerWidth, 0.25, 0.72);
+}
 function menuWarCam(dt) {
-  MW.shotT += dt; const DUR = 11; if (MW.shotT > DUR) { MW.shotT = 0; MW.shot = (MW.shot + 1) % MW_SHOTS.length; }
+  MW.shotT += dt; const DUR = 12; if (MW.shotT > DUR) { MW.shotT = 0; MW.shot = (MW.shot + 1) % MW_SHOTS.length; }
   const s = MW_SHOTS[MW.shot], k = MW.shotT / DUR, e = k * k * (3 - 2 * k), t = performance.now() / 1000;
-  _mwA.fromArray(s.a).lerp(_mwB.fromArray(s.b), e); camera.position.copy(_mwA); camera.position.y += Math.sin(t * 0.7) * 0.05; camera.position.x += Math.sin(t * 0.43) * 0.04;
-  _mwA.fromArray(s.la).lerp(_mwB.fromArray(s.lb), e); camera.lookAt(_mwA);
-  camera.fov = 58; camera.updateProjectionMatrix();
+  _mwA.fromArray(s.a).lerp(_mwB.fromArray(s.b), e); camera.position.copy(_mwA); camera.position.y += Math.sin(t * 0.7) * 0.04;
+  _mwA.fromArray(s.la).lerp(_mwB.fromArray(s.lb), e); camera.lookAt(_mwA); camera.updateMatrixWorld(true);
+  // where everyone is, as seen from here (head and feet)
+  let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9; const inv = camera.matrixWorldInverse;
+  for (const f of MW.list) for (const h of [0.05, 1.8]) { _mwP.copy(f.pos); _mwP.y += h; _mwP.applyMatrix4(inv); if (_mwP.z > -1) continue; const u = _mwP.x / -_mwP.z, v = _mwP.y / -_mwP.z; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+  const W = innerWidth, H = innerHeight, asp = W / H, f0 = mwFree(), sw = (1 - f0) * 0.82, c = f0 + (1 - f0) * 0.48;
+  if (u0 > u1) { u0 = -0.2; u1 = 0.2; v0 = -0.2; v1 = 0.2; }
+  // half the width of the picture (at one unit out) such that the fight fills the strip, and its height fits too
+  let T = Math.max((u1 - u0) / (2 * sw), (v1 - v0) / 2 * asp / 0.8, Math.tan(0.2) * asp);
+  T = Math.min(T, Math.tan(1.1) * asp);
+  const Tv = T / asp, uc = (u0 + u1) / 2, vc = (v0 + v1) / 2;
+  camera.fov = 2 * Math.atan(Tv) * 180 / Math.PI;
+  // the picture slid so the middle of the fight lands in the middle of the strip, a little below centre
+  const x = W * (uc - 2 * T * c + T) / (2 * T), y = H * (-vc - 0.1 * Tv) / (2 * Tv);
+  camera.setViewOffset(W, H, x, y, W, H);
+  camera.updateProjectionMatrix();
 }
 
 // ---- module exports: build.mjs strips this block ----

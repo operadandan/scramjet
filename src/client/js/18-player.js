@@ -545,6 +545,12 @@ function shotRay(w, V) {
   // the barrel is angled so the round crosses the line of sight at the zero distance (100 m), with drop compensation
   const Z = w.zero || 100, tz = Z / (w.vel * 0.93), drop = 0.5 * 9.81 * tz * tz;
   const camF = new V3(); camera.getWorldDirection(camF);
+  // aimed through an optic: the round goes where the reticle is on the screen, not just the middle of it (the gun sways and
+  // kicks a little in the hands, and the dot moves with it)
+  if (V.ret && P.ads > 0.5 && !S.tp && V.ret.parent && V.ret.parent.visible) {
+    const q = V.ret.getWorldPosition(new V3()).project(vmCamera);
+    if (Math.abs(q.x) < 0.5 && Math.abs(q.y) < 0.5) { const w2 = new V3(q.x, q.y, 0.5).unproject(camera).sub(camera.position).normalize(); camF.lerp(w2, smooth(clamp((P.ads - 0.5) * 2, 0, 1))).normalize(); }
+  }
   const camU = new V3(0, 1, 0).applyQuaternion(camera.quaternion);
   const tGun = origin.clone().addScaledVector(gF, Z).addScaledVector(up, V.sightH + drop);
   const tSight = camera.position.clone().addScaledVector(camF, Z).addScaledVector(camU, drop);

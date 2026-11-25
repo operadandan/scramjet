@@ -32,6 +32,7 @@ const camTarget = new V3(), _camQ = new THREE.Quaternion(), _camE = new THREE.Qu
 function specHeadLayer(r, l) { if (r && r.hum && r.hum.head) r.hum.head.traverse(o => o.layers.set(l)); }
 function updateCamera(dt) {
   if (!S.mode && MW.on) { menuWarCam(dt); return; }
+  if (camera.view && camera.view.enabled) { camera.clearViewOffset(); camera.updateProjectionMatrix(); }
   if (!S.mode || (!P.alive && !P.rag)) {
     const t = performance.now() / 1000 * 0.05;
     camera.position.set(Math.cos(t) * 46 + 4, 9 + Math.sin(t * 0.7) * 3, Math.sin(t) * 40 + 8); camera.lookAt(0, 3, 0);

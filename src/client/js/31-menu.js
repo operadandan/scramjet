@@ -32,7 +32,8 @@ async function deploy(title, run) {
     await step(22, 'Building the world');
     await run();
     await step(55, 'Compiling materials');
-    try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); else renderer.compile(scene, camera); } catch (e) {}
+    // (never more than a few seconds: a material that never reports ready must not hold the loading screen forever)
+    try { if (renderer.compileAsync) await Promise.race([renderer.compileAsync(scene, camera).catch(() => {}), sleep(4000)]); else renderer.compile(scene, camera); } catch (e) {}
     await step(75, 'Warming up effects');
     try { warmShaders(); } catch (e) {}
     try { warmFx(); } catch (e) {}
