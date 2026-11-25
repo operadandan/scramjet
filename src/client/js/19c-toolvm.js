@@ -12,6 +12,7 @@ import { noiseHit } from './10-audio.js';
 import { impactFx } from './11-fx.js';
 import { addWound } from './14-wounds.js';
 import { DESTR_OF, gridOpenW, wallDamage, wallGrid } from './15-destruction.js';
+import { wmFor } from './16-ballistics.js';
 import { P, S, dummies, localBody, mouse } from './17-dummies.js';
 import { PITCH_MIN, flashMsg, hurtFlash, localDeath, selectEmpty, switchWeapon } from './18-player.js';
 import { net } from './19-network.js';
@@ -336,7 +337,7 @@ function meleeWall(p, d, E, n, spread, seed, local) {
     if (!P.alive || (S.R && S.R.ph !== 'live' && S.R.ph !== 'lobby') || matchFrozen() || meleeWall.t.length >= 3) return; meleeWall.t.push(now); }
   // (the one who swung uses exactly what everyone else will get over the network)
   if (local) { p = new V3().fromArray(p.toArray().map(r4x)); d = new V3().fromArray(d.toArray().map(r4x)).normalize(); E = Math.round(Math.min(4500, E)); seed = (seed >>> 0) || 1; }
-  _pr.set(p.clone().addScaledVector(d, -0.25), d); _pr.far = 0.6; const h = _pr.intersectObjects(worldMeshes, false).find(x => x.object.userData.box && !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(d, 0.01)))); if (!h) return;
+  _pr.set(p.clone().addScaledVector(d, -0.25), d); _pr.far = 0.6; const h = _pr.intersectObjects(wmFor(_pr), false).find(x => x.object.userData.box && !(x.object.userData.grid && gridOpenW(x.object, x.point.clone().addScaledVector(d, 0.01)))); if (!h) return;
   const ud = h.object.userData;
   if (!ud.grid && !wallGrid(h.object)) { boxHit(h.object, E * n * 0.5); if (local && S.mode === 'online') net.send({ t: 'x', a: 'mw', p: p.toArray().map(r4x), v: d.toArray().map(r4x), n: Math.min(16, n), w: Math.round(Math.min(4500, E)), i: seed >>> 0, f: spread }); return; }
   if (!DESTR_OF[ud.kind]) return;

@@ -1,9 +1,8 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import { GFX, V3, camera, lerp, scene } from './00-setup.js';
-import { worldMeshes } from './01-world.js';
 import { Humanoid } from './03-humanoid.js';
 import { setHelmet } from './04-ragdoll.js';
-import { bulletTargets } from './16-ballistics.js';
+import { bulletTargets, wmFor } from './16-ballistics.js';
 import { P, PALS, S, SKINS, localBody } from './17-dummies.js';
 import { ray } from './18-player.js';
 // ---- end module links ----
@@ -29,7 +28,7 @@ function tpCamera() {
   const want = camera.position.clone().addScaledVector(back, 2.2 - 1.0 * P.ads).addScaledVector(right, 0.55 - 0.15 * P.ads).add(new V3(0, 0.12, 0));
   const d = want.clone().sub(camera.position), len = d.length(); d.normalize();
   ray.set(camera.position, d); ray.far = len;
-  const h = ray.intersectObjects(worldMeshes, false)[0];
+  const h = ray.intersectObjects(wmFor(ray), false)[0];
   camera.position.copy(h ? camera.position.clone().addScaledVector(d, Math.max(0.2, h.distance - 0.2)) : want);
   camera.fov = lerp(GFX.fov - 3, 52, P.ads); camera.updateProjectionMatrix();
 }

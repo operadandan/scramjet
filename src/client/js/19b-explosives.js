@@ -15,7 +15,7 @@ import { blowSpatter, floorAt, holeify } from './14-wounds.js';
 import { addBurn } from './14b-soak.js';
 import { DESTR, DESTR_OF, SLOTS, _sh, dust, gridOpenW, settleWall, spawnDebris, wallGrid, wallMask } from './15-destruction.js';
 import { doorAt, doorBlast } from './15b-doors.js';
-import { bullets, onBulletHit, spawnBullet } from './16-ballistics.js';
+import { bullets, onBulletHit, spawnBullet, wmFor } from './16-ballistics.js';
 import { P, S, dummies, localBody, mouse } from './17-dummies.js';
 import { PITCH_MIN, flashMsg, onSelfHurt, selectEmpty } from './18-player.js';
 import { net } from './19-network.js';
@@ -234,7 +234,7 @@ function updateBoomFx(dt) {
 const _ray = new THREE.Raycaster();
 function worldHit(o, d, max) {
   _ray.set(o, d); _ray.far = max;
-  for (const h of _ray.intersectObjects(worldMeshes, false)) { if (h.object.userData.grid && gridOpenW(h.object, h.point.clone().addScaledVector(d, 0.01))) continue; return h; }
+  for (const h of _ray.intersectObjects(wmFor(_ray), false)) { if (h.object.userData.grid && gridOpenW(h.object, h.point.clone().addScaledVector(d, 0.01))) continue; return h; }
   return null;
 }
 function los(a, b) { const d = b.clone().sub(a), L = d.length(); if (L < 1e-3) return true; d.multiplyScalar(1 / L); return !worldHit(a, d, L - 0.02); }

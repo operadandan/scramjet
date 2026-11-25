@@ -1,7 +1,7 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { GFX, V3, clamp, lerp, rnd, scene } from './00-setup.js';
-import { canvasTex, colliders, mat, worldMeshes } from './01-world.js';
+import { canvasTex, colliders, mat } from './01-world.js';
 import { GC, bodyKey, bodyPatches, vcMat } from './02-body-parts.js';
 import { chunkGoneAt, chunkRootOf, chunkTubes } from './02b-chunks.js';
 import { _Y, _a, _b, _rt } from './04-ragdoll.js';
@@ -10,11 +10,12 @@ import { WEAPONS, isPistol, isShotgun } from './06-weapons.js';
 import { bakeColored } from './07-gun-models.js';
 import { buildGripHand } from './08-hands.js';
 import { footSound, noiseHit, surfaceAt } from './10-audio.js';
-import { PMAT, decals, fx, impactFx, irregular, particles, placeDecal, poolGeo, splatGeo } from './11-fx.js';
+import { PMAT, decals, fx, fxSprOK, impactFx, irregular, particles, placeDecal, poolGeo, splatGeo } from './11-fx.js';
 import { BLOOD_MAT, BLOOD_MAX, POOL_MAT, bmat, drips, dropIM, drops, floorSplats, mistTex } from './12-blood.js';
 import { coneDir, goreBlast } from './12b-gore.js';
 import { addPepper, addSoak, updateSoaks } from './14b-soak.js';
-import { DESTR_OF, gridOpenW, pick, wallClipMat, wallDamage } from './15-destruction.js';
+import { CG, DESTR_OF, cgFresh, colNear, gridOpenW, pick, wallClipMat, wallDamage } from './15-destruction.js';
+import { wmFor } from './16-ballistics.js';
 import { P, S } from './17-dummies.js';
 import { ez } from './19c-toolvm.js';
 import { drag } from './21-items-inventory.js';
@@ -168,8 +169,8 @@ function bloodBurst(point, dir, speed, n, spread, size) {
 const sprayRay = new THREE.Raycaster();
 function sprayDecal(point, dir, size) {
   sprayRay.set(point, dir); sprayRay.far = 3.5;
-  let h = sprayRay.intersectObjects(worldMeshes, false)[0];
-  if (!h) { sprayRay.set(point, _a.copy(dir).add(new V3(0, -0.2, 0)).normalize()); sprayRay.far = 2.6; h = sprayRay.intersectObjects(worldMeshes, false)[0]; }
+  let h = sprayRay.intersectObjects(wmFor(sprayRay), false)[0];
+  if (!h) { sprayRay.set(point, _a.copy(dir).add(new V3(0, -0.2, 0)).normalize()); sprayRay.far = 2.6; h = sprayRay.intersectObjects(wmFor(sprayRay), false)[0]; }
   let p, n;
   if (h && h.face) { n = h.face.normal.clone().transformDirection(h.object.matrixWorld); p = h.point; size *= 0.8 + Math.max(0, 2.6 - h.distance) * 0.25; }
   else { n = new V3(0, 1, 0); p = new V3(point.x, 0, point.z).addScaledVector(new V3(dir.x, 0, dir.z).normalize(), rnd(0.5, 1.4)); }
@@ -181,6 +182,7 @@ function sprayDecal(point, dir, size) {
 }
 // a fine red mist that moves with the spray and hangs for a moment
 function mist(p, v, size, life, col, op) {
+  if (!fxSprOK()) return;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: mistTex, color: col, transparent: true, depthWrite: false, opacity: op * 1.2 })); sp.material.rotation = Math.random() * 6.28;
   sp.position.copy(p); sp.scale.setScalar(size * 0.3); scene.add(sp);
   life *= 0.6; fx.push({ o: sp, life, max: life, fade: op, grow: size, rise: -0.05, dispose: true, sprite: true, sv: v });
@@ -188,7 +190,7 @@ function mist(p, v, size, life, col, op) {
 // head shot / head burst: the wall behind gets a high-velocity spatter, cut away wherever that wall later gets shot open
 function wallSpatter(point, dir, size, goreK) {
   sprayRay.set(point, dir); sprayRay.far = 4.5;
-  const h = sprayRay.intersectObjects(worldMeshes, false)[0];
+  const h = sprayRay.intersectObjects(wmFor(sprayRay), false)[0];
   if (!h || !h.face) return false;
   const n = h.face.normal.clone().transformDirection(h.object.matrixWorld);
   const m = new THREE.Mesh(splatGeo, wallClipMat(bmat(goreK ? 'gore' : 'spatter'), h.object, -1)); m.quaternion.setFromUnitVectors(_Z, n); m.rotateZ(Math.random() * 6.28);
@@ -252,16 +254,27 @@ function wallSplat(p, n, size, vdir, bottom) {
   trimDecals();
 }
 const _dm = new THREE.Object3D(), _dpS = new V3();
+// (a drop checks only the colliders filed round where it is and where it is going, not every box in the map: a spray is
+// hundreds of drops, and each checking all of them twice a frame was a hitch every time someone was hit)
+const _bcA = [];
+function bloodCols(px, pz, qx, qz) {
+  _bcA.length = 0; const a = colNear(_dpS.set(px, 0, pz)), b = colNear(_dpS.set(qx, 0, qz));
+  for (const c of a) _bcA.push(c); if (b !== a) for (const c of b) if (!a.includes(c)) _bcA.push(c); for (const c of CG.big) _bcA.push(c);
+  return _bcA;
+}
 function updateBlood(dt) {
   updateSoaks(dt);
+  if (drops.length) cgFresh();
   for (let i = drops.length - 1; i >= 0; i--) {
     const d = drops[i]; d.life -= dt; d.v.y -= 9.8 * d.g * dt; d.v.multiplyScalar(Math.exp(-d.drag * dt));
     const px = d.p.x, py = d.p.y, pz = d.p.z; d.p.addScaledVector(d.v, dt);
     // a fast drop could step clean over a thin wall in one frame: if its path crosses a box, it stops where it went in
     { const ex = d.p.x - px, ey = d.p.y - py, ez = d.p.z - pz; let tb = 2;
-      if (ex * ex + ey * ey + ez * ez > 0.0004) for (const c of colliders) {
+      const near = bloodCols(px, pz, d.p.x, d.p.z);
+      if (ex * ex + ey * ey + ez * ez > 0.0004) for (const c of near) {
         let t0 = 0, t1 = 1;
-        for (const [o, e, lo, hi] of [[px, ex, c.min.x, c.max.x], [py, ey, c.min.y, c.max.y], [pz, ez, c.min.z, c.max.z]]) {
+        for (let ax = 0; ax < 3; ax++) {
+          const o = ax === 0 ? px : ax === 1 ? py : pz, e = ax === 0 ? ex : ax === 1 ? ey : ez, lo = ax === 0 ? c.min.x : ax === 1 ? c.min.y : c.min.z, hi = ax === 0 ? c.max.x : ax === 1 ? c.max.y : c.max.z;
           if (Math.abs(e) < 1e-9) { if (o < lo || o > hi) { t0 = 2; break; } continue; }
           let a = (lo - o) / e, b = (hi - o) / e; if (a > b) { const t = a; a = b; b = t; } if (a > t0) t0 = a; if (b < t1) t1 = b; if (t0 > t1) break;
         }
@@ -270,7 +283,7 @@ function updateBlood(dt) {
       if (tb <= 1) d.p.set(px + ex * (tb + 1e-3), py + ey * (tb + 1e-3), pz + ez * (tb + 1e-3)); }
     let hit = d.life <= 0;
     if (d.p.y <= 0.004) { dropSplat(_sP.set(d.p.x, 0, d.p.z).clone(), _sUp, d.r, d.v); feedPool(d.p.x, 0, d.p.z, d.ml || dropMl(d.r)); hit = true; }
-    else for (const c of colliders) {
+    else for (const c of bloodCols(d.p.x, d.p.z, d.p.x, d.p.z)) {
       if (d.p.x > c.min.x && d.p.x < c.max.x && d.p.y > c.min.y && d.p.y < c.max.y && d.p.z > c.min.z && d.p.z < c.max.z && !(c.mesh && gridOpenW(c.mesh, d.p))) {
         // which face did it come through? the one the previous position was outside of
         if (py >= c.max.y) { dropSplat(new V3(d.p.x, c.max.y, d.p.z), _sUp, d.r, d.v); feedPool(d.p.x, c.max.y, d.p.z, d.ml || dropMl(d.r)); }

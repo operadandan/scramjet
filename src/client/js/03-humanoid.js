@@ -1,11 +1,12 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { V3, clamp, damp, lerp, rnd, smooth } from './00-setup.js';
-import { mark, mat, shadowMat, tpBox, worldMeshes } from './01-world.js';
+import { mark, mat, shadowMat, tpBox } from './01-world.js';
 import { Body, HUM_DEFAULT, attachSkin, mergeTree, vcMat } from './02-body-parts.js';
 import { MEDKIT_W, WEAPONS, isPistol } from './06-weapons.js';
 import { gunMatOf, gunVcMat, tpGun, tpGunGeo } from './08-hands.js';
 import { addStump, clipGroup } from './14-wounds.js';
+import { wmFor } from './16-ballistics.js';
 import { P, keys } from './17-dummies.js';
 import { frame } from './22-menu-loop.js';
 // ---- end module links ----
@@ -58,7 +59,7 @@ function updateBrace(hum, dt) {
   let best = null;
   for (const sd of [-1, 1, -0.6, 0.6]) {
     const d = new V3(sd, 0, -0.35 * Math.abs(sd)).normalize().applyQuaternion(q); _brR.set(o, d); _brR.far = 0.85;
-    const h = _brR.intersectObjects(worldMeshes, false)[0]; if (h && (!best || h.distance < best.distance)) best = Object.assign(h, { sd });
+    const h = _brR.intersectObjects(wmFor(_brR), false)[0]; if (h && (!best || h.distance < best.distance)) best = Object.assign(h, { sd });
   }
   if (!best) { a.braceP = null; return; }
   const n = best.face ? best.face.normal.clone().transformDirection(best.object.matrixWorld) : new V3();

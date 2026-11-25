@@ -1,7 +1,7 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { V3, camera, clamp, damp, rnd, scene } from './00-setup.js';
-import { addBox, colliders, worldMeshes } from './01-world.js';
+import { addBox, colliders } from './01-world.js';
 import { HOUSE, TOWN } from './01b-town.js';
 import { chunkReset } from './02b-chunks.js';
 import { hurtLevel } from './03-humanoid.js';
@@ -15,7 +15,7 @@ import { nz } from './12b-gore.js';
 import { clearWounds } from './14-wounds.js';
 import { gridOpenW, pick } from './15-destruction.js';
 import { DOOR_H, DOOR_OPEN, DOOR_W, addDoor, doorNet, doors } from './15b-doors.js';
-import { bullets, ejectShell, spawnBullet } from './16-ballistics.js';
+import { bullets, ejectShell, spawnBullet, wmFor } from './16-ballistics.js';
 import { Dummy, P, S, arteryRate, dummies } from './17-dummies.js';
 import { flashMsg } from './18-player.js';
 import { net } from './19-network.js';
@@ -138,7 +138,7 @@ function aiTargets() {
 function aiSees(eye, q) {
   _aiV.subVectors(q, eye); const L = _aiV.length(); if (L < 0.01) return true; _aiV.multiplyScalar(1 / L);
   _aiR.set(eye, _aiV); _aiR.far = L - 0.2;
-  const hits = _aiR.intersectObjects(worldMeshes, false);
+  const hits = _aiR.intersectObjects(wmFor(_aiR), false);
   for (const h of hits) { const u = h.object.userData; if (!u.box && !u.door) continue; if (u.grid && gridOpenW(h.object, h.point.clone().addScaledVector(_aiV, 0.01))) continue; if (h.object.visible === false) continue; return false; }
   for (let k = 1; k < 6; k++) { _aiW.copy(eye).addScaledVector(_aiV, L * k / 6); if (smokeAt(_aiW, false) > 0.45) return false; }
   return true;
@@ -390,7 +390,9 @@ class AIBot extends Dummy {
     const q = best.p, d = Math.hypot(q.x - this.pos.x, q.z - this.pos.z), atDoor = this.entries.some(e => Math.hypot(e.p.x - q.x, e.p.z - q.z) < 4.5);
     if (kind === 'frag') { if (d < 6.5 || d > 20 || now - (AI_SQUAD.fragT || 0) < 3500 || (!this.inA(q) && !atDoor) || AIS.some(b => !b.dead && !b.out && b.pos.distanceTo(q) < 6.5)) return false; }
     else if (d < 3.5 || d > 13 || now - (AI_SQUAD.flashT || 0) < 3000 || !(this.state === 'hunt' || atDoor)) return false;
-    const v = aiLob(this.handPos(), q.clone().setY(q.y + 0.1)); if (!v) return false;
+    // (an arc that would not get there is worked out again only after a second, not every tenth of one)
+    if (now < (this.lobNo || 0)) return false;
+    const v = aiLob(this.handPos(), q.clone().setY(q.y + 0.1)); if (!v) { this.lobNo = now + rnd(900, 1400); return false; }
     // turned to it first
     const ty = Math.atan2(-(q.x - this.pos.x), -(q.z - this.pos.z)); this.lookYaw = ty; this.lookP = 0.3; this.path = null; this.state = 'throw';
     if (Math.abs(angWrap(ty - this.ayaw)) > 0.35) return true;
@@ -607,7 +609,8 @@ class AIBot extends Dummy {
     const aim = this.aimPoint(this.tgt), e = this.eye, d = aim.clone().sub(e), dist = d.length();
     const wy = Math.atan2(-d.x, -d.z), wp = Math.atan2(d.y, Math.hypot(d.x, d.z));
     const off = Math.hypot(angWrap(wy - this.ayaw), wp - this.apitch), body = Math.atan2(0.28, Math.max(1, dist));
-    if (this.engT < 0.22 || off > body + this.err * 0.6) return;
+    // (and not while still swinging round onto them: it settles, then fires, so it is always seen looking at what it shoots)
+    if (this.engT < 0.22 || off > body + this.err * 0.6 || Math.abs(this.yawV) > 2) return;
     if (W.pellets) this.fireT = 60 / W.rpm + rnd(0.05, 0.2);
     else if (this.dist > 14) { this.burst++; this.fireT = this.burst >= 3 + Math.floor(Math.random() * 3) ? (this.burst = 0, rnd(0.25, 0.5)) : 60 / W.rpm; }
     else this.fireT = 60 / W.rpm;
@@ -719,7 +722,7 @@ function aiLoadout(i, night, w) {
 // clear between two points (holes in walls let it through; smoke doesn't matter to a grenade)
 function aiClear(a, b) {
   _aiV.subVectors(b, a); const L = _aiV.length(); if (L < 1e-3) return true; _aiV.multiplyScalar(1 / L); _aiR.set(a, _aiV); _aiR.far = L;
-  for (const h of _aiR.intersectObjects(worldMeshes, false)) { const u = h.object.userData; if (!u.box && !u.door) continue; if (u.grid && gridOpenW(h.object, h.point.clone().addScaledVector(_aiV, 0.01))) continue; if (h.object.visible === false) continue; return false; }
+  for (const h of _aiR.intersectObjects(wmFor(_aiR), false)) { const u = h.object.userData; if (!u.box && !u.door) continue; if (u.grid && gridOpenW(h.object, h.point.clone().addScaledVector(_aiV, 0.01))) continue; if (h.object.visible === false) continue; return false; }
   return true;
 }
 // a throw from o that comes down on q, if its arc gets there through the rooms (a few launch angles, flattest first)
@@ -770,7 +773,7 @@ const distToSeg = (p, a, b) => { const ab = b.clone().sub(a), t = clamp(p.clone(
 // only soft things between: drywall, plywood, a wooden door, boards (a round goes through those); at least one of them
 function aiSoftOnly(e, q) {
   _aiV.subVectors(q, e); const L = _aiV.length(); _aiV.multiplyScalar(1 / L); _aiR.set(e, _aiV); _aiR.far = L - 0.3;
-  const hits = _aiR.intersectObjects(worldMeshes, false); let n = 0;
+  const hits = _aiR.intersectObjects(wmFor(_aiR), false); let n = 0;
   for (const h of hits) { const u = h.object.userData; if (!u.box && !u.door) continue; if (u.grid && gridOpenW(h.object, h.point.clone().addScaledVector(_aiV, 0.01))) continue;
     const soft = u.board !== undefined || (u.door ? u.door.kind !== 'metal' : (u.kind === 'drywall' || u.kind === 'plywood')); if (!soft) return false; n++; }
   return n > 0 && n <= 4;

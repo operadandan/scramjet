@@ -5,7 +5,7 @@ import { canvasTex } from './01-world.js';
 import { _Y } from './04-ragdoll.js';
 import { isPistol, isShotgun } from './06-weapons.js';
 import { blip } from './10-audio.js';
-import { fx, puffTex } from './11-fx.js';
+import { fx, fxSprOK, puffTex } from './11-fx.js';
 import { esc } from './18-player.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- blood: ballistic droplets, splats that run down walls, pooling on floors, wounds on bodies
@@ -206,6 +206,7 @@ const mistTex = canvasTex((g, s) => {
 
 // ---------------------------------------------------------------- muzzle smoke and barrel heat
 function smoke(p, vel, size, life, op, col) {
+  if (!fxSprOK()) return;
   const mt = new THREE.SpriteMaterial({ map: puffTex, color: col || 0xc4c1ba, transparent: true, depthWrite: false, opacity: op }); mt.rotation = Math.random() * 6.28;
   const s = new THREE.Sprite(mt); s.position.copy(p); s.scale.setScalar(size * 0.3); scene.add(s);
   fx.push({ o: s, life, max: life, fade: op, grow: size, rise: 0.1, dispose: true, sprite: true, sv: vel });

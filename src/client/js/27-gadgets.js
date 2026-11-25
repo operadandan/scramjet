@@ -12,6 +12,7 @@ import { spawnGore } from './12b-gore.js';
 import { blowSpatter } from './14-wounds.js';
 import { DESTR, DESTR_OF, dust, gridOpenW, wallDamage, wallGrid } from './15-destruction.js';
 import { doorDent, doorLaunch, doorNet, hingeOff, knobOff } from './15b-doors.js';
+import { wmFor } from './16-ballistics.js';
 import { P, S, dummies, mouse } from './17-dummies.js';
 import { PITCH_MIN, flashMsg, hurtFlash, selectEmpty } from './18-player.js';
 import { DEF_TEAM, net } from './19-network.js';
@@ -166,7 +167,7 @@ function updateGadget(dt, kk) {
   const k = kk || P.tool2, G = GADGETS[k]; if (!G) return;
   if (gdCount(k) <= 0) { selectEmpty(2 + Math.max(0, P.eqSel)); return; }
   const o = camera.getWorldPosition(new V3()), d = camera.getWorldDirection(new V3());
-  _gdRay.set(o, d); _gdRay.far = 3; _gdRay.firstHitOnly = true; const h = _gdRay.intersectObjects(worldMeshes, false)[0]; _gdRay.firstHitOnly = false;
+  _gdRay.set(o, d); _gdRay.far = 3; _gdRay.firstHitOnly = true; const h = _gdRay.intersectObjects(wmFor(_gdRay), false)[0]; _gdRay.firstHitOnly = false;
   let ok = false, at = null, n = null, yaw = P.yaw;
   if (h && h.face) {
     n = h.face.normal.clone().transformDirection(h.object.matrixWorld);

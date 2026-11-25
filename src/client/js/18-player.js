@@ -1,7 +1,7 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { $, V3, camera, clamp, damp, lerp, muzzleLight, ramp, renderer, rnd, scene, smooth, vmCamera, vmMuzzleLight } from './00-setup.js';
-import { colliders, spawns, worldMeshes } from './01-world.js';
+import { colliders, spawns } from './01-world.js';
 import { chunkReset } from './02b-chunks.js';
 import { hurtClutch, hurtLevel, reClutch, updateBrace } from './03-humanoid.js';
 import { _Y, _a, freeRag, setHelmet, spawnRagdoll, syncLost } from './04-ragdoll.js';
@@ -14,7 +14,7 @@ import { muzzleSmoke } from './12-blood.js';
 import { tpAim } from './13-third-person.js';
 import { clearWounds, floorAt } from './14-wounds.js';
 import { gridOpenW, gridPass } from './15-destruction.js';
-import { addProp, ejectShell, spawnBullet } from './16-ballistics.js';
+import { addProp, ejectShell, spawnBullet, wmFor } from './16-ballistics.js';
 import { P, S, arteryRate, bleedDrips, deathMasks, fpBody, fpClip, keys, localBody, mouse, reactRun, reactStart } from './17-dummies.js';
 import { net } from './19-network.js';
 import { updateC4, updateFrag } from './19b-explosives.js';
@@ -540,7 +540,7 @@ function shotRay(w, V) {
   const dir = target.sub(origin).normalize();
   // muzzle poking through a wall: start the round at the wall instead
   ray.set(camera.position, _a.subVectors(origin, camera.position).normalize()); ray.far = camera.position.distanceTo(origin);
-  const block = ray.intersectObjects(worldMeshes, false)[0];
+  const block = ray.intersectObjects(wmFor(ray), false)[0];
   if (block) origin = block.point.clone().addScaledVector(_a, -0.02);
   if (S.tp) { const ta = tpAim(); origin = ta.origin; dir.copy(ta.dir); }
   return { origin, dir, gF, up, right };

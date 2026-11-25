@@ -110,6 +110,10 @@ function updateHeats(dt) {
 
 // ---------------------------------------------------------------- particles / fx
 const fx = [];
+// (smoke, dust and mist puffs alive at once, at most FX_SPR: each is its own draw and a screenful of see-through overdraw
+// up close; past that a new one is just not made, a blast's dust cloud reads the same with 70 puffs as with 200)
+const FXS = { n: 0 }, FX_SPR = 70;
+const fxSprOK = () => FXS.n < FX_SPR ? (FXS.n++, true) : false;
 const fxBox = new THREE.BoxGeometry(1, 1, 1);
 const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
 const PMAT = {
@@ -137,6 +141,7 @@ function particles(p, n, m, speed, size, life, up, dirBias, stretch) {
   }
 }
 function puff(p, color, size, life, rise, opacity) {
+  if (!fxSprOK()) return;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, color, transparent: true, depthWrite: false, opacity: opacity || 0.6 }));
   s.position.copy(p); s.scale.setScalar(size * 0.4); scene.add(s);
   fx.push({ o: s, life, max: life, fade: opacity || 0.6, grow: size, rise: rise || 0.3, dispose: true, sprite: true });
@@ -164,5 +169,5 @@ function impactFx(point, n, surf) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { DECAL_MAT, DECAL_SIZE, FRAG_SCUFF, PMAT, bulletHole, decalHelper, decals, fragScuff, fx, fxBox, glowTex, heats, impactFx, irregular, particles, placeDecal, poolGeo, puff, puffTex, splatGeo, tracer, updateHeats };
+export { DECAL_MAT, DECAL_SIZE, FRAG_SCUFF, FXS, PMAT, bulletHole, decalHelper, decals, fragScuff, fx, fxBox, fxSprOK, glowTex, heats, impactFx, irregular, particles, placeDecal, poolGeo, puff, puffTex, splatGeo, tracer, updateHeats };
 // ---- end module exports ----

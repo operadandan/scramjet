@@ -1,10 +1,10 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { V3, camera, clamp, rnd } from './00-setup.js';
-import { worldMeshes } from './01-world.js';
 import { HOUSE } from './01b-town.js';
 import { S_ } from './05-anatomy.js';
 import { WEAPONS } from './06-weapons.js';
+import { wmFor } from './16-ballistics.js';
 import { P, S } from './17-dummies.js';
 import { PITCH_MIN } from './18-player.js';
 import { aiClear } from './32-ai.js';
@@ -104,7 +104,7 @@ function footSound(pos, surf, k, dist) {
   if (surf === 'dirt' && Math.random() < 0.5) noiseHit(5200, 0.04, 0.02 * k * att);   // grass and grit
 }
 const _fsR = new THREE.Raycaster(), _fsD = new V3(0, -1, 0);
-function surfaceAt(p) { _fsR.set(_fsD.clone().set(p.x, p.y + 0.4, p.z), _fsD); _fsR.far = 0.9; _fsR.firstHitOnly = true; const h = _fsR.intersectObjects(worldMeshes, false)[0]; _fsR.firstHitOnly = false; return h ? (h.object.userData.surf || 'concrete') : 'dirt'; }
+function surfaceAt(p) { _fsR.set(_fsD.clone().set(p.x, p.y + 0.4, p.z), _fsD); _fsR.far = 0.9; _fsR.firstHitOnly = true; const h = _fsR.intersectObjects(wmFor(_fsR), false)[0]; _fsR.firstHitOnly = false; return h ? (h.object.userData.surf || 'concrete') : 'dirt'; }
 function blip(freq, dur, vol, type) {
   if (vol < 0.002) return;
   const a = audio(), t = a.currentTime, o = a.createOscillator(), g = a.createGain();

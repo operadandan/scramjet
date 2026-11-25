@@ -1,13 +1,13 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { $, GFX, GFX_PRESETS, V3, camera, renderer, scene } from './00-setup.js';
-import { worldMeshes } from './01-world.js';
 import { SITE_PAIRS, TOWN, buildTown } from './01b-town.js';
 import { SECONDARIES, WEAPONS } from './06-weapons.js';
 import { GUN_SOUNDS, loadGunSound } from './10-audio.js';
 import { decals } from './11-fx.js';
 import { clearGore } from './12b-gore.js';
 import { clearPools } from './14-wounds.js';
+import { wmFor } from './16-ballistics.js';
 import { Dummy, P, S, dummies, keys, mouse } from './17-dummies.js';
 import { esc, feed, hurtFlash, localDeath } from './18-player.js';
 import { net, teamName } from './19-network.js';
@@ -121,7 +121,7 @@ const CMDS = {
   explode: ['explode <c4 | frag | claymore | flash | smoke | teargas> [metres]  set one off where you look', a => {
     if (!conTest()) return conPrint('Testing mode only.', '#ff8a7a');
     const k = (a[0] || 'frag').toLowerCase(); if (!EXPL[k]) return conPrint('Kinds: ' + Object.keys(EXPL).join(', '), '#ff8a7a');
-    const d = camera.getWorldDirection(new V3()), r = new THREE.Raycaster(camera.position.clone(), d, 0, parseFloat(a[1]) || 40), h = r.intersectObjects(worldMeshes, false)[0];
+    const d = camera.getWorldDirection(new V3()), r = new THREE.Raycaster(camera.position.clone(), d, 0, parseFloat(a[1]) || 40), h = r.intersectObjects(wmFor(r), false)[0];
     const p = h ? h.point.clone().addScaledVector(d, -0.2) : camera.position.clone().addScaledVector(d, parseFloat(a[1]) || 10);
     explode(p, k, S.myIdOr0(), true); conPrint('Boom: ' + k);
   }],

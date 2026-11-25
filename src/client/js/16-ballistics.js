@@ -170,6 +170,10 @@ function rgNear(a, b, out) {
   return out;
 }
 const _rgOut = [];
+// the world meshes a raycaster could hit along its ray (to its far, at most 400 m): for every look-up against the world
+// (sight lines, grenade arcs, sprays, footsteps), so each tests the handful along its way and not every mesh in the map
+const _wnOut = [], _wnEnd = new V3();
+function wmFor(R) { rgFresh(); _wnOut.length = 0; return rgNear(R.ray.origin, _wnEnd.copy(R.ray.origin).addScaledVector(R.ray.direction, Math.min(R.far, 400)), _wnOut); }
 // the moving targets (bodies, ragdolls, gadgets): each one's bounding sphere worked out once a frame, so a round only
 // tests the meshes whose sphere its path passes through
 const MV = { list: null, s: new Float32Array(0) }, _mvS = new THREE.Sphere();
@@ -440,5 +444,5 @@ function onBulletHit(b, hit, dir, dist) {
 function showRange(t) { const e = $('range'); e.textContent = t; e.style.transition = 'none'; e.style.opacity = '1'; clearTimeout(showRange.t); showRange.t = setTimeout(() => { e.style.transition = 'opacity .6s'; e.style.opacity = '0'; }, 1300); }
 
 // ---- module exports: build.mjs strips this block ----
-export { addProp, bulletTargets, bullets, ejectShell, onBulletHit, props, removeBullet, spawnBullet, updateBullets, updateProps };
+export { addProp, bulletTargets, bullets, ejectShell, onBulletHit, props, removeBullet, spawnBullet, updateBullets, updateProps, wmFor };
 // ---- end module exports ----

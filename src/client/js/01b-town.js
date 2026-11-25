@@ -286,6 +286,16 @@ function buildTown(pair) {
   }
   // (only the house and its street can come down: the structure code leaves every other world alone)
   for (const m of worldMeshes) m.userData.town = true;
+  // nothing inside the house throws a sun shadow: under its roof that shadow can never be seen, and drawing every piece of
+  // furniture, every inside wall and every door into the sun's shadow map was most of the draws in a frame. The outside walls,
+  // the roof and everything out in the lot still do (they shade the inside and the garden)
+  const _sb = new THREE.Box3(), _sc = new V3();
+  worldGroup.traverse(o => {
+    if (!o.isMesh || !o.castShadow) return; const u = o.userData;
+    if (u.ext || u.doorPart) { if (u.doorPart) o.castShadow = false; return; }
+    _sb.setFromObject(o); _sb.getCenter(_sc);
+    if (_sc.x > x0 - 0.05 && _sc.x < x1 + 0.05 && _sc.z > z0 - 0.05 && _sc.z < z1 + 0.05 && _sb.max.y < f1 + H - 0.05) o.castShadow = false;
+  });
 }
 
 // ---- module exports: build.mjs strips this block ----

@@ -1,11 +1,12 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
 import { V3, camera, clamp, scene } from './00-setup.js';
-import { colliders, worldMeshes } from './01-world.js';
+import { colliders } from './01-world.js';
 import { _Y } from './04-ragdoll.js';
 import { VMW } from './08-hands.js';
 import { laserBeam, laserDot } from './09-attachments.js';
 import { blip } from './10-audio.js';
+import { wmFor } from './16-ballistics.js';
 import { P, S } from './17-dummies.js';
 import { SFX } from './21b-screenfx.js';
 import { ENV, houseLights } from './24-env.js';
@@ -75,7 +76,7 @@ function updateLights(dt) {
     const r = e[1], y = r.yaw, pi = r.st.pi || 0, fw = _slD.set(-Math.sin(y) * Math.cos(pi), Math.sin(pi), -Math.cos(y) * Math.cos(pi)), rt = _slR.set(Math.cos(y), 0, -Math.sin(y));
     // the dot goes where they aim (it is zeroed to their gun); the beam from the gun is only seen through night vision
     _slO.copy(r.pos).add(_slT.set(0, 1.62 - (r.st.c || 0) * 0.55, 0)).addScaledVector(fw, 0.3);
-    _slRay.set(_slO, fw); _slRay.far = 120; _slRay.firstHitOnly = true; const h = _slRay.intersectObjects(worldMeshes, false)[0]; _slRay.firstHitOnly = false;
+    _slRay.set(_slO, fw); _slRay.far = 120; _slRay.firstHitOnly = true; const h = _slRay.intersectObjects(wmFor(_slRay), false)[0]; _slRay.firstHitOnly = false;
     const len = h ? h.distance : 120;
     const nvg = P.head === 'nvg' && P.nvgOn, gun = _slT.copy(r.pos).setY(r.pos.y + 1.45 - (r.st.c || 0) * 0.55).addScaledVector(rt, 0.2).addScaledVector(fw, 0.6), end = h ? h.point : _slO.clone().addScaledVector(fw, 120), bl = gun.distanceTo(end), bd = end.clone().sub(gun).normalize();
     Z.beam.visible = nvg; Z.beam.scale.set(1, bl, 1); Z.beam.position.copy(gun).addScaledVector(bd, bl / 2); Z.beam.quaternion.setFromUnitVectors(_Y, bd);

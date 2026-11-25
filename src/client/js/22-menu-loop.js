@@ -7,14 +7,14 @@ import { updateCloth } from './02-body-parts.js';
 import { limbBodies, ragdolls, updateLimbs } from './04-ragdoll.js';
 import { freshGuns } from './06-weapons.js';
 import { updateDevices } from './09-attachments.js';
-import { audio } from './10-audio.js';
+import { audio, inside } from './10-audio.js';
 import { decals, splatGeo, updateHeats } from './11-fx.js';
 import { drops } from './12-blood.js';
 import { clearGore, updateGore } from './12b-gore.js';
 import { tpCamera, updateTPBody } from './13-third-person.js';
 import { clearPools, splatIM, updateBlood, updatePools } from './14-wounds.js';
 import { DEB_POOLS, debris, updateDebris, updateFx, warmShaders } from './15-destruction.js';
-import { updateDoors } from './15b-doors.js';
+import { doors, updateDoors } from './15b-doors.js';
 import { bullets, props, removeBullet, updateBullets, updateProps } from './16-ballistics.js';
 import { P, S, dummies, localBody, spawnDummies } from './17-dummies.js';
 import { esc, respawnLocal, updatePlayer, updateWeapons } from './18-player.js';
@@ -178,6 +178,11 @@ let rafPending = false;
 let _shT = 0;
 function updateShadowCasters(dt) {
   if ((_shT -= dt) > 0) return; _shT = 0.3;
+  // (a door's knobs and hinges are a dozen small meshes each; from more than 12 m off they are a few pixels and a draw each,
+  // so they are not drawn from there; they still stop rounds)
+  if (typeof doors !== 'undefined') { const cp = camera.position;
+    for (const d of doors) { if (!d.g) continue; const on = d.g.position.distanceToSquared(cp) < 144;
+      if (d.partsOn === on) continue; d.partsOn = on; if (d.knob) d.knob.visible = on; for (const h of d.hinges) h.visible = on; } }
   const L = [];
   for (const d of dummies) if (d.hum && d.hum.root.visible) L.push(d.rag ? d.rag.group : d.hum.root);
   for (const r of S.remotes.values()) if (r.hum) L.push(r.rag ? r.rag.group : r.hum.root);
@@ -185,21 +190,24 @@ function updateShadowCasters(dt) {
   const cp = camera.position, dist = o => { o.getWorldPosition(_shV); return _shV.distanceToSquared(cp); };
   const ds = L.map(o => [o, dist(o)]).sort((a, b) => a[1] - b[1]);
   ds.forEach(([o, d2], i) => {
-    const on = i < GFX.shadowBodies && d2 < 30 * 30;
+    // (and none indoors: under the house's roof the sun's shadow of a body can never be seen, and each is ~40k vertices)
+    o.getWorldPosition(_shV); const on = i < GFX.shadowBodies && d2 < 30 * 30 && !(typeof inside === 'function' && inside(_shV));
     if (o.userData.shOn === on) return; o.userData.shOn = on;
     o.traverse(m => { if (!m.isMesh) return; if (m.userData.cs0 === undefined) m.userData.cs0 = m.castShadow; m.castShadow = on && m.userData.cs0; });
   });
 }
-const _shV = new V3();
+const _shV = new V3(); let _shF = 0;
 // Resolution follows the frame time: under load the canvas renders at fewer pixels (down to 60%) and climbs back when
 // there's room; never above 1.5x the CSS pixels (a 2x Retina screen was four times the pixels of a 1x one).
+// (it goes by the frame time over the last couple of seconds and changes at most every 3 s: resizing the canvas is itself a
+// hitch, and following every spike from a blast down and straight back up was a stutter on top of the spike)
 let _drT = 0, _drE = 1 / 60, _drR = Math.min(devicePixelRatio, 1.5);
 function dynRes(dt) {
-  _drE += (dt - _drE) * 0.08; if ((_drT -= dt) > 0) return; _drT = 0.5;
+  _drE += (Math.min(dt, 0.1) - _drE) * 0.02; if ((_drT -= dt) > 0) return; _drT = 0.5;
   if (GFX.res !== 'auto') { const r = +GFX.res; if (Math.abs(r - renderer.getPixelRatio()) > 0.01) { _drR = r; renderer.setPixelRatio(r); renderer.setSize(innerWidth, innerHeight, false); } return; }
   const mx = Math.min(devicePixelRatio, 1.5), mn = Math.min(mx, 0.6);
   let r = _drR; if (_drE > 1 / 50) r = Math.max(mn, r * 0.88); else if (_drE < 1 / 75) r = Math.min(mx, r * 1.06);
-  if (Math.abs(r - renderer.getPixelRatio()) / r > 0.03) { _drR = r; renderer.setPixelRatio(r); renderer.setSize(innerWidth, innerHeight, false); }
+  if (Math.abs(r - renderer.getPixelRatio()) / r > 0.03) { _drR = r; renderer.setPixelRatio(r); renderer.setSize(innerWidth, innerHeight, false); _drT = 3; }
 }
 // ---------------------------------------------------------------- settings
 function applyGfx() {
@@ -282,6 +290,9 @@ function frame(now, hidden) {
   sun.position.copy(focus).addScaledVector(sunDir, 100); sun.target.position.copy(focus);
   if (hidden) return;   // nobody is looking: simulate, don't draw
   updateShadowCasters(dt); dynRes(dt);
+  // (the sun's shadow map is drawn again every other frame, not every frame: it is the whole scene drawn a second time, and
+  // the shadows moving at 30 a second instead of 60 can't be told apart)
+  renderer.shadowMap.autoUpdate = false; if ((_shF = (_shF + 1) % 2) === 0) renderer.shadowMap.needsUpdate = true;
   renderer.clear();
   renderScope();
   const rt = retroTarget();

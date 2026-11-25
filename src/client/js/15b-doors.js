@@ -71,7 +71,8 @@ function addDoor(x, z, rot, kind, hingeSide, lock, y0) {
   const kg = new THREE.Group(); kg.position.set(-d.hs * (DOOR_W / 2 - 0.07), 0.98 - DOOR_H / 2, 0); leaf.add(kg);
   for (const s of [-1, 1]) { const k = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 8), d.knobMat); k.position.z = s * (K.t / 2 + 0.035); k.scale.z = 0.8;
     const st = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.035, 8), d.knobMat); st.rotation.x = Math.PI / 2; st.position.z = s * (K.t / 2 + 0.017);
-    for (const m of [k, st]) { m.castShadow = true; m.userData.surf = 'metal'; m.userData.kind = 'metal'; m.userData.doorPart = { d, type: 'knob' }; kg.add(m); worldMeshes.push(m); } }
+    for (const m of [k, st]) { m.castShadow = false;   // (a knob's shadow is a few pixels; every knob and hinge in a map drawn again into the sun's shadow map was hundreds of draws a frame)
+      m.userData.surf = 'metal'; m.userData.kind = 'metal'; m.userData.doorPart = { d, type: 'knob' }; kg.add(m); worldMeshes.push(m); } }
   d.knob = kg;
   // three hinges, seen on both faces of the door: a knuckle standing proud at the hinge edge on each face, with one leaf
   // of the hinge on the jamb and one on the door (that one turns with the door)
@@ -82,7 +83,7 @@ function addDoor(x, z, rot, kind, hingeSide, lock, y0) {
       const kn = new THREE.Mesh(new THREE.CylinderGeometry(0.0075, 0.0075, 0.09, 10), hingeMat); kn.position.z = s * zf;
       const pj = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.085, 0.002), hingeMat); pj.position.set(d.hs * 0.016, 0, s * (zf - 0.005));
       const pd = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.085, 0.002), hingeMat); pd.userData.base = new V3(-d.hs * 0.016, 0, s * (zf - 0.005));
-      for (const m of [kn, pj, pd]) { m.castShadow = true; m.userData.surf = 'metal'; m.userData.kind = 'metal'; m.userData.doorPart = { d, type: 'hinge', n }; h.add(m); worldMeshes.push(m); }
+      for (const m of [kn, pj, pd]) { m.castShadow = false; m.userData.surf = 'metal'; m.userData.kind = 'metal'; m.userData.doorPart = { d, type: 'hinge', n }; h.add(m); worldMeshes.push(m); }
       h.userData.pd.push(pd);
     }
     d.hinges.push(h);

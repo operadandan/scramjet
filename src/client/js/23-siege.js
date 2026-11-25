@@ -8,6 +8,7 @@ import { blip, noiseHit } from './10-audio.js';
 import { decals, splatGeo } from './11-fx.js';
 import { floorAt } from './14-wounds.js';
 import { DESTR, dust, spawnDebris } from './15-destruction.js';
+import { wmFor } from './16-ballistics.js';
 import { P, S } from './17-dummies.js';
 import { esc, feed, flashMsg, wakeUp } from './18-player.js';
 import { DEF_TEAM, net, teamName } from './19-network.js';
@@ -251,7 +252,7 @@ function siegeUpdate(dt) {
     SG.findT = 0.3; const o = camera.getWorldPosition(_sgO), dir = camera.getWorldDirection(_sgD);
     for (const s of TOWN.sites) {
       if (SG.found.has(s.id)) continue; const to = _sgV.copy(s.p).setY(s.p.y + 0.35).sub(o), d = to.length(); if (d > 9 || to.normalize().dot(dir) < 0.55) continue;
-      _sgRay.set(o, to); _sgRay.far = d; _sgRay.firstHitOnly = true; const h = _sgRay.intersectObjects(worldMeshes, false)[0]; _sgRay.firstHitOnly = false;
+      _sgRay.set(o, to); _sgRay.far = d; _sgRay.firstHitOnly = true; const h = _sgRay.intersectObjects(wmFor(_sgRay), false)[0]; _sgRay.firstHitOnly = false;
       if (!h || h.distance > d - 0.5) { SG.found.add(s.id); net.send({ t: 'sg', a: 'found', site: s.id }); feed('<span style="color:#ffd166">You found bomb site ' + s.id + '</span>'); }
     }
   }
