@@ -2,10 +2,12 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { V3 } from './00-setup.js';
+import { V3, rnd } from './00-setup.js';
 import { TEX, addBox, canvasTex, mat, speckle, worldGroup, worldMeshes } from './01-world.js';
 import { HOUSE, TOWN, lampMat } from './01b-town.js';
+import { tdSurround, tdTreeX } from './01d-town-surround.js';
 import { fx } from './11-fx.js';
+import { DESTR, gridIdx, gridOpenW, spawnDebris, wallShape } from './15-destruction.js';
 import { DOOR_FW, DOOR_H, DOOR_W, doors } from './15b-doors.js';
 import { P, S } from './17-dummies.js';
 import { ez, seg } from './19c-toolvm.js';
@@ -885,14 +887,8 @@ function tdPorch(H, E) {
   E.box(MT.black, -2.6, 1.98, z1 + 0.18, 0.18, 0.04, 0.2); E.box(MT.black, -2.6, 2.4, z1 + 0.18, 0.2, 0.05, 0.22); for (const a of [-1, 1]) for (const b of [-1, 1]) E.box(MT.black, -2.6 + a * 0.075, 2.02, z1 + 0.18 + b * 0.075, 0.015, 0.38, 0.015);
 }
 // trees, shrubs, beds, the patio, bins, the mailbox, fence posts and the hedges' tops
-function tdTree(x, z, s, kind) {
-  s = s || 1; const K = new Kit(), h = 2.6 * s, L1 = MT.leaf, L2 = MT.leafD;
-  K.cyl(MT.bark, 0, 0, 0, 0.11 * s, 0.17 * s, h, 9); K.cyl(MT.bark, 0, 0, 0, 0.2 * s, 0.24 * s, 0.25 * s, 9);
-  for (let i = 0; i < 3; i++) { const a = i * 2.1 + s, r = 0.9 * s; K.rod(MT.bark, new V3(0, h * 0.8, 0), new V3(Math.cos(a) * r, h * 1.08, Math.sin(a) * r), 0.06 * s, 6); }
-  const n = kind === 1 ? 7 : 11; for (let i = 0; i < n; i++) { const a = i * 2.4 + s * 3, r = (0.3 + (i % 3) * 0.35) * s, y = h * (1.0 + (i % 4) * 0.12) + (kind === 1 ? i * 0.25 * s : 0);
-    K.add(i % 3 ? L1 : L2, new THREE.IcosahedronGeometry((kind === 1 ? 0.9 - i * 0.07 : 0.75 + (i % 3) * 0.2) * s, 1), Math.cos(a) * r, y, Math.sin(a) * r, { sx: 1.1, sy: 0.85, sz: 1.1, ry: a }); }
-  K.build(x, 0, z, 0, { shadow: true, deco: false });
-}
+// (the tree itself: 01d-town-surround)
+function tdTree(x, z, s, kind) { tdTreeX(x, z, s, kind); }
 function tdShrub(x, z, s, flowers) {
   const P = tdPiece(x, 0, z, 0), K = new Kit();
   for (let i = 0; i < 5; i++) { const a = i * 1.3; K.add(i % 2 ? MT.leaf : MT.leafD, new THREE.IcosahedronGeometry(0.26 * s, 1), Math.cos(a) * 0.12 * s, (0.26 + (i % 3) * 0.12) * s, Math.sin(a) * 0.12 * s, { sx: 1.15, sy: 0.85, sz: 1.15 }); }
@@ -990,20 +986,7 @@ function tdStreet(H, E) {
   // concrete barriers (jersey profile) where the attackers take cover
   for (const [bx, bz] of [[-17, 30], [12, 32], [-30, 26], [30, 30]]) { tdHideAt(bx, bz, 0); const K = new Kit(), sh = new THREE.Shape([[-0.6, 0], [0.6, 0], [0.6, 0.08], [0.22, 0.35], [0.12, 1.2], [-0.12, 1.2], [-0.22, 0.35], [-0.6, 0.08]].map(p => new THREE.Vector2(p[0], p[1])));
     const g = new THREE.ExtrudeGeometry(sh, { depth: 2.6, bevelEnabled: false }); g.translate(0, 0, -1.3); K.add(MT.conc, g, 0, 0, 0, { uv: [0.6, 0.6] }); K.build(bx, 0, bz, Math.PI / 2, { shadow: true, deco: false }); }
-  // the houses across the road, past the hedge (only to look at)
-  { const SV = tdMat('sidingVC', { map: TEXD.siding(), vertexColors: true, roughness: 0.8 });
-    // each one built square in its own frame (front to local -z), then turned to face the road
-    const house = (cx, cz, w, d, col, ry) => { const K = new Kit(), half = d / 2 + 0.4, S = 0.45, L = half / Math.cos(Math.atan(S));
-      K.box(SV, 0, 0, 0, w, 5.8, d, { col, uv: [w / 0.92, 5.8 / 0.6] });
-      for (const sd of [-1, 1]) K.add(MT.shingle, new THREE.BoxGeometry(w + 0.6, 0.08, L + 0.05), 0, 5.8 + half * S / 2, sd * half / 2, { rx: sd * Math.atan(S), uv: [w / 1.6, L / 1.6] });
-      K.box(MT.trim, 0, 5.8 + half * S - 0.02, 0, w + 0.62, 0.08, 0.16);
-      for (let i = 0; i < 4; i++) for (const fl of [1.0, 3.9]) { const lx = -w / 2 + w * (i + 0.5) / 4; K.box(MT.trim, lx, fl - 0.06, -d / 2 - 0.01, 1.24, 1.22, 0.04); K.box(MT.blackG, lx, fl, -d / 2 - 0.035, 1.1, 1.1, 0.02); }
-      K.box(MT.dark, w * 0.18, 0, -d / 2 - 0.03, 1.0, 2.1, 0.06);
-      for (const lx of [-w / 2 - 0.002, w / 2 + 0.002]) tdPanel(K, SV, [[-d / 2, 5.8], [d / 2, 5.8], [0, 5.8 + (d / 2) * S]], lx, null, 0.92);
-      K.build(cx, 0, cz, ry, { shadow: false, deco: false }); };
-    for (const [hx, col] of [[-34, 0xd9cfbd], [-12, 0xa8b8c4], [12, 0xe6d8a8], [34, 0xc8a090]]) house(hx, 56, 13, 8, col, 0);
-    for (const [hz, col] of [[-30, 0xb8c4a8], [4, 0xd9cfbd], [30, 0xc4b0a0]]) house(-56, hz, 12, 8, col, -Math.PI / 2);
-    for (const [hx, col] of [[-20, 0xc8c0b0], [14, 0xa8b0b8]]) house(hx, -56, 13, 8, col, Math.PI); }
+  // (the neighbourhood past the hedge: 01d-town-surround)
 }
 function tdFan(x, yCeil, z, ry, M) {
   const K = new Kit(); M = M || MT.walnut;
@@ -1036,19 +1019,25 @@ function tdBatch() {
   for (const w of worldMeshes) { const u = w.userData, b = u.box; if (!b || u.door || u.doorFrame || u.doorPart || u.falling || u.board !== undefined || u.lamp !== undefined || u.bomb || u.reinf) continue;
     const v = (b.max.x - b.min.x) * (b.max.y - b.min.y) * (b.max.z - b.min.z); if (v > 40 || b.max.x < HOUSE.x0 - 6 || b.min.x > HOUSE.x1 + 6 || b.max.z < HOUSE.z0 - 6 || b.min.z > HOUSE.z1 + 8) continue;
     for (let i = Math.floor(b.min.x - 0.2); i <= Math.floor(b.max.x + 0.2); i++) for (let j = Math.floor(b.min.z - 0.2); j <= Math.floor(b.max.z + 0.2); j++) { const k = og(i, j); let L = OG.get(k); if (!L) OG.set(k, L = []); L.push([w, b, v]); } }
-  const ownerAt = (x, y, z) => { const L = OG.get(og(Math.floor(x), Math.floor(z))); if (!L) return null; let best = null, bv = 1e9;
-    for (const [w, b, v] of L) if (v < bv && x > b.min.x - 0.16 && x < b.max.x + 0.16 && z > b.min.z - 0.16 && z < b.max.z + 0.16 && y > b.min.y - 0.12 && y < b.max.y + 0.12) { bv = v; best = w; } return best; };
+  // (first choice: a piece the point is squarely in front of, off its face only; then anything it is near. So the casing up the
+  // side of a window belongs to the wall beside the window, not to the strip under it, and goes when that wall is holed)
+  const ownerAt = (x, y, z) => { const L = OG.get(og(Math.floor(x), Math.floor(z))); if (!L) return null; let best = null, bv = 1e9, best2 = null, bv2 = 1e9;
+    for (const [w, b, v] of L) { if (!(x > b.min.x - 0.16 && x < b.max.x + 0.16 && z > b.min.z - 0.16 && z < b.max.z + 0.16 && y > b.min.y - 0.12 && y < b.max.y + 0.12)) continue;
+      if (v < bv2) { bv2 = v; best2 = w; }
+      const thinX = b.max.x - b.min.x < b.max.z - b.min.z, e = 0.004;
+      if (y > b.min.y - e && y < b.max.y + e && (thinX ? z > b.min.z - e && z < b.max.z + e : x > b.min.x - e && x < b.max.x + e) && v < bv) { bv = v; best = w; } }
+    return best || best2; };
   const add = (m, q, rec) => { const cm = tdCanon(m.material), key = cm.uuid + (m.castShadow ? 's' : ''); let B = buckets.get(key); if (!B) buckets.set(key, B = { mat: cm, shadow: m.castShadow, list: [], recs: [] });
     // (a material that differs from others only by its colour: the colour goes into the vertices, and they share one)
     if (cm !== m.material && !q.userData.baked) { const n = q.attributes.position.count, c = m.material.color, old = q.attributes.color, a = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) { a[i * 3] = c.r * (old ? old.getX(i) : 1); a[i * 3 + 1] = c.g * (old ? old.getY(i) : 1); a[i * 3 + 2] = c.b * (old ? old.getZ(i) : 1); }
       q.setAttribute('color', new THREE.BufferAttribute(a, 3)); q.userData.baked = true; }
-    B.list.push(q); B.recs.push(rec); return B; };
+    B.list.push(q); B.recs.push(rec); B.last = B.list.length - 1; return B; };
   for (const g of groups) {
     const ms = g.children.filter(m => m.isMesh && m.visible); if (!ms.length) continue;
     if (g.parent !== worldGroup) {
       // a piece on something: it goes with it whole
-      const rec = { g, parent: g.parent, ranges: [] };
+      const rec = { g, parent: g.parent, ranges: [], at: new THREE.Box3().setFromObject(g).getCenter(new V3()) };
       for (const m of ms) add(m, m.geometry.clone().applyMatrix4(_m.copy(m.matrixWorld)), rec);
       (rec.parent.userData.tdRecs = rec.parent.userData.tdRecs || []).push(rec); g.removeFromParent(); continue;
     }
@@ -1070,7 +1059,8 @@ function tdBatch() {
         if (q.userData.baked) sub.userData.baked = true;
         if (!w) { add(m, sub, rest); continue; }
         let rec = recs.get(w); if (!rec) { recs.set(w, rec = { g: null, parent: w, ranges: [], parts: [] }); (w.userData.tdRecs = w.userData.tdRecs || []).push(rec); }
-        const B = add(m, sub, rec); rec.parts.push({ B, geo: sub });
+        const fine = w.userData.box && (w.userData.grid !== undefined ? w.userData.grid : wallShape(w)) ? tdSplit(sub, 0.16) : sub;
+        const B = add(m, fine, rec); rec.parts.push({ B, i: B.last, geo: fine });
       }
       q.dispose();
     }
@@ -1079,7 +1069,7 @@ function tdBatch() {
   for (const B of buckets.values()) {
     const geo = mergeGeometries(B.list, false); if (!geo) continue; const M = new THREE.Mesh(geo, B.mat);
     M.castShadow = B.shadow; M.receiveShadow = !B.mat.transparent; M.userData.tdBatch = true; M.matrixAutoUpdate = false; worldGroup.add(M); TDB.meshes.push(M);
-    let at = 0; B.list.forEach((q, i) => { const n = q.attributes.position.count, r = B.recs[i]; r.ranges.push([M, at, n]); at += n; if (!r.parts) q.dispose(); });
+    let at = 0; B.M = M; B.off = []; B.list.forEach((q, i) => { const n = q.attributes.position.count, r = B.recs[i]; r.ranges.push([M, at, n]); B.off[i] = at; at += n; if (!r.parts) q.dispose(); });
   }
 }
 // a broken or falling piece of the house: what was merged from on and in it comes back as itself
@@ -1087,11 +1077,49 @@ function tdRelease(m) {
   if (!m) return;
   m.traverse(o => { const R = o.userData.tdRecs; if (!R) return; o.userData.tdRecs = null;
     for (const rec of R) { for (const [M, a, n] of rec.ranges) { const pa = M.geometry.attributes.position; pa.array.fill(0, a * 3, (a + n) * 3); pa.addUpdateRange(a * 3, n * 3); pa.needsUpdate = true; }
+      if (rec.dead) continue;
       if (rec.g) { rec.parent.add(rec.g); tdRelease(rec.g); continue; }
       // (a piece of the outside finish: its triangles become a mesh of their own on what held them)
       if (!rec.parts) continue; o.updateMatrixWorld(true); const inv = new THREE.Matrix4().copy(o.matrixWorld).invert();
       for (const p of rec.parts) { const g = p.geo.clone().applyMatrix4(inv), mm = new THREE.Mesh(g, p.B.mat); mm.castShadow = p.B.shadow; mm.userData.deco = true; o.add(mm); }
       rec.parts = null; } });
+}
+// (long triangles cut down by halving their longest side until none is longer than L, every attribute carried along)
+function tdSplit(geo, L) {
+  const P = geo.attributes.position, n = P.count / 3, names = Object.keys(geo.attributes), L2 = L * L, out = names.map(() => []), v = [[], [], []];
+  const len2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+  const emit = T => { for (let k = 0; k < names.length; k++) for (let c = 0; c < 3; c++) for (const x of T[c][k]) out[k].push(x); };
+  const mid = (a, b) => a.map((A, k) => A.map((x, j) => (x + b[k][j]) / 2));
+  const rec = (T, d) => { const p = T.map(t => t[0]), e = [len2(p[0], p[1]), len2(p[1], p[2]), len2(p[2], p[0])], m = Math.max(...e);
+    if (m <= L2 || d > 9) { emit(T); return; } const i = e.indexOf(m), a = T[i], b = T[(i + 1) % 3], c = T[(i + 2) % 3], ab = mid(a, b); rec([a, ab, c], d + 1); rec([ab, b, c], d + 1); };
+  let big = false; for (let t = 0; t < n && !big; t++) for (let c = 0; c < 3; c++) { const a = t * 3 + c, b = t * 3 + (c + 1) % 3; if ((P.getX(a) - P.getX(b)) ** 2 + (P.getY(a) - P.getY(b)) ** 2 + (P.getZ(a) - P.getZ(b)) ** 2 > L2) { big = true; break; } }
+  if (!big) return geo;
+  for (let t = 0; t < n; t++) { const T = [0, 1, 2].map(c => names.map(nm => { const A = geo.attributes[nm], k = A.itemSize, o = (t * 3 + c) * k; return Array.from(A.array.slice(o, o + k)); })); rec(T, 0); }
+  const g = new THREE.BufferGeometry(); names.forEach((nm, k) => g.setAttribute(nm, new THREE.BufferAttribute(new Float32Array(out[k]), geo.attributes[nm].itemSize)));
+  if (geo.userData.baked) g.userData.baked = true; geo.dispose(); return g;
+}
+// a hole opened in a wall: the trim, casing, sill, siding, skirting and the pictures that were over it go with it (in splinters),
+// so nothing is left bridging the hole or hanging in it
+const _thc = new V3();
+function tdHoleCut(w) {
+  const G = w.userData.grid, R = w.userData.tdRecs; if (!G || !G.any || !R) return; let deb = 0;
+  for (const rec of R) {
+    if (rec.dead) continue;
+    if (rec.g) { if (!rec.at || !gridOpenW(w, rec.at)) continue;
+      rec.dead = true; for (const [M, a, n] of rec.ranges) { const pa = M.geometry.attributes.position; pa.array.fill(0, a * 3, (a + n) * 3); pa.addUpdateRange(a * 3, n * 3); pa.needsUpdate = true; }
+      spawnDebris(rec.at, 5, _thc.set(rnd(-0.3, 0.3), 0.2, rnd(-0.3, 0.3)), 0.8, 1.2, DESTR.wood, 0.03); continue; }
+    if (!rec.parts) continue;
+    for (const p of rec.parts) {
+      const M = p.B.M; if (!M) continue; const base = p.B.off[p.i], src = p.geo.attributes.position, n = src.count / 3, pa = M.geometry.attributes.position, A = pa.array;
+      if (!p.gone) p.gone = new Uint8Array(n); let lo = 1e9, hi = -1;
+      for (let t = 0; t < n; t++) { if (p.gone[t]) continue; const o = t * 9;
+        const x = (src.array[o] + src.array[o + 3] + src.array[o + 6]) / 3, y = (src.array[o + 1] + src.array[o + 4] + src.array[o + 7]) / 3, z = (src.array[o + 2] + src.array[o + 5] + src.array[o + 8]) / 3;
+        const k = gridIdx(G, w, x, y, z); if (k < 0 || !G.cell[k]) continue;
+        p.gone[t] = 1; src.array.fill(0, o, o + 9); const ao = (base + t * 3) * 3; A.fill(0, ao, ao + 9); lo = Math.min(lo, ao); hi = Math.max(hi, ao + 9);
+        if (deb < 8 && (t & 7) === 0) { deb++; spawnDebris(_thc.set(x, y, z), 1, new V3(rnd(-0.4, 0.4), 0.1, rnd(-0.4, 0.4)), 0.7, rnd(0.4, 1.4), DESTR.wood, 0.02); } }
+      if (hi > lo) { src.needsUpdate = true; pa.addUpdateRange(lo, hi - lo); pa.needsUpdate = true; }
+    }
+  }
 }
 // ---- everything
 function townDetail(H) {
@@ -1100,11 +1128,11 @@ function townDetail(H) {
   tdFan(-9.0, H.f1, 6.9, 0.2); tdFan(9.0, H.f1 + H.H, -7.4, 0.5); tdFan(-10.5, H.f1 + H.H, 6.8, 0.1, MT.oak); tdFan(-1.0, H.f1 + H.H, 7.4, 0.7, MT.painted); tdTrims(H); tdDoorCasings(H); tdRails(H);
   const E = new Kit();
   tdWindows(H, E, ['Kitchen', 'Laundry', 'Bathroom', 'Bathroom 2', 'Hall', 'Front hall']);
-  tdFacade(H, E); tdPorch(H, E); tdYard(H, E); tdStreet(H, E);
+  tdFacade(H, E); tdPorch(H, E); tdYard(H, E); tdStreet(H, E); tdSurround();
   E.build(0, 0, 0, 0, { shadow: true, deco: false });
   tdRoof(H);
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { tdBatch, tdCar, tdRelease, tdTree, townDetail };
+export { Kit, MT, TDM, TEXD, tdBatch, tdCar, tdHoleCut, tdMat, tdPanel, tdRelease, tdRnd, tdTex, tdTree, townDetail };
 // ---- end module exports ----

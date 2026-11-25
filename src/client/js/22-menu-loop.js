@@ -37,6 +37,7 @@ import { eyeAfterRender, updateEyes } from './29-eyes.js';
 import { updateStructure } from './30-structure.js';
 import { deploy, serverCfg } from './31-menu.js';
 import { CQC, cqcReset, navClear, updateAI } from './32-ai.js';
+import { MW, menuWarStop, updateMenuWar } from './33-menu-war.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- scoreboard
 S.score = {};
@@ -75,7 +76,7 @@ $('name').value = localStorage.getItem('breach_name') || '';
 if (!ENABLE_TEST_MODE) $('test').style.display = 'none';
 function playerName() { const n = $('name').value.trim().slice(0, 16) || ('Op' + Math.floor(Math.random() * 900 + 100)); try { localStorage.setItem('breach_name', n); } catch (e) {} return n; }
 function enterGame(mode) {
-  S.mode = mode; if (mode === 'test') envSet('random', true); $('menu').style.display = 'none'; $('hud').style.display = 'block'; $('err').textContent = '';
+  if (MW.on) menuWarStop(); S.mode = mode; if (mode === 'test') envSet('random', true); $('menu').style.display = 'none'; $('hud').style.display = 'block'; $('err').textContent = '';
   $('vig').style.display = $('vigads').style.display = 'block';
   $('help').innerHTML = mode === 'test' ? 'TESTING RANGE · L loadout · ` console (give, spawn, explode, hurt, sites, lights...)<br>K test headshot death, J test body death, Y take a test rifle hit, U be suppressed<br>Shooting range on your right: 25 m to 750 m · the close-quarters course with AI defenders is behind you' : '';
   $('pauseinfo').innerHTML = mode === 'online' ? 'Room code: <b style="color:#fff;letter-spacing:3px">' + S.room + '</b><br>Share it so friends can join.' : 'Testing mode';
@@ -93,7 +94,7 @@ async function startOnline(code, create) {
     return;
   }
   S.room = code; S.names = {}; S.score = {}; S.team = {}; S.R = null; S.welcomed = false; S.closeReason = ''; S.myName = playerName();
-  buildTown(); S.world = 'town'; P.alive = false; P.rag = null;
+  menuWarStop(); buildTown(); S.world = 'town'; P.alive = false; P.rag = null;
   enterGame('online');
   $('deathmsg').style.display = 'block'; $('deathmsg').textContent = (create ? 'CREATING ROOM ' : 'CONNECTING TO ') + code;
   if (h.rooms) {
@@ -117,19 +118,23 @@ async function startOnline(code, create) {
   }
 }
 function startTest() {
-  buildTest(); spawnDummies(); cqcReset(); enterGame('test'); respawnLocal(spawns[0]);
+  menuWarStop(); buildTest(); spawnDummies(); cqcReset(); enterGame('test'); respawnLocal(spawns[0]);
   // the loadout comes up first thing (L brings it back any time)
   setTimeout(() => { if (S.mode === 'test') loadoutUI(true); }, 250);
 }
-function leave() {
-  S.migrating = false; net.close();
-  for (const r of S.remotes.values()) r.dispose(); S.remotes.clear();
+// everything a fight leaves lying about: bodies, bots, blood, holes, rubble, rounds in the air
+function clearWorldFx() {
   for (const d of dummies) d.dispose(); dummies.length = 0; CQC.bots = []; navClear();
   while (ragdolls.length) ragdolls.pop().dispose();
   clearItems(); drops.length = 0; hlMesh.visible = false;
   for (const d of decals) { scene.remove(d); if (d.geometry !== splatGeo) d.geometry.dispose(); } decals.length = 0; clearPools(); clearGore(); debris.length = 0; clearExplosives(); for (const P of DEB_POOLS) { P.im.count = 0; P.next = 0; P.slot.fill(null); } splatIM.count = 0; splatIM.userData.next = 0;
   for (const p of props) scene.remove(p.m); props.length = 0; for (const L of limbBodies) L.dispose(); limbBodies.length = 0;
   while (bullets.length) removeBullet(bullets.length - 1);
+}
+function leave() {
+  S.migrating = false; net.close();
+  for (const r of S.remotes.values()) r.dispose(); S.remotes.clear();
+  clearWorldFx();
   S.slow = false; S.ts = 1; S.target = null; S.testKills = 0; S.testDeaths = 0; P.downed = false; $('scope').style.display = 'none'; $('score').style.display = 'none'; S.filt = ''; renderer.domElement.style.filter = ''; $('slowmo').style.display = 'none';
   $('vig').style.display = $('vigads').style.display = 'none';
   loadoutUI(false); S.loOpen = false; S.mode = null; P.alive = false; P.rag = null; localBody.root.visible = false; S.R = null; siegeClear(); $('teamleft').style.opacity = '0'; $('rbanner').style.opacity = '0';
@@ -281,7 +286,7 @@ function frame(now, hidden) {
       if (k === 1 || (frameN + i) % k === 0) { d.update(Math.min(d._acc, 0.12)); d._acc = 0; }
     }
     updateAI(); netSend(dt); updateHUD(); updateToolbar();
-  }
+  } else updateMenuWar(wdt);
   updateBullets(wdt);
   for (const r of ragdolls) r.update(wdt);
   updateFx(wdt); updateDebris(wdt); updateStructure(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); siegeUpdate(wdt); roundHud(); matchHud(); screenFx(wdt); updateEyes(wdt); updateConsole(dt); updateEnv(dt); updateLights(dt); updateLimbs(wdt); updateHeats(wdt); sfxAmbience(dt); armTeam();
@@ -311,5 +316,5 @@ function frame(now, hidden) {
 schedule();
 
 // ---- module exports: build.mjs strips this block ----
-export { CODE_CHARS, applyGfx, frame, last, leave, renderScore, scoreOf, setLoadout, settingsUI, startOnline };
+export { CODE_CHARS, applyGfx, clearWorldFx, frame, last, leave, renderScore, scoreOf, setLoadout, settingsUI, startOnline };
 // ---- end module exports ----

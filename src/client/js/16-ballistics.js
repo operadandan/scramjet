@@ -218,7 +218,7 @@ function updateBullets(dt) {
     _bd.subVectors(b.pos, _bp); const len = _bd.length(); if (len > 0) _bd.multiplyScalar(1 / len);
     bray.set(_bp, _bd); bray.far = len;
     _rgOut.length = 0; const targets = len > 0 ? rgNear(_bp, b.pos, _rgOut) : _rgOut; if (len > 0) mvNear(_bp, b.pos, targets);
-    const hit = len > 0 ? (b.local && !b.ai ? bray.intersectObjects(targets, false).find(h => h.object.userData.hum !== localBody && !h.object.userData.selfRag) : b.ai ? bray.intersectObjects(targets, false).find(h => { const hm = h.object.userData.hum; return !(hm && hm.dummy instanceof AIBot); }) : bray.intersectObjects(targets, false)[0]) || null : null;
+    const hit = len > 0 ? (b.local && !b.ai ? bray.intersectObjects(targets, false).find(h => h.object.userData.hum !== localBody && !h.object.userData.selfRag) : b.ai ? bray.intersectObjects(targets, false).find(h => { const hm = h.object.userData.hum; return !(hm && hm.dummy instanceof AIBot) || (b.aiBot && b.aiBot.side && hm.dummy.side && hm.dummy.side !== b.aiBot.side); }) : bray.intersectObjects(targets, false)[0]) || null : null;
     b.life += dt;
     if (!b.local && !b.whizz && S.mode && P.alive && len > 0) {
       const tc = clamp(_a.subVectors(camera.position, _bp).dot(_bd), 0, hit ? hit.distance : len), dd = _a.copy(_bp).addScaledVector(_bd, tc).distanceTo(camera.position);

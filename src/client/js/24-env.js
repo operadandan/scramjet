@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { V3, camera, clamp, renderer, rnd, scene, sky, sun, sunDir, vmScene, vmSun } from './00-setup.js';
 import { colliders, worldMeshes } from './01-world.js';
 import { HOUSE, TOWN, lampMat } from './01b-town.js';
+import { TREE_T, updateBirds } from './01d-town-surround.js';
 import { noiseHit } from './10-audio.js';
 import { PMAT, particles } from './11-fx.js';
 import { pick } from './15-destruction.js';
@@ -40,6 +41,76 @@ rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
 const rainMat = new THREE.LineBasicMaterial({ color: 0xaab4c0, transparent: true, opacity: 0, depthWrite: false });
 const rainMesh = new THREE.LineSegments(rainGeo, rainMat); rainMesh.frustumCulled = false; rainMesh.visible = false; scene.add(rainMesh);
 
+// ---- the cloud deck: a layer of drifting cloud high over the map, thin and broken when it is cloudy, a low, heavy, dark
+// overcast in rain and a storm (lit from inside where lightning goes off). It follows the camera and fades into the haze
+// toward the horizon
+const CLOUD_Y = 340, cloudMat = new THREE.ShaderMaterial({
+  uniforms: { uT: { value: 0 }, uCover: { value: 0 }, uDark: { value: 0 }, uSun: { value: new V3(0, 1, 0) }, uLit: { value: new THREE.Color() }, uBase: { value: new THREE.Color() }, uHaze: { value: new THREE.Color() }, uOp: { value: 0 }, uFlash: { value: 0 }, uFP: { value: new THREE.Vector2() }, uWind: { value: new THREE.Vector2(1, 0.3) } },
+  vertexShader: 'varying vec3 vW; void main() { vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+  fragmentShader: `varying vec3 vW; uniform float uT, uCover, uDark, uOp, uFlash; uniform vec3 uSun, uLit, uBase, uHaze; uniform vec2 uFP, uWind;
+    float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h2(i), h2(i + vec2(1, 0)), f.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), f.x), f.y); }
+    float fbm(vec2 p) { float a = 0.5, s = 0.0; mat2 r = mat2(0.8, 0.6, -0.6, 0.8); for (int i = 0; i < 6; i++) { s += a * vn(p); p = r * p * 2.03 + 1.7; a *= 0.5; } return s; }
+    void main() {
+      vec2 q = vW.xz * 0.0019 + uWind * uT * 0.004;
+      // big shapes, then the billowing detail on their edges, drifting a little faster
+      float n = fbm(q) * 0.65 + fbm(q * 2.7 + uWind * uT * 0.006) * 0.35;
+      float th = 1.0 - uCover, c = smoothstep(th - 0.06, th + 0.26, n);
+      if (c < 0.003) discard;
+      // light: thinner toward the sun-facing edge, thick and dark in the middle and underneath
+      float n2 = fbm(q + uSun.xz * 0.05) * 0.65 + fbm((q + uSun.xz * 0.05) * 2.7 + uWind * uT * 0.006) * 0.35;
+      float lit = clamp(0.5 + (n - n2) * 2.6, 0.0, 1.0), dens = smoothstep(th - 0.1, th + 0.6, n);
+      // thick cloud is dark underneath, thin cloud lets the light through; rain cloud is a low ragged deck, darker in its
+      // heavy cells and torn lighter between them
+      vec3 col = mix(uLit, uBase, dens * 0.85); col = mix(col, uLit * 1.1, lit * 0.45 * (1.0 - dens));
+      float cell = fbm(q * 0.55 - uWind * uT * 0.002);
+      col *= 1.0 - uDark * (0.2 + dens * 0.45 + smoothstep(0.45, 0.75, cell) * 0.35);
+      c = max(c, uDark * 0.92);
+      // lightning inside the cloud: a soft glow round where it went off
+      float fd = length(vW.xz - uFP); col += vec3(0.8, 0.85, 1.0) * uFlash * exp(-fd / 240.0) * (0.6 + dens);
+      float d = length(vW.xz - cameraPosition.xz), hor = smoothstep(1750.0, 500.0, d);
+      col = mix(uHaze, col, 0.25 + 0.75 * hor);
+      gl_FragColor = vec4(col, c * uOp * (0.35 + 0.65 * hor));
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+  transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide
+});
+const cloudMesh = new THREE.Mesh(new THREE.PlaneGeometry(3600, 3600, 1, 1).rotateX(Math.PI / 2), cloudMat); cloudMesh.renderOrder = -1; cloudMesh.frustumCulled = false; cloudMesh.visible = false; scene.add(cloudMesh);
+// ---- lightning: a forked bolt from the cloud base to the ground somewhere off in the distance, a few flickers, then the
+// thunder after it (later the further off it struck)
+const boltMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 2.7, 3.4), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false, side: THREE.DoubleSide });
+const boltGlowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.35, 0.4, 0.7), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false, side: THREE.DoubleSide });
+const BOLT = { g: null, t: 0, life: 0, seq: null };
+function boltBuild(top, bot) {
+  const pts = [top, bot], jag = (a, b, d, out) => { if (d === 0) { out.push(b); return; } const m = a.clone().lerp(b, 0.5), L = a.distanceTo(b); m.x += rnd(-0.5, 0.5) * L * 0.32; m.z += rnd(-0.5, 0.5) * L * 0.32; m.y += rnd(-0.1, 0.1) * L * 0.2; jag(a, m, d - 1, out); jag(m, b, d - 1, out); };
+  const line = (a, b, d) => { const out = [a]; jag(a, b, d, out); return out; };
+  const main = line(top, bot, 7), branches = [];
+  for (let i = 0; i < 5; i++) { const k = Math.floor(rnd(0.08, 0.7) * main.length), a = main[k], L = rnd(40, 140), dir = new V3(rnd(-1, 1), -rnd(0.8, 1.6), rnd(-1, 1)).normalize(); branches.push(line(a, a.clone().addScaledVector(dir, L), 5)); }
+  const cam = camera.position, ribbon = (P, w0, w1) => { const v = [];
+    for (let i = 0; i < P.length - 1; i++) { const a = P[i], b = P[i + 1], d = b.clone().sub(a), side = d.clone().cross(a.clone().sub(cam)).normalize(), wa = w0 + (w1 - w0) * i / P.length, wb = w0 + (w1 - w0) * (i + 1) / P.length;
+      const a0 = a.clone().addScaledVector(side, -wa), a1 = a.clone().addScaledVector(side, wa), b0 = b.clone().addScaledVector(side, -wb), b1 = b.clone().addScaledVector(side, wb);
+      v.push(a0.x, a0.y, a0.z, a1.x, a1.y, a1.z, b1.x, b1.y, b1.z, a0.x, a0.y, a0.z, b1.x, b1.y, b1.z, b0.x, b0.y, b0.z); }
+    return v; };
+  const core = [], glow = []; core.push(...ribbon(main, 2.4, 1.3)); glow.push(...ribbon(main, 14, 9)); for (const B of branches) { core.push(...ribbon(B, 1.1, 0.3)); glow.push(...ribbon(B, 6, 2)); }
+  const mk = (v, m) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); const ms = new THREE.Mesh(g, m); ms.frustumCulled = false; return ms; };
+  const g = new THREE.Group(); g.add(mk(glow, boltGlowMat)); g.add(mk(core, boltMat)); return g;
+}
+function lightning(a0, d0) {
+  const a = a0 !== undefined ? a0 : rnd(0, Math.PI * 2), dist = d0 || rnd(220, 900), cp = camera.position, x = cp.x + Math.cos(a) * dist, z = cp.z + Math.sin(a) * dist, strike = d0 !== undefined || Math.random() < 0.65;
+  cloudMat.uniforms.uFP.value.set(x, z);
+  if (BOLT.g) { scene.remove(BOLT.g); BOLT.g.traverse(o => o.geometry && o.geometry.dispose()); BOLT.g = null; }
+  if (strike) { BOLT.g = boltBuild(new V3(x + rnd(-60, 60), CLOUD_Y - 20, z + rnd(-60, 60)), new V3(x, 0, z)); scene.add(BOLT.g); }
+  // the flicker: a few return strokes
+  BOLT.t = 0; BOLT.seq = [[0, 1], [0.06, 0.25], [0.1, 0.95], [0.17, 0.15], [0.24, 0.7], [0.32, 0.1], [0.42, 0.45], [0.6, 0]]; BOLT.strike = strike;
+  const dly = dist / 343 * rnd(0.7, 1); setTimeout(() => noiseHit(rnd(55, 95), rnd(1.6, 3), clamp(0.5 / (1 + dist / 400), 0.08, 0.4)), dly * 1000);
+}
+function updateBolt(dt) {
+  if (!BOLT.seq) return; BOLT.t += dt; let v = 0; for (const [t, k] of BOLT.seq) if (BOLT.t >= t) v = k;
+  ENV.flash = Math.max(ENV.flash, v * (BOLT.strike ? 1 : 0.6)); cloudMat.uniforms.uFlash.value = v * 1.4;
+  boltMat.opacity = v; boltGlowMat.opacity = v * 0.7;
+  if (BOLT.t > 0.6) { BOLT.seq = null; cloudMat.uniforms.uFlash.value = 0; if (BOLT.g) { scene.remove(BOLT.g); BOLT.g.traverse(o => o.geometry && o.geometry.dispose()); BOLT.g = null; } }
+}
 const envMix = key => { const a = WEATHER[ENV.from][key], b = WEATHER[ENV.w][key]; return a + (b - a) * ENV.k; };
 // a weather picked at random, the common ones more often (every round starts on one; nothing is forced)
 function envRandom() { const wts = { clear: 3, cloudy: 3, rain: 2, storm: 1.5, fog: 1 }; let r = Math.random() * 10.5; for (const k in wts) { r -= wts[k]; if (r <= 0) return k; } return 'clear'; }
@@ -125,8 +196,17 @@ function updateEnv(dt) {
   // lightning in a storm: the sky lights up, then the thunder comes after it
   if (envCur() === 'storm' && ENV.k > 0.6 && S.mode) {
     ENV.thunderT -= dt;
-    if (ENV.thunderT <= 0) { ENV.thunderT = rnd(8, 25); ENV.flash = 1; const dly = rnd(0.6, 3); setTimeout(() => noiseHit(rnd(60, 110), rnd(1.2, 2.4), 0.25 / (1 + dly * 0.3)), dly * 1000); }
+    if (ENV.thunderT <= 0) { ENV.thunderT = rnd(6, 20); lightning(); }
   }
+  updateBolt(dt); TREE_T.value += dt * (0.6 + envMix('wind')); updateBirds(dt);
+  // the cloud deck: how much of the sky it covers, how dark, lit by the sun and the sky
+  { const U = cloudMat.uniforms, storm = WEATHER[ENV.w] === WEATHER.storm ? ENV.k : WEATHER[ENV.from] === WEATHER.storm ? 1 - ENV.k : 0;
+    U.uT.value += dt; U.uCover.value = cloud < 0.02 ? 0 : 0.18 + cloud * 0.72 + rain * 0.12; U.uDark.value = clamp(rain * 0.55 + storm * 0.45, 0, 1);
+    U.uOp.value = clamp(cloud * 1.4, 0, 1); U.uSun.value.copy(_sunReal).normalize();
+    U.uHaze.value.copy(scene.fog.color); U.uBase.value.copy(scene.fog.color).multiplyScalar(0.62 + 0.25 * (1 - rain));
+    U.uLit.value.copy(scene.fog.color).multiplyScalar(1.05 + 0.35 * day * (1 - rain)).lerp(_sunLow, 0.12 * day * (1 - cloud));
+    const w = envMix('wind'); U.uWind.value.set(0.8 + w, 0.25 + w * 0.3);
+    cloudMesh.visible = cloud > 0.02 && S.world !== 'lobby'; cloudMesh.position.set(camera.position.x, CLOUD_Y - rain * 70, camera.position.z); }
 }
 const envClock = () => { const h = Math.floor(ENV.tod), m = Math.floor((ENV.tod - h) * 60); return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'); };
 

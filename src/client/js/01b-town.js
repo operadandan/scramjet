@@ -63,9 +63,9 @@ function townHouse(x0, z0, x1, z1, o) {
 function townCar(x, z, along, color) { tdCar(x, z, along, color); }
 const _treeLeaf = new THREE.MeshStandardMaterial({ color: 0x3d5a2a, roughness: 1 }); _treeLeaf.userData.shared = true;
 // a tree: the trunk is what is solid (a hidden box), the rest is the model (01c-town-detail)
-function townTree(x, z, s) {
-  s = s || 1; addBox(x, 0, z, 0.28 * s, 2.6 * s, 0.28 * s, 'crate', 0x5a4632); const m = worldMeshes[worldMeshes.length - 1]; m.material.visible = false; m.castShadow = false; m.userData.furn = true;
-  tdTree(x, z, s, Math.round(Math.abs(x * 7 + z * 3)) % 3 === 0 ? 1 : 0);
+function townTree(x, z, s, kind) {
+  s = s || 1; addBox(x, 0, z, 0.34 * s, 2.8 * s, 0.34 * s, 'crate', 0x5a4632); const m = worldMeshes[worldMeshes.length - 1]; m.material.visible = false; m.castShadow = false; m.userData.furn = true;
+  tdTree(x, z, s, kind !== undefined ? kind : [0, 0, 2, 1][Math.round(Math.abs(x * 7 + z * 3)) % 4]);
 }
 const townFence = (ax, a, b, c, h) => townWall(ax, a, b, c, h || 1.5, 0.06, 'plywood', 0x8f7556);
 // ---------------------------------------------------------------- the multiplayer map: one house, Siege style
@@ -115,7 +115,7 @@ function slab(cx, y, cz, w, h, d, kind, col) {
 function buildTown(pair) {
   clearWorld();
   TOWN.windows = []; TOWN.demolished = false; TOWN.gone = []; TOWN.sites = []; TOWN.def = []; TOWN.atk = []; TOWN.lamps = []; TOWN.lampAll = [];
-  addGround(180, 'ground'); { const g = worldMeshes[worldMeshes.length - 1], t = TOWN_TEX.grass.clone(); t.needsUpdate = true; t.repeat.set(60, 60); g.material.map = t; }
+  addGround(420, 'ground'); { const g = worldMeshes[worldMeshes.length - 1], t = TOWN_TEX.grass.clone(); t.needsUpdate = true; t.repeat.set(140, 140); g.material.map = t; }
   const E = 46;
   // the street out front, the side road to the west, pavements, the drive and the path
   townFlat(0, 22, 2 * E, 8, 'asphalt', 6, 0.003); townFlat(-26, -12, 8, 60, 'asphalt', 6, 0.0032);
@@ -264,5 +264,5 @@ function buildTown(pair) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { BOARD_COL, HOUSE, SITE_PAIRS, TOWN, buildTown, decoMat, lampMat, slab };
+export { BOARD_COL, HOUSE, SITE_PAIRS, TOWN, buildTown, decoMat, lampMat, slab, townTree };
 // ---- end module exports ----

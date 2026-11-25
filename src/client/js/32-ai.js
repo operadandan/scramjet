@@ -882,5 +882,5 @@ function aiClearAll() { for (const b of AIS.slice()) { b.dispose(); const k = du
 function updateAI() { const now = performance.now(); if (AIS.length && now - (updateAI.t || 0) > 500) { updateAI.t = now; navSkipDoors(); } while (AI_NOISE.length && now - AI_NOISE[0].t > 1500) AI_NOISE.shift(); }
 
 // ---- module exports: build.mjs strips this block ----
-export { AIBot, AIS, CQC, aiClear, aiNoise, buildCqc, cqcReset, navClear, navDirty, raidAddBots, raidBodies, spawnAI, updateAI };
+export { AIBot, AIS, AI_PAL, CQC, aiClear, aiNoise, aiSees, buildCqc, cqcReset, navClear, navDirty, raidAddBots, raidBodies, spawnAI, updateAI };
 // ---- end module exports ----

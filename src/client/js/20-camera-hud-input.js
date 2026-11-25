@@ -25,11 +25,13 @@ import { toggleFlashlight } from './26-lights.js';
 import { GADGETS } from './27-gadgets.js';
 import { loadoutUI } from './28-match.js';
 import { toggleNvg } from './29-eyes.js';
+import { MW, menuWarCam } from './33-menu-war.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- camera / viewmodel
 const camTarget = new V3(), _camQ = new THREE.Quaternion(), _camE = new THREE.Quaternion(), _camEu = new THREE.Euler();
 function specHeadLayer(r, l) { if (r && r.hum && r.hum.head) r.hum.head.traverse(o => o.layers.set(l)); }
 function updateCamera(dt) {
+  if (!S.mode && MW.on) { menuWarCam(dt); return; }
   if (!S.mode || (!P.alive && !P.rag)) {
     const t = performance.now() / 1000 * 0.05;
     camera.position.set(Math.cos(t) * 46 + 4, 9 + Math.sin(t * 0.7) * 3, Math.sin(t) * 40 + 8); camera.lookAt(0, 3, 0);
