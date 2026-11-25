@@ -11,13 +11,15 @@ import { PITCH_MIN } from './18-player.js';
 import { aiClear } from './32-ai.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- audio
-let actx = null, noiseBuf = null, aMaster = null;
+let actx = null, noiseBuf = null, aMaster = null, aOut = null, aMuted = false;
+// (everything heard goes out through one gain, so the world can be silenced: the menu's backdrop fight is not heard)
+function audioMute(on) { aMuted = !!on; if (aOut) aOut.gain.setTargetAtTime(aMuted ? 0 : 1, actx.currentTime, 0.05); }
 function audio() {
   if (!actx) {
     actx = new (window.AudioContext || window.webkitAudioContext)();
     noiseBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    aMaster = actx.createBiquadFilter(); aMaster.type = 'lowpass'; aMaster.frequency.value = 20000; aMaster.connect(actx.destination);
+    aMaster = actx.createBiquadFilter(); aMaster.type = 'lowpass'; aMaster.frequency.value = 20000; aOut = actx.createGain(); aOut.gain.value = aMuted ? 0 : 1; aMaster.connect(aOut).connect(actx.destination);
     sfxLoad();   // (the recordings: 10c-sfx)
   }
   return actx;
@@ -142,5 +144,5 @@ function noiseHit(freq, dur, vol) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { GUN_SOUNDS, aMaster, actx, audio, blip, footSound, inside, loadGunSound, noiseBuf, noiseHit, shotSound, spatial, suppress, surfaceAt };
+export { GUN_SOUNDS, aMaster, actx, audio, audioMute, blip, footSound, inside, loadGunSound, noiseBuf, noiseHit, shotSound, spatial, suppress, surfaceAt };
 // ---- end module exports ----

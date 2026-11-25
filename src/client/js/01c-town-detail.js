@@ -530,11 +530,24 @@ function tdRoundTable(x, y, z, r, seatC) {
   for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2; tdCol(P, Math.sin(a) * (r + 0.24), Math.cos(a) * (r + 0.24), Math.abs(Math.sin(a)) > 0.5 ? 0.36 : 0.44, Math.abs(Math.sin(a)) > 0.5 ? 0.44 : 0.36, 0.5); }
 }
 function tdFireplace(x, y, z, rot, w) {
-  const P = tdPiece(x, y, z, rot), K = new Kit(), d = 0.5, h = 1.15;
-  K.box(MT.stone, 0, 0, 0, w, h, d); K.box(MT.trim, 0, h, 0.02, w + 0.14, 0.07, d + 0.1);              // the stone surround, the mantel
-  K.box(MT.blackG, 0, 0.12, d / 2 - 0.15, w * 0.55, 0.6, 0.3); K.box(MT.stone, 0, 0, d / 2 + 0.12, w + 0.1, 0.06, 0.26);
-  for (let i = 0; i < 3; i++) K.cyl(MT.bark, -0.12 + i * 0.12, 0.2, d / 2 - 0.12, 0.04, 0.04, 0.32, 8, { rz: Math.PI / 2, ry: 0.3 * (i - 1) });
-  K.box(MT.glow, 0, 0.14, d / 2 - 0.16, w * 0.4, 0.05, 0.12);
+  // built from parts that meet without passing through each other: two stone jambs, a lintel over the opening and a sill
+  // under it, the stone back, the soot-black lining of the firebox just inside the stone, a bed of embers on its floor, logs
+  // laid on it (two side by side, one across them; the kit's cylinders are placed by their base, hence the half-lengths), the hearth slab out front and the mantel over the top, its back flush
+  // with the wall behind
+  const P = tdPiece(x, y, z, rot), K = new Kit(), d = 0.5, h = 1.15, ow = w * 0.55, oy0 = 0.1, oy1 = 0.72, jw = (w - ow) / 2, f = d / 2;
+  for (const sx of [-1, 1]) K.box(MT.stone, sx * (ow / 2 + jw / 2), 0, 0, jw, h, d);           // the jambs
+  K.box(MT.stone, 0, oy1, 0, ow, h - oy1, d);                                                     // the lintel
+  K.box(MT.stone, 0, 0, 0, ow, oy0, d);                                                           // the sill
+  K.box(MT.stone, 0, oy0, -f + 0.05, ow, oy1 - oy0, 0.1);                                         // the back
+  const soot = tdMat('soot', { color: 0x141210, roughness: 1 });
+  K.box(soot, 0, oy0, -f + 0.1 + 0.003, ow - 0.004, oy1 - oy0 - 0.004, 0.006);                   // lining: back,
+  for (const sx of [-1, 1]) K.box(soot, sx * (ow / 2 - 0.004), oy0 + 0.002, 0.024, 0.006, oy1 - oy0 - 0.006, d - 0.1 - 0.06); // sides,
+  K.box(soot, 0, oy1 - 0.007, 0.024, ow - 0.012, 0.006, d - 0.1 - 0.06);                          // and roof
+  K.box(tdMat('ember', { color: 0x3a1206, emissive: 0xff5a14, emissiveIntensity: 1.3, roughness: 0.9 }), 0, oy0, 0.02, ow * 0.7, 0.012, 0.2); // embers on the floor
+  for (const zz of [-0.025, 0.065]) K.cyl(MT.bark, 0, oy0 + 0.012 + 0.04 - 0.17, zz, 0.04, 0.04, 0.34, 8, { rz: Math.PI / 2 });
+  K.cyl(MT.bark, 0, oy0 + 0.012 + 0.04 + 0.078 - 0.16, 0.02, 0.038, 0.038, 0.32, 8, { rz: Math.PI / 2, ry: 0.55 });
+  K.box(MT.stone, 0, 0, f + 0.002 + 0.13, w + 0.1, 0.06, 0.26);                                  // the hearth, in front
+  K.box(MT.trim, 0, h, -f + 0.002 + (d + 0.08) / 2, w + 0.14, 0.07, d + 0.08);                    // the mantel
   // on the mantel: candles, a clock, a little plant
   for (const cx of [-w * 0.38, -w * 0.3]) K.cyl(MT.paper, cx, h + 0.07, 0, 0.025, 0.025, 0.16 + cx * 0.1, 10);
   K.box(MT.dark, w * 0.08, h + 0.07, -0.02, 0.2, 0.24, 0.08); K.cyl(MT.paper, w * 0.08, h + 0.12, 0.022, 0.07, 0.07, 0.002, 18, { rx: Math.PI / 2 });

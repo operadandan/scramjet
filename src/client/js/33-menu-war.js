@@ -1,49 +1,72 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
-import { $, V3, camera, clamp, rnd } from './00-setup.js';
+import { $, V3, camera, clamp, rnd, smooth } from './00-setup.js';
 import { TOWN } from './01b-town.js';
 import { Anatomy } from './05-anatomy.js';
 import { WEAPONS } from './06-weapons.js';
+import { audioMute } from './10-audio.js';
+import { nz } from './12b-gore.js';
 import { clearWounds } from './14-wounds.js';
-import { S, dummies } from './17-dummies.js';
+import { Dummy, S, dummies } from './17-dummies.js';
 import { clearWorldFx } from './22-menu-loop.js';
 import { ENV, envSet } from './24-env.js';
 import { floorUnder } from './30-structure.js';
-import { AIBot, AI_PAL, aiSees } from './32-ai.js';
+import { AIBot, AI_PAL, aiSees, navBlocked } from './32-ai.js';
 // ---- end module links ----
-// The main menu's backdrop: a firefight in the street outside the house. Attackers in red behind the van, the low wall and
-// the barriers across the road; defenders in navy in the front garden behind the car, the tree and the porch. They are the
-// game's own bots with a simple fighting brain (pop up, find someone on the other side, shoot, duck, reload), so everything
-// seen is real: the rounds and tracers, muzzle flashes, shells, hits, blood, wounds and bodies. The fallen get up again a
-// few seconds later where they fell. The camera drifts between a few slow shots of it.
-const MW = { on: false, list: [], shot: 0, shotT: 0, t: 0 };
+// The main menu's backdrop: a firefight somewhere round the house, attackers in red against defenders in navy. It moves
+// between a few places (the street out front, the side road to the west, the east yard), a round or so at each. The fighters
+// are the game's own bots with a simple fighting brain: pop up, find someone on the other side, shoot, duck, reload, and
+// every so often break from cover and dash for another spot, diving the last stretch into it. Hits are real (rounds,
+// tracers, flashes, blood, wounds) and one or two of them fall in each fight; the rest shrug off what would drop them.
+// None of it is heard: the menu is quiet.
+const MW = { on: false, list: [], shot: 0, shotT: 0, t: 0, loc: Math.floor(Math.random() * 3), locT: 0, deaths: 0 };
 const MW_RED = { shirt: 0x6e2a22, vest: 0x58241f, vest2: 0x4a1e1a, pack: 0x4e2420, helmet: 0x5a2a24 };
-// (bunched across the middle of the street, so the whole fight fits the clear part of the screen beside the menu)
-const MW_SPOTS = {
-  r: [[-0.3, 31.5, 5], [2.8, 31.75, 3], [5.0, 31.75, 0]],
-  b: [[-2.4, 12.4, 0], [2.6, 12.2, 5], [0.2, 13.4, 3]]
-};
+// each place: the attackers' and defenders' cover spots (x, z), more spots than fighters so they have somewhere to run to,
+// and the weapons they carry (indices into WEAPONS: 0 M4, 3 AK-74, 5 M870)
+// (each side's spots are kept within a few metres of each other across the line of fire, so the whole fight fits the
+// clear strip of screen beside the menu)
+const MW_LOCS = [
+  { name: 'street',
+    r: [[-0.3, 31.5], [2.8, 31.75], [5.0, 31.75], [7.2, 31.6], [-0.5, 33.2], [6.2, 33.4]],
+    b: [[-2.4, 12.4], [0.2, 13.4], [2.6, 12.2], [-1.0, 11.4], [4.4, 12.8], [1.4, 11.2]] },
+  { name: 'west road',
+    r: [[-27.7, -2.6], [-27.7, -5.4], [-31.5, -4.0], [-29.6, -0.9], [-27.7, -4.0], [-30.4, -6.0]],
+    b: [[-15.0, -2.0], [-15.0, -5.0], [-15.2, 0.8], [-16.2, -3.4], [-15.0, -6.6], [-16.0, -0.6]] },
+  { name: 'east yard',
+    r: [[22.7, -6.3], [23.4, -5.3], [25.5, -2.0], [24.4, -8.2], [26.2, -4.4], [23.0, -1.0]],
+    b: [[15.2, -0.9], [15.2, -3.3], [15.2, -5.5], [15.4, 1.4], [16.2, -2.1], [16.0, -4.4]] }
+];
+const MW_W = { r: [0, 3, 0, 5], b: [0, 5, 3, 0] }, MW_N = 4;
 class MenuFighter extends AIBot {
   constructor(p, side, w) {
     // (the defenders wear the bots' navy; the attackers are put in red while this one is built)
     const keep = Object.assign({}, AI_PAL); if (side === 'r') Object.assign(AI_PAL, MW_RED);
-    try { super(p, { w, yaw: side === 'r' ? 0 : Math.PI }); } finally { Object.assign(AI_PAL, keep); }
+    try { super(p, { w, yaw: 0 }); } finally { Object.assign(AI_PAL, keep); }
     this.side = side; this.mid = MW.list.length + 1; this.popT = rnd(0.5, 3); this.up = Math.random() < 0.5; this.aimZ = 'chest';
+    this.moveT = rnd(4, 10); this.dive = null; this.downT = 0;
   }
   active() { return MW.on && !this.dead; }
+  moveSpeed() { return 5.6; }
   // what it can see: anyone on the other side it has a clear line to; the nearest of them is the one it fights
   perceive() {
     let best = null, bd = 1e9; const e = this.eye;
     for (const o of MW.list) { if (o.side === this.side || o.dead || o.rag || o.out) continue;
-      const q = o.pos.clone(); q.y += 1.62 - 0.6 * o.crouchK; const d = q.distanceTo(e);
+      const q = o.pos.clone(); q.y += 1.62 - 0.6 * o.crouchK - 1.1 * o.proneK; const d = q.distanceTo(e);
       if (d < bd && aiSees(e, q)) { bd = d; best = o; } }
     this.know.clear();
-    if (best) { this.tgt = { id: best.mid, pos: best.pos, c: best.crouchK, pr: 0, dn: false, r: { tpos: best.pos, pos: best.pos } }; this.know.set(best.mid, { vis: true, last: best.pos.clone() }); this.dist = bd; }
+    if (best && !this.dive && !this.run) { this.tgt = { id: best.mid, pos: best.pos, c: best.crouchK, pr: best.proneK, dn: false, r: { tpos: best.pos, pos: best.pos } }; this.know.set(best.mid, { vis: true, last: best.pos.clone() }); this.dist = bd; }
     else { this.tgt = null; this.engT = 0; }
   }
-  // up to fire, down behind cover to reload or when it has been up a while; now and then a lean out round the side
+  // up to fire, down behind cover to reload or when it has been up a while, a lean out round the side now and then; and
+  // every several seconds a dash to another spot that nobody on its side holds
   decide() {
-    this.path = null; this.state = 'camp';
-    this.popT -= 0.1;
+    this.state = 'camp';
+    if (this.dive) return;
+    if (this.run) { this.state = 'dodge'; this.stance = 0; this.lean = 0; if (!this.path || !this.path.length) this.run = null; return; }
+    this.path = null; this.popT -= 0.1; this.moveT -= 0.1;
+    if (this.moveT <= 0 && this.reloadT <= 0) {
+      this.moveT = rnd(6, 13); const L = MW_LOCS[MW.loc][this.side], free = L.filter(([x, z]) => Math.hypot(x - this.pos.x, z - this.pos.z) > 2 && Math.hypot(x - this.pos.x, z - this.pos.z) < 14 && !MW.list.some(o => o !== this && o.side === this.side && !o.dead && Math.hypot(o.spot.x - x, o.spot.z - z) < 1));
+      if (free.length) { const [x, z] = free[Math.floor(Math.random() * free.length)]; this.spot.set(x, floorUnder(x, z, 3), z); this.run = this.spot.clone(); this.path = [this.run.clone()]; this.dodgeT = 6; this.state = 'dodge'; this.stance = 0; this.lean = 0; return; }
+    }
     if (this.reloadT > 0) { this.stance = 1; this.lean = 0; return; }
     if (this.popT <= 0) { this.up = !this.up; this.popT = this.up ? rnd(2.5, 5.5) : rnd(1.2, 3); this.lean = this.up && Math.random() < 0.35 ? (Math.random() < 0.5 ? -1 : 1) : 0; this.aimZ = Math.random() < 0.2 ? 'head' : 'chest'; }
     this.stance = this.up ? 0 : 1;
@@ -51,52 +74,73 @@ class MenuFighter extends AIBot {
   }
   reload() { if (this.reloadT > 0) return; this.reloadT = WEAPONS[this.w].pellets ? 2.8 : 2.6; this.burst = 0; this.up = false; this.popT = rnd(0.4, 1.2); }
   doorAhead() {} claymores() {} tryThrow() {}
-  // nobody falls in the menu's fight: the rounds hit (blood, holes, a flinch), but whatever would drop it is shrugged off
-  // and its body starts over sound; the wounds it has taken stay on it for a while, then heal over
-  die() { this.anat = new Anatomy(); }
-  goLimp() {}
-  startReaction() { this.react = undefined; }
+  // (one or two fall for good in each fight; the others shrug off what would drop them and their bodies start over sound)
+  die() { if (this.fall) return Dummy.prototype.die.call(this); this.anat = new Anatomy(); }
+  goLimp(soft) { if (this.fall) return Dummy.prototype.goLimp.call(this, soft); }
+  startReaction(k) { if (this.fall) return Dummy.prototype.startReaction.call(this, k); this.react = undefined; }
   update(dt) {
-    const a = this.anat;
-    if (a.dead || a.isDowned() || a.bothLegs() || a.koT > 0 || a.paralyzed || a.legBroken('L') || a.legBroken('R') || a.blood < 3800) this.anat = new Anatomy();
-    this.forceDown = false; this.react = undefined; this.stag = undefined; this.dead = false;
+    if (this.dead) { this.respawnT = 1e9; return super.update(dt); }
+    const a = this.anat, bad = a.dead || a.isDowned() || a.bothLegs() || a.koT > 0 || a.paralyzed || a.legBroken('L') || a.legBroken('R') || a.blood < 3800;
+    if ((a.dead || a.isDowned()) && !this.fall && MW.deaths > 0 && MW.locT > 8 && MW.t - (MW.lastFall || -99) > 9) { MW.deaths--; MW.lastFall = MW.t; this.fall = true; this.dive = null; this.run = null; this.path = null; }
+    if (this.fall) { if (!this.rag && !this.dead) { this.forceDown = true; } return super.update(dt); }
+    if (bad) this.anat = new Anatomy();
+    this.forceDown = false; this.react = undefined; this.stag = undefined;
     this.healT = (this.healT || 0) + dt; if (this.healT > 45) { this.healT = 0; clearWounds(this.hum); this.hum.erosion = []; }
+    // the dash: run at it, and from a couple of metres out throw itself the rest of the way, landing flat, then up on a knee
+    if (this.run && !this.dive) { const dx = this.run.x - this.pos.x, dz = this.run.z - this.pos.z, L = Math.hypot(dx, dz);
+      if (L < 2.3 && this.speedNow > 2.5) { this.dive = { t: 0, d: new V3(dx / L, 0, dz / L), L: Math.max(0.6, L - 0.35), y0: this.pos.y }; this.path = null; this.run = null; this.ayaw = Math.atan2(-dx, -dz); this.yawV = 0; } }
     super.update(dt);
+    if (this.dive) {
+      const D = this.dive, k0 = Math.min(1, D.t / 0.5); D.t += dt; const k1 = Math.min(1, D.t / 0.5);
+      if (k1 < 1) { const step = D.L * (smooth(k1) - smooth(k0)), nx = this.pos.x + D.d.x * step, nz = this.pos.z + D.d.z * step, y = floorUnder(nx, nz, this.pos.y + 0.6);
+        if (!navBlocked(nx, y + 0.45, nz, 1.0, 0.15)) this.pos.set(nx, y, nz); }
+      // (the arc of the leap, the body going from upright to flat on the way down)
+      const air = k1 < 1 ? Math.sin(Math.PI * k1) * 0.32 : 0;
+      this.proneK = D.t < 0.5 ? Math.min(1, k1 * 1.6) : D.t < 1.1 ? 1 : this.proneK; this.stance = D.t < 1.1 ? 2 : 1;
+      this.hum.root.position.copy(this.pos); this.hum.root.position.y += air; this.hum.root.rotation.y = this.ayaw;
+      Object.assign(this.hum.anim, { prone: this.proneK, speed: 0, sprint: 0 });
+      if (D.t > 1.1) { this.dive = null; this.up = false; this.popT = rnd(0.8, 1.6); }
+    }
   }
 }
+// ---- a fight: its fighters set out at their place, two a side looking at the other; then, after a while, the next place
 function menuWarStart() {
-  if (MW.on) return; MW.on = true; if (typeof ENV !== 'undefined' && ENV.w === 'fog') envSet('cloudy', true); MW.list.length = 0; MW.t = 0; MW.shot = Math.floor(Math.random() * 3); MW.shotT = 0;
-  for (const side of ['r', 'b']) MW_SPOTS[side].forEach(([x, z, w]) => {
-    const p = new V3(x, 0, z); p.y = floorUnder(x, z, 3);
-    const f = new MenuFighter(p, side, w); f.spot = p.clone(); MW.list.push(f); dummies.push(f);
-  });
+  if (MW.on) return; MW.on = true; if (typeof ENV !== 'undefined' && ENV.w === 'fog') envSet('cloudy', true);
+  audioMute(true); MW.list.length = 0; MW.t = 0; MW.locT = 0; MW.shot = 0; MW.shotT = 0; MW.deaths = Math.random() < 0.5 ? 1 : 2;
+  const L = MW_LOCS[MW.loc];
+  for (const side of ['r', 'b']) { const spots = L[side].slice(0, MW_N);
+    spots.forEach(([x, z], i) => { const p = new V3(x, 0, z); p.y = floorUnder(x, z, 3);
+      const f = new MenuFighter(p, side, MW_W[side][i % 4]); f.spot = p.clone(); MW.list.push(f); dummies.push(f);
+      const o = L[side === 'r' ? 'b' : 'r'][0]; f.ayaw = f.yaw = Math.atan2(-(o[0] - x), -(o[1] - z)); }); }
+  MW.shots = mwShots(L);
 }
 function menuWarStop() {
   if (!MW.on) return; MW.on = false;
   for (const f of MW.list) { f.dispose(); const k = dummies.indexOf(f); if (k >= 0) dummies.splice(k, 1); }
-  MW.list.length = 0; clearWorldFx();
+  MW.list.length = 0; clearWorldFx(); audioMute(false);
 }
 function updateMenuWar(dt) {
   if (S.mode) { if (MW.on) menuWarStop(); return; }
   if (!MW.on) { if ($('menu').style.display !== 'none' && typeof TOWN !== 'undefined' && TOWN.windows && TOWN.windows.length) menuWarStart(); else return; }
-  MW.t += dt;
+  MW.t += dt; MW.locT += dt;
+  // (a fight runs its course, three shots of it, then it is over and the next one starts somewhere else)
+  if (MW.locT > MW_FIGHT) { menuWarStop(); MW.loc = (MW.loc + 1) % MW_LOCS.length; menuWarStart(); return; }
   for (const f of MW.list) f.update(dt);
 }
 // ---- the camera: a few slow shots, each a gentle drift, cutting from one to the next. The menu covers the left of the
 // screen, so each shot is framed into the clear part on the right: the lens is pointed so the whole fight (both sides) sits
 // in that strip, and opened just wide enough to hold it
-// (high and along the line between the two sides, so one side is near the bottom of the picture and the other far up it:
-// both fit the strip big enough to see)
-const MW_SHOTS = [
-  // up behind the attackers, down across the street at the house
-  { a: [0.5, 10, 45], b: [2.5, 9.4, 44.5], la: [0, 0.6, 22], lb: [0.5, 0.6, 22] },
-  // low over the van
-  { a: [-1.5, 4.8, 39], b: [1.5, 5.2, 39.5], la: [0.5, 0.8, 14], lb: [0.5, 0.8, 14] },
-  // from the attackers' right rear
-  { a: [12, 9, 40.5], b: [10.5, 9.4, 41.5], la: [1.5, 0.6, 21], lb: [1.5, 0.6, 21] },
-  // from the attackers' left rear
-  { a: [-9, 8.5, 41], b: [-7.5, 8, 42], la: [1.5, 0.6, 21], lb: [1.5, 0.6, 21] }
-];
+// (high and along the line between the two sides, behind the attackers, so one side is near the bottom of the picture and
+// the other far up it: both fit the strip big enough to see. Three of them, straight behind and off to either side)
+const MW_FIGHT = 36;
+function mwShots(L) {
+  const c = (list) => list.reduce((s, [x, z]) => [s[0] + x / list.length, s[1] + z / list.length], [0, 0]);
+  const A = c(L.r), B = c(L.b), dx = A[0] - B[0], dz = A[1] - B[1], n = Math.hypot(dx, dz), ux = dx / n, uz = dz / n, sx = -uz, sz = ux, mid = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
+  return [[0, 12, 9], [7, 11, 8], [-7, 11, 8.5]].map(([side, back, h]) => {
+    const p = [A[0] + ux * back + sx * side, h, A[1] + uz * back + sz * side];
+    return { a: p, b: [p[0] + sx * 2, p[1] - 0.6, p[2] + sz * 2], la: [mid[0], 0.6, mid[1]], lb: [mid[0] + sx * 0.5, 0.6, mid[1] + sz * 0.5] };
+  });
+}
 const _mwA = new V3(), _mwB = new V3(), _mwP = new V3();
 function mwFree() {
   // (the right edge of what the menu shows: its column and the open pane)
@@ -105,14 +149,14 @@ function mwFree() {
   return MW.free = clamp(r / innerWidth, 0.25, 0.72);
 }
 function menuWarCam(dt) {
-  MW.shotT += dt; const DUR = 12; if (MW.shotT > DUR) { MW.shotT = 0; MW.shot = (MW.shot + 1) % MW_SHOTS.length; }
-  const s = MW_SHOTS[MW.shot], k = MW.shotT / DUR, e = k * k * (3 - 2 * k), t = performance.now() / 1000;
+  const SH = MW.shots, DUR = MW_FIGHT / SH.length; MW.shotT += dt; if (MW.shotT > DUR) { MW.shotT = 0; MW.shot = (MW.shot + 1) % SH.length; }
+  const s = SH[MW.shot], k = MW.shotT / DUR, e = k * k * (3 - 2 * k), t = performance.now() / 1000;
   _mwA.fromArray(s.a).lerp(_mwB.fromArray(s.b), e); camera.position.copy(_mwA); camera.position.y += Math.sin(t * 0.7) * 0.04;
   _mwA.fromArray(s.la).lerp(_mwB.fromArray(s.lb), e); camera.lookAt(_mwA); camera.updateMatrixWorld(true);
   // where everyone is, as seen from here (head and feet)
   let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9; const inv = camera.matrixWorldInverse;
-  for (const f of MW.list) for (const h of [0.05, 1.8]) { _mwP.copy(f.pos); _mwP.y += h; _mwP.applyMatrix4(inv); if (_mwP.z > -1) continue; const u = _mwP.x / -_mwP.z, v = _mwP.y / -_mwP.z; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
-  const W = innerWidth, H = innerHeight, asp = W / H, f0 = mwFree(), sw = (1 - f0) * 0.82, c = f0 + (1 - f0) * 0.48;
+  for (const f of MW.list) if (!f.dead) for (const h of [0.05, 1.8]) { _mwP.copy(f.pos); _mwP.y += h; _mwP.applyMatrix4(inv); if (_mwP.z > -1) continue; const u = _mwP.x / -_mwP.z, v = _mwP.y / -_mwP.z; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+  const W = innerWidth, H = innerHeight, asp = W / H, f0 = mwFree(), sw = (1 - f0) * 0.74, c = f0 + (1 - f0) * 0.54;
   if (u0 > u1) { u0 = -0.2; u1 = 0.2; v0 = -0.2; v1 = 0.2; }
   // half the width of the picture (at one unit out) such that the fight fills the strip, and its height fits too
   let T = Math.max((u1 - u0) / (2 * sw), (v1 - v0) / 2 * asp / 0.8, Math.tan(0.2) * asp);

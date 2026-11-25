@@ -166,7 +166,9 @@ function updatePlayer(dt) {
   P.supp = Math.max(0, (P.supp || 0) - dt * 0.2);
   // going down: like an AI body, unless the spine or both legs are gone it reacts to the wound first (stumbles, clutches it,
   // folds) and then collapses. No control until it is over.
-  if ((an.isDowned() || P.forceDown || P.react) && !P.downed) {
+  // (the player's arms are never put out of action: a broken arm still works; an arm cut through, though, drops you)
+  const armOff = !!(an.lost.armL || an.lost.armR);
+  if ((an.isDowned() || P.forceDown || P.react || armOff) && !P.downed) {
     const canReact = !an.paralyzed && !an.bothLegs();
     if (canReact && !P.react && !P.reactDone) { localBody.root.position.copy(P.pos); localBody.root.rotation.y = P.yaw; reactStart(PB, 'hit'); }
     if (canReact && P.react) {
@@ -177,12 +179,12 @@ function updatePlayer(dt) {
     } else { P.react = null; enterDowned(); }
   }
   // a down only counts as a kill for the shooter if it isn't just pain (spine or both legs gone); pain knockouts wait for the death
-  if (P.downed && !P.downSent && S.mode === 'online' && an.lastBy && (an.paralyzed || an.bothLegs())) { P.downSent = true; net.send({ t: 'down', by: an.lastBy, lf: S.life }); }
+  if (P.downed && !P.downSent && S.mode === 'online' && an.lastBy && (an.paralyzed || an.bothLegs() || armOff)) { P.downSent = true; net.send({ t: 'down', by: an.lastBy, lf: S.life }); }
   // the injuries get worse while you lie there: once one is past saving, you are out of the round (the team is told)
   if (P.downed && !P.fatal && an.fatalWhy()) downText();
   if (P.downed && P.fatal && !P.fatalSent && S.mode === 'online') { P.fatalSent = true; net.send({ t: 'down', by: an.lastBy || 0, lf: S.life, ft: 1 }); }
   // (past saving: you never come round, you only lie there till it ends)
-  if (P.downed && !P.fatal && !an.isDowned() && !P.forceDown) wakeUp();
+  if (P.downed && !P.fatal && !an.isDowned() && !P.forceDown && !armOff) wakeUp();
   // down in a fight, nobody keeps you going: the blood goes much faster (half a minute or so if nobody comes to help)
   if (P.downed && S.mode === 'online') an.blood -= (an.bleedRate() * 1.5 + 40) * dt;
   if (P.downed) { bleedDrips(P, an.bleedRate(), dt, arteryRate(an), clamp(an.blood / 5000, 0.2, 1)); localBody.root.visible = false; fpBody.root.visible = false; if (P.rag) P.pos.set(P.rag.p[2].x, 0, P.rag.p[2].z); P.vel.set(0, 0, 0); P.speed = 0; return; }
@@ -284,7 +286,7 @@ function updatePlayer(dt) {
   const a = localBody.anim;
   localBody.root.visible = true;
   localBody.root.position.copy(P.pos); localBody.root.rotation.y = P.yaw;
-  Object.assign(a, { speed: P.speed, crouch: P.crouch, prone: P.prone, limp: downed ? 1 : oneLeg ? 0.5 : 0, lean: P.leanEff, pitch: P.pitch, sprint: P.sprintBlend, ads: P.ads, air: P.onGround ? 0 : 1, weapon: P.slot >= 2 ? MEDKIT_W : P.weapon, unarmed: P.slot === 4, bb: an.brokenMask(), ah: an.armHangMask(), ls: an.lostMask(), lc: an.cutArr(), reload: P.reloading ? Math.max(0.001, P.reloadT / P.reloadDur) : 0 });
+  Object.assign(a, { speed: P.speed, crouch: P.crouch, prone: P.prone, limp: downed ? 1 : oneLeg ? 0.5 : 0, lean: P.leanEff, pitch: P.pitch, sprint: P.sprintBlend, ads: P.ads, air: P.onGround ? 0 : 1, weapon: P.slot >= 2 ? MEDKIT_W : P.weapon, unarmed: P.slot === 4, bb: an.brokenMask(), ah: 0, ls: an.lostMask(), lc: an.cutArr(), reload: P.reloading ? Math.max(0.001, P.reloadT / P.reloadDur) : 0 });
   a.stag = P.stun > 0 ? 0.5 : 0;
   a.hurt = damp(a.hurt || 0, hurtLevel(an), 2, dt); a.downedPose = downed; reClutch(a, an, dt); updateBrace(localBody, dt);
   localBody.update(dt);
@@ -318,7 +320,7 @@ function startReload() {
   P.reloadEmpty = !G.chamber;
   const stress = clamp(P.anat.pain * 0.8 + (P.supp || 0) * 0.8 + (P.stamina < 35 ? 0.2 : 0), 0, 1);
   P.rlSeq = makeReloadSeq(P.reloadEmpty, stress);
-  P.reloadDur = w.tac * 1.3 * rnd(0.86, 1.16) * (1 + P.anat.pain * 0.35 + (P.supp || 0) * 0.45) * (P.rlSeq.fumble ? 1.1 : 0.95) * (P.anat.handBroken('L') || P.anat.handBroken('R') ? 1.6 : 1) * (P.anat.anyArm() ? 1.3 : 1);
+  P.reloadDur = w.tac * 1.3 * rnd(0.86, 1.16) * (1 + P.anat.pain * 0.35 + (P.supp || 0) * 0.45) * (P.rlSeq.fumble ? 1.1 : 0.95) * (P.anat.handBroken('L') || P.anat.handBroken('R') ? 1.6 : 1) * 1;
   // the recorded sounds of this reload, each timed to its frame (10c-sfx)
   P.rlCues = reloadCues(w, P.rlSeq, P.reloadDur);
 }
@@ -385,7 +387,7 @@ function rackHint() {
 // Loading can be cut short by pulling the trigger: the shell in hand still goes in, then the hand goes back to the pump.
 const shellsLeft = G => G.pouch.reduce((a, n) => a + n, 0);
 function shellTime(w) {
-  return w.tac * rnd(0.88, 1.15) * (1 + P.anat.pain * 0.35 + (P.supp || 0) * 0.45) * (P.anat.handBroken('L') || P.anat.handBroken('R') ? 1.6 : 1) * (P.anat.anyArm() ? 1.3 : 1);
+  return w.tac * rnd(0.88, 1.15) * (1 + P.anat.pain * 0.35 + (P.supp || 0) * 0.45) * (P.anat.handBroken('L') || P.anat.handBroken('R') ? 1.6 : 1) * 1;
 }
 function startShellLoad(w, G) {
   if (S.mode === 'test' && !shellsLeft(G)) G.pouch = G.pouch.concat(Array(w.spare).fill(w.carrier));
@@ -495,7 +497,7 @@ function updateWeapons(dt) {
     }
     if (k >= 1) P.inspecting = false;
   }
-  const adsWant = P.adsOn && !P.sprinting && !P.reloading && !P.inspecting && P.alive && P.switchT <= 0 && !P.anat.anyArm();
+  const adsWant = P.adsOn && !P.sprinting && !P.reloading && !P.inspecting && P.alive && P.switchT <= 0;
   P.ads = damp(P.ads, adsWant ? 1 : 0, 14 * (V.mods ? V.mods.ads : 1), dt);
   P.sprintBlend = damp(P.sprintBlend, P.sprinting ? 1 : 0, 10, dt);
   if (mouse.left && P.alive && S.locked) tryFire();
@@ -613,7 +615,7 @@ function recoilKick(w, V) {
   if (now - (P.recLast || 0) > 60000 / (w.rpm || 600) + 220) { P.recN = 0; P.recH = 0; }
   P.recLast = now; P.recN = (P.recN || 0) + 1;
   const mv = Math.min(1, Math.hypot(P.vel.x, P.vel.z) / 4);
-  const ctl = (V.mods ? V.mods.recoil : 1) * lerp(1, 0.82, P.ads) * lerp(1, 0.86, P.crouch) * lerp(1, 0.5, P.prone) * (1 + mv * 0.35) * (P.anat.anyArm() ? 2 : 1) * (P.anat.pain > 50 ? 1.25 : 1);
+  const ctl = (V.mods ? V.mods.recoil : 1) * lerp(1, 0.82, P.ads) * lerp(1, 0.86, P.crouch) * lerp(1, 0.5, P.prone) * (1 + mv * 0.35) * (P.anat.pain > 50 ? 1.25 : 1);
   const first = P.recN === 1 ? 0.85 : Math.min(1.45, 1 + (P.recN - 1) * 0.045);
   const up = R.v * ctl * first * rnd(0.85, 1.15);
   const gs = (Math.random() + Math.random() + Math.random() - 1.5) / 0.5;
