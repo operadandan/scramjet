@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { $, V3, camera, clamp, damp, lerp, muzzleLight, ramp, renderer, rnd, scene, smooth, vmCamera, vmMuzzleLight } from './00-setup.js';
 import { colliders, spawns } from './01-world.js';
+import { TOWN } from './01b-town.js';
 import { chunkReset } from './02b-chunks.js';
 import { hurtClutch, hurtLevel, reClutch, updateBrace } from './03-humanoid.js';
 import { _Y, _a, freeRag, setHelmet, spawnRagdoll, syncLost } from './04-ragdoll.js';
@@ -9,7 +10,7 @@ import { Anatomy, DEATH_TEXT, LIMB_NAME, PART_OF_REGION, REGION_NAME, hitToFrame
 import { MEDKIT_W, WEAPONS, flashMat, freshGuns, isPistol, pelletDirs } from './06-weapons.js';
 import { SG_SEQ, VMW, makeReloadSeq } from './08-hands.js';
 import { blip, noiseHit, shotSound } from './10-audio.js';
-import { rackCues, reloadCues, runCues, sfxHas } from './10c-sfx.js';
+import { rackCues, reloadCues, runCues, sfxHas, sfxPlay } from './10c-sfx.js';
 import { fx, tracer } from './11-fx.js';
 import { muzzleSmoke } from './12-blood.js';
 import { tpAim } from './13-third-person.js';
@@ -80,8 +81,17 @@ function climbBlocked(pos, h, r) {
     if (pos.x + r > b.min.x && pos.x - r < b.max.x && pos.z + r > b.min.z && pos.z - r < b.max.z && pos.y + h > b.min.y && pos.y < b.max.y) return b; }
   return null;
 }
+// a window with any board still across it: nobody goes through it, over it or onto its sill
+function boardedNear(p) {
+  if (typeof TOWN === 'undefined' || !TOWN.windows) return false;
+  for (const w of TOWN.windows) { if (!w.boards || !w.boards.some(Boolean)) continue;
+    const along = w.ax === 'x' ? Math.abs(p.x - w.p.x) : Math.abs(p.z - w.p.z), across = w.ax === 'x' ? Math.abs(p.z - w.p.z) : Math.abs(p.x - w.p.x);
+    if (along < w.w / 2 + 0.3 && across < 1.4 && p.y > w.y0 - 2 && p.y < w.y1) return true; }
+  return false;
+}
 function tryMantle() {
   const fwd = new V3(-Math.sin(P.yaw), 0, -Math.cos(P.yaw));
+  if (boardedNear(P.pos.clone().addScaledVector(fwd, 0.5))) return false;
   for (let d = 0.2; d <= 0.75; d += 0.08) {
     const p = P.pos.clone().addScaledVector(fwd, d); p.y += 0.25;
     const c = blocked(p, 0.1, 0.05); if (!c) continue;
@@ -103,6 +113,7 @@ function tryMantle() {
 // and somewhere to land beyond. Hands on the sill, legs swung through, down the other side
 function tryVault() {
   const fwd = new V3(-Math.sin(P.yaw), 0, -Math.cos(P.yaw));
+  if (boardedNear(P.pos.clone().addScaledVector(fwd, 0.5))) return false;
   for (let d = 0.2; d <= 0.75; d += 0.08) {
     const p = P.pos.clone().addScaledVector(fwd, d); p.y += 0.25;
     const c = blocked(p, 0.1, 0.05); if (!c) continue;
@@ -331,6 +342,14 @@ function startReload() {
 const HOLD_OPEN = { m4: 1, g17: 1, m9: 1, m107: 1 };
 const RK = (keys, extra) => Object.assign({ seq: { keys, held: [], hidden: [] } }, extra);
 function canRack() { const w = WEAPONS[P.weapon], V = VMW[P.weapon]; return P.alive && !P.downed && P.slot < 2 && !w.pellets && V && V.rack && !P.reloading && !P.inspecting && !P.rack && P.switchT <= 0; }
+// the trigger pulled on an empty chamber: the recorded click, tuned to the gun (a pistol's striker is small and sharp, a big
+// rifle's hammer and the shotgun's action heavier and lower), quieter than it was recorded
+const DRY = { m4: [1, 0.3], ak74: [0.9, 0.33], g17: [1.18, 0.24], m9: [1.06, 0.26], m107: [0.74, 0.38], m870: [0.82, 0.34] };
+function dryFire(w) {
+  const d = DRY[w.id] || [1, 0.3];
+  if (sfxHas('dry')) sfxPlay('dry', { dry: true, vol: d[1] * rnd(0.9, 1.05), rate: d[0] * rnd(0.97, 1.03) });
+  else { blip(1500, 0.02, 0.05); noiseHit(2200, 0.03, 0.04); }
+}
 function rackNeeded() { const G = P.guns[P.weapon]; return canRack() && G && (G.held || (!G.chamber && G.mag > 0)); }
 function workAction() {
   const V = VMW[P.weapon], G = P.guns[P.weapon], R = V.rack;
@@ -521,7 +540,7 @@ function tryFire() {
   if (P.reloading || P.inspecting || P.rack || G.held || P.switchT > 0 || P.sprintBlend > 0.3 || P.mantle || P.react || P.stun > 0) return;
   if (!w.auto && !P.semiReady) return;
   if (now - P.lastShot < 60 / w.rpm) return;
-  if (!G.chamber) { if (P.semiReady) { blip(1500, 0.02, 0.05); noiseHit(2200, 0.03, 0.04); P.semiReady = false; } return; }
+  if (!G.chamber) { if (P.semiReady) { dryFire(w); P.semiReady = false; } return; }
   P.lastShot = now; P.semiReady = false;
   G.chamber = 0; if (G.mag > 0) { G.mag--; G.chamber = 1; }
   // last round gone: guns with a hold-open device lock the bolt / slide back on the empty magazine

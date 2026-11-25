@@ -2,12 +2,13 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { V3, rnd } from './00-setup.js';
+import { V3, clamp, rnd } from './00-setup.js';
 import { TEX, addBox, canvasTex, mat, speckle, worldGroup, worldMeshes } from './01-world.js';
 import { HOUSE, TOWN, lampMat } from './01b-town.js';
 import { tdSurround, tdTreeX } from './01d-town-surround.js';
+import { inside } from './10-audio.js';
 import { fx } from './11-fx.js';
-import { DESTR, gridIdx, gridOpenW, spawnDebris, wallShape } from './15-destruction.js';
+import { DESTR, spawnDebris, wallShape } from './15-destruction.js';
 import { DOOR_FW, DOOR_H, DOOR_W, doors } from './15b-doors.js';
 import { P, S } from './17-dummies.js';
 import { ez, seg } from './19c-toolvm.js';
@@ -1132,29 +1133,74 @@ function tdSplit(geo, L) {
   const g = new THREE.BufferGeometry(); names.forEach((nm, k) => g.setAttribute(nm, new THREE.BufferAttribute(new Float32Array(out[k]), geo.attributes[nm].itemSize)));
   if (geo.userData.baked) g.userData.baked = true; geo.dispose(); return g;
 }
-// a hole opened in a wall: the trim, casing, sill, siding, skirting and the pictures that were over it go with it (in splinters),
-// so nothing is left bridging the hole or hanging in it
-const _thc = new V3();
+// Something changed in a wall (a hole opened in it, or it came down): every piece of finish anywhere near it (trim, casings,
+// window frames and sills, jamb linings, siding, skirting, pictures) is checked again, and whatever no longer has solid wall
+// within a hand's breadth of it goes, in splinters. It does not matter which wall a piece was counted as belonging to, or
+// whether it sat over the wall or out in the window opening beside it: what counts is whether any wall, frame or skin still
+// stands close enough to hold it. The finish was cut into short lengths when it was built, so a casing across a hole loses
+// just the stretch over the hole, and the stubs left are the ones still nailed to wall.
+const _thc = new V3(), TD_HOLD = 0.1;
+// is there solid wall within R of this point (any wall-like piece: a wall, its brick skin, a door frame)?
+function tdSolidNear(c, x, y, z, R) {
+  const u = c.userData, b = u.box; if (!b || u.falling || u.door) return false;
+  const G = u.grid, ax = G ? G.ax : (b.max.x - b.min.x < b.max.z - b.min.z ? 0 : 2), a1 = ax === 0 ? 2 : 0;
+  const pd = ax === 0 ? x : z, p1 = a1 === 0 ? x : z;
+  if (Math.max(b.min.getComponent(ax) - pd, pd - b.max.getComponent(ax), 0) > 0.06) return false;   // (on its face, not a layer away)
+  if (Math.max(b.min.getComponent(a1) - p1, p1 - b.max.getComponent(a1), 0) > R || Math.max(b.min.y - y, y - b.max.y, 0) > R) return false;
+  if (!G || !G.any) return true;
+  const l1 = p1 - c.position.getComponent(a1), l2 = y - c.position.y;
+  let n = 0; const ic = Math.floor((clamp(l1, G.min1, -G.min1 - 1e-6) - G.min1) / G.cs1), jc = Math.floor((clamp(l2, G.min2, -G.min2 - 1e-6) - G.min2) / G.cs2), r1 = Math.ceil(R / G.cs1) + 1, r2 = Math.ceil(R / G.cs2) + 1, R2 = (R + 0.5 * Math.max(G.cs1, G.cs2)) ** 2;
+  for (let j = Math.max(0, jc - r2); j <= Math.min(G.n2 - 1, jc + r2); j++) for (let i = Math.max(0, ic - r1); i <= Math.min(G.n1 - 1, ic + r1); i++) {
+    if (G.cell[j * G.n1 + i]) continue; const d1 = G.min1 + (i + 0.5) * G.cs1 - l1, d2 = G.min2 + (j + 0.5) * G.cs2 - l2; if (d1 * d1 + d2 * d2 <= R2 && ++n >= 3) return true; }
+  return false;   // (a crumb or two of wall is not enough to hang anything on)
+}
 function tdHoleCut(w) {
-  const G = w.userData.grid, R = w.userData.tdRecs; if (!G || !G.any || !R) return; let deb = 0;
-  for (const rec of R) {
+  const wb = w.userData.box; if (!wb) return; const e = 0.45;
+  const inR = (b, m) => b.max.x > wb.min.x - m && b.min.x < wb.max.x + m && b.max.y > wb.min.y - m && b.min.y < wb.max.y + m && b.max.z > wb.min.z - m && b.min.z < wb.max.z + m;
+  // what could hold finish round here, and whose finish is round here
+  const cands = [], owners = [];
+  for (const c of worldMeshes) { const u = c.userData; if (!u.box || u.falling || u.door || !inR(u.box, e + 1.5)) continue; if (u.doorFrame || wallShape(c)) cands.push(c); if (u.tdRecs && inR(u.box, e + 1.1)) owners.push(c); }
+  if (tdHasRecs(w) && owners.indexOf(w) < 0 && !w.userData.falling) owners.push(w);
+  const held = (x, y, z, R) => { for (const c of cands) if (tdSolidNear(c, x, y, z, R)) return true; return false; };
+  const nearM = (x, y, z, m) => x > wb.min.x - m && x < wb.max.x + m && y > wb.min.y - m && y < wb.max.y + m && z > wb.min.z - m && z < wb.max.z + m, near = (x, y, z) => nearM(x, y, z, e);
+  // (finish that hangs out in an opening by design, the middle of a window frame, its glazing bars, has no wall right behind
+  // it even in a sound house: that is held by the rest of its frame, so it stays as long as some piece of finish within an
+  // arm's length of it is still held by wall, and goes when everything round it has)
+  const intact = (x, y, z) => { for (const c of cands) { const u = c.userData, G = u.grid; u.grid = null; const r = tdSolidNear(c, x, y, z, TD_HOLD); u.grid = G; if (r) return true; } return false; };
+  let deb = 0; const work = [], anch = new Map(), anchI = new Map(), H = 0.35, key = (x, y, z) => Math.floor(x / H) + ',' + Math.floor(y / H) + ',' + Math.floor(z / H);
+  for (const o of owners) for (const rec of o.userData.tdRecs || []) {
     if (rec.dead) continue;
-    if (rec.g) { if (!rec.at || !gridOpenW(w, rec.at)) continue;
+    if (rec.g) { if (!rec.at || !near(rec.at.x, rec.at.y, rec.at.z) || held(rec.at.x, rec.at.y, rec.at.z, 0.25)) continue;
       rec.dead = true; for (const [M, a, n] of rec.ranges) { const pa = M.geometry.attributes.position; pa.array.fill(0, a * 3, (a + n) * 3); pa.addUpdateRange(a * 3, n * 3); pa.needsUpdate = true; }
       spawnDebris(rec.at, 5, _thc.set(rnd(-0.3, 0.3), 0.2, rnd(-0.3, 0.3)), 0.8, 1.2, DESTR.wood, 0.03); continue; }
     if (!rec.parts) continue;
     for (const p of rec.parts) {
-      const M = p.B.M; if (!M) continue; const base = p.B.off[p.i], src = p.geo.attributes.position, n = src.count / 3, pa = M.geometry.attributes.position, A = pa.array;
-      if (!p.gone) p.gone = new Uint8Array(n); let lo = 1e9, hi = -1;
-      for (let t = 0; t < n; t++) { if (p.gone[t]) continue; const o = t * 9;
-        const x = (src.array[o] + src.array[o + 3] + src.array[o + 6]) / 3, y = (src.array[o + 1] + src.array[o + 4] + src.array[o + 7]) / 3, z = (src.array[o + 2] + src.array[o + 5] + src.array[o + 8]) / 3;
-        const k = gridIdx(G, w, x, y, z); if (k < 0 || !G.cell[k]) continue;
-        p.gone[t] = 1; src.array.fill(0, o, o + 9); const ao = (base + t * 3) * 3; A.fill(0, ao, ao + 9); lo = Math.min(lo, ao); hi = Math.max(hi, ao + 9);
-        if (deb < 8 && (t & 7) === 0) { deb++; spawnDebris(_thc.set(x, y, z), 1, new V3(rnd(-0.4, 0.4), 0.1, rnd(-0.4, 0.4)), 0.7, rnd(0.4, 1.4), DESTR.wood, 0.02); } }
-      if (hi > lo) { src.needsUpdate = true; pa.addUpdateRange(lo, hi - lo); pa.needsUpdate = true; }
+      if (!p.B.M) continue; const src = p.geo.attributes.position, n = src.count / 3, S = src.array;
+      if (!p.gone) p.gone = new Uint8Array(n);
+      if (!p.cen) { p.cen = new Float32Array(n * 3); for (let t = 0; t < n; t++) { const q = t * 9; p.cen[t * 3] = (S[q] + S[q + 3] + S[q + 6]) / 3; p.cen[t * 3 + 1] = (S[q + 1] + S[q + 4] + S[q + 7]) / 3; p.cen[t * 3 + 2] = (S[q + 2] + S[q + 5] + S[q + 8]) / 3; } }
+      if (!p.anc) p.anc = new Int8Array(n).fill(-1);
+      for (let t = 0; t < n; t++) { if (p.gone[t]) continue; const x = p.cen[t * 3], y = p.cen[t * 3 + 1], z = p.cen[t * 3 + 2]; if (!nearM(x, y, z, e + 1.1)) continue;
+        if (p.anc[t] < 0) p.anc[t] = intact(x, y, z) ? 1 : 0; const inside = near(x, y, z);
+        if (p.anc[t]) { const k = key(x, y, z); anchI.set(k, (anchI.get(k) || 0) + 1); if (held(x, y, z, TD_HOLD)) anch.set(k, (anch.get(k) || 0) + 1); else if (inside) work.push(p, t); }
+        else if (inside) work.push(p, t, 1); }
     }
   }
+  // (the spanning pieces: any held finish in the neighbouring cells of a coarse grid round it)
+  // (it stays only while most of what held it round about is still held: a frame with a stub of casing left on one corner
+  // of a blown-out window comes down with the rest)
+  const kept = (x, y, z) => { const i = Math.floor(x / H), j = Math.floor(y / H), k = Math.floor(z / H); let h = 0, n = 0; for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) { const q = (i + a) + ',' + (j + b) + ',' + (k + c); h += anch.get(q) || 0; n += anchI.get(q) || 0; } return h >= 8 && h >= n * 0.6; };
+  const cut = new Map();
+  for (let w2 = 0; w2 < work.length;) { const p = work[w2], t = work[w2 + 1], span = work[w2 + 2] === 1; w2 += span ? 3 : 2;
+    if (span) { if (kept(p.cen[t * 3], p.cen[t * 3 + 1], p.cen[t * 3 + 2])) continue; }
+    let L = cut.get(p); if (!L) cut.set(p, L = []); L.push(t); }
+  for (const [p, L] of cut) {
+    const M = p.B.M, base = p.B.off[p.i], S = p.geo.attributes.position.array, pa = M.geometry.attributes.position, A = pa.array; let lo = 1e9, hi = -1;
+    for (const t of L) { p.gone[t] = 1; const q = t * 9; S.fill(0, q, q + 9); const ao = (base + t * 3) * 3; A.fill(0, ao, ao + 9); lo = Math.min(lo, ao); hi = Math.max(hi, ao + 9);
+      if (deb < 10 && (t & 7) === 0) { deb++; spawnDebris(_thc.set(p.cen[t * 3], p.cen[t * 3 + 1], p.cen[t * 3 + 2]), 1, new V3(rnd(-0.4, 0.4), 0.1, rnd(-0.4, 0.4)), 0.7, rnd(0.4, 1.4), DESTR.wood, 0.02); } }
+    p.geo.attributes.position.needsUpdate = true; pa.addUpdateRange(lo, hi - lo); pa.needsUpdate = true;
+  }
 }
+const tdHasRecs = w => !!w.userData.tdRecs;
 // ---- everything
 function townDetail(H) {
   TD.furn = []; TD.wall = [];

@@ -98,7 +98,7 @@ const gridIdx = (G, mesh, x, y, z) => {
 function gridOpenW(mesh, p) { const G = mesh.userData.grid; if (!G || !G.any) return false; const k = gridIdx(G, mesh, p.x, p.y, p.z); return k >= 0 && G.cell[k] > 0; }
 // can something of this half-width and height stand where pos is and pass through the wall's openings
 function gridPass(c, pos, h, r) {
-  const mesh = c.mesh, G = mesh && mesh.userData.grid; if (!G || !G.any) return false;
+  const mesh = c.mesh, G = mesh && mesh.userData.grid; if (!G || !G.any || mesh.userData.board !== undefined) return false;   // (a board stops you while any of it is up)
   const along = G.a1 === 0 ? 'x' : 'z';
   // forgiving, so a breach is easy to get through: a lip up to knee height at the bottom of an opening is stepped over, the
   // shoulders squeeze through narrower than the body, and jagged bits left sticking into the hole (up to three in ten of
@@ -135,7 +135,7 @@ function updateWallGrid(mesh, D, dir) {
   const held = k => { const i = k % n1; return (i > 0 && seen[k - 1]) || (i < n1 - 1 && seen[k + 1]) || (k >= n1 && seen[k - n1]) || (k + n1 < n1 * n2 && seen[k + n1]); };
   const fall = []; for (let k = 0; k < n1 * n2; k++) if (!cell[k] && !seen[k] && !(dm[k] >= WEAK && held(k))) { cell[k] = 2; fall.push(k); }
   if (G.dirty) { G.tex.needsUpdate = true; G.dirty = false; }
-  if (!fall.length) { if (ud.tdRecs) tdHoleCut(mesh); return; }
+  if (!fall.length) { tdHoleCut(mesh); return; }
   for (const k of fall) G.tex.image.data[k] = 255; G.tex.needsUpdate = true;
   // the loose piece comes down as chunks, roughly one per 10 x 10 cm, capped so a big slab does not flood the scene
   const thick = [mesh.geometry.parameters.width, mesh.geometry.parameters.height, mesh.geometry.parameters.depth][G.ax], step = Math.max(1, Math.round(Math.sqrt(fall.length / 70)));
@@ -157,7 +157,7 @@ function updateWallGrid(mesh, D, dir) {
   const mid = fall[fall.length >> 1], mi = mid % n1, mj = (mid - mi) / n1; q.set(0, 0, 0); q.setComponent(G.a1, min1 + (mi + 0.5) * cs1); q.setComponent(G.a2, min2 + (mj + 0.5) * cs2);
   dust(mesh.localToWorld(q.clone()), new V3(0, -1, 0), D.dust, 1.2 + Math.sqrt(fall.length) * 0.08, 0.7, 4.5); noiseHit(D.deb === 'rock' ? 300 : 520, 0.3, 0.14);
   // craters that sat on the piece that fell go with it
-  if (ud.tdRecs) tdHoleCut(mesh);
+  tdHoleCut(mesh);
   for (const c of ud.dmg) c.chips = c.chips.filter(ch => { q.set(0, 0, 0); q.setComponent((c.ax + 1) % 3, ch.u); q.setComponent((c.ax + 2) % 3, ch.v); const w = mesh.localToWorld(q.clone()); if (gridOpenW(mesh, w)) { dropDecal(ch.m); return false; } return true; });
 }
 // The wall shader reads the damage field (0 = sound, 1 = gone; filtered between cells): past a threshold broken by fine

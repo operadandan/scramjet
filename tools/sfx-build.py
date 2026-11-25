@@ -3,6 +3,7 @@
 import numpy as np, scipy.io.wavfile as W, subprocess, json
 SR = 44100
 src = {i: W.read(f'/tmp/sfx/src/{i}.wav')[1].astype(np.float32) / 32768 for i in range(1, 14)}
+src[14] = W.read('/tmp/sfx/src/dry.wav')[1].astype(np.float32) / 32768   # the dry-fire clicks (ffmpeg -ac 1 -ar 44100 of the upload)
 for i in range(1, 19): src[100 + i] = W.read(f'/tmp/sfx/vo/{i}.wav')[1].astype(np.float32) / 32768
 L = lambda i: (100 + i, 0.0, len(src[100 + i]) / SR)
 def cut(i, a, b, fi=0.003, fo=0.04, tail=None):
@@ -29,6 +30,8 @@ G = {
         'hull': [(9, t - 0.03, t + d + 0.1) for t, d in ((2.54, 0.6), (5.275, 0.69), (9.31, 0.69), (17.48, 0.82), (21.71, 0.47), (24.63, 0.57))]},
  'death': {'die1': [(11, t - 0.03, t + d + 0.15) for t, d in ((0.065, 1.43), (2.64, 2.23), (6.665, 1.57), (9.02, 2.03), (12.355, 1.68), (16.19, 2.14), (20.845, 2.04), (24.13, 2.34), (27.53, 1.35))],
         'die2': [(12, t - 0.03, t + d + 0.15) for t, d in ((0.045, 0.36), (1.235, 0.56), (4.28, 0.41), (5.7, 1.88), (8.075, 1.02), (9.81, 0.34), (11.13, 0.42))]},
+ # pulling the trigger on nothing: five takes of the hammer or striker falling on an empty chamber
+ 'dry': {'dry': [(14, t - 0.005, t + 0.16, 0.002, 0.05) for t in (0.015, 2.02, 4.025, 6.025, 8.035)]},
  # the bots' voices: four reload calls (one per bot voice), the rest shared
  'voice': {'vo_reload': [L(1), L(2), L(3), L(4)], 'vo_start': [L(5), L(7), L(11)], 'vo_win': [L(6)], 'vo_rollout': [L(8)], 'vo_moveup': [L(9)], 'vo_cover': [L(10)],
            'vo_fire': [L(12)], 'vo_killq': [L(13), L(14)], 'vo_kill': [L(18)], 'vo_mandown': [L(15), L(16), L(17)]},

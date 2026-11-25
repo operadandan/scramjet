@@ -11,11 +11,11 @@ import { P, S } from './17-dummies.js';
 import { net } from './19-network.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- time of day and weather
-// The sun goes round (a whole day in an hour by default; the house map starts every round at dawn, in the rain), the sky, the light, its colour and the fog follow it; at night a
+// The sun goes round (a whole day in an hour by default; the house map starts every round at dawn, in whatever weather the server picked), the sky, the light, its colour and the fog follow it; at night a
 // dim blue moonlight is left, and the lights in the house come on. The weather drifts on its own every few minutes between
 // clear, cloudy, rain, storm (rain, wind, lightning) and fog, easing from one into the next. Online the host's clock and
 // weather are everyone's (sent with each round and whenever the weather turns); the command bar can set either.
-const ENV = { tod: 6.4, rate: 1 / 150, w: 'rain', from: 'rain', k: 1, nextT: 200, flash: 0, thunderT: 0, sendT: 0 };
+const ENV = { tod: 6.4, rate: 1 / 150, w: 'clear', from: 'clear', k: 1, nextT: 200, flash: 0, thunderT: 0, sendT: 0 };
 const WEATHER = {
   clear: { cloud: 0, rain: 0, fog: 0.0011, wind: 0.2 },
   cloudy: { cloud: 0.65, rain: 0, fog: 0.0028, wind: 0.5 },
@@ -114,7 +114,13 @@ function updateBolt(dt) {
 const envMix = key => { const a = WEATHER[ENV.from][key], b = WEATHER[ENV.w][key]; return a + (b - a) * ENV.k; };
 // a weather picked at random, the common ones more often (every round starts on one; nothing is forced)
 function envRandom() { const wts = { clear: 3, cloudy: 3, rain: 2, storm: 1.5, fog: 1 }; let r = Math.random() * 10.5; for (const k in wts) { r -= wts[k]; if (r <= 0) return k; } return 'clear'; }
-function envSet(w, now) { if (w === 'random' || !w) w = envRandom(); if (!WEATHER[w]) return false; if (w !== ENV.w) { ENV.from = now ? w : envCur(); ENV.w = w; ENV.k = now ? 1 : 0; } ENV.nextT = rnd(180, 360); return true; }
+function envSet(w, now) {
+  if (w === 'random' || !w) w = envRandom(); if (!WEATHER[w]) return false;
+  // (straight away: whatever it was easing from is dropped too, even if it was already easing into this one)
+  if (now) { ENV.from = ENV.w = w; ENV.k = 1; }
+  else if (w !== ENV.w) { ENV.from = envCur(); ENV.w = w; ENV.k = 0; }
+  ENV.nextT = rnd(180, 360); return true;
+}
 // (whatever it is closest to right now, mid-change)
 function envCur() { return ENV.k > 0.5 ? ENV.w : ENV.from; }
 function envSnap() { return { tod: Math.round(ENV.tod * 1000) / 1000, rate: ENV.rate, w: ENV.w }; }
@@ -209,6 +215,9 @@ function updateEnv(dt) {
     cloudMesh.visible = cloud > 0.02 && S.world !== 'lobby'; cloudMesh.position.set(camera.position.x, CLOUD_Y - rain * 70, camera.position.z); }
 }
 const envClock = () => { const h = Math.floor(ENV.tod), m = Math.floor((ENV.tod - h) * 60); return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'); };
+
+// (the weather the game opens in: picked at random like any other, not always rain)
+envSet('random', true);
 
 // ---- module exports: build.mjs strips this block ----
 export { ENV, WEATHER, envApply, envClock, envCur, envSet, envShare, envSnap, houseLights, lampBreak, updateEnv };

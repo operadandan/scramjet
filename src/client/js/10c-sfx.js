@@ -13,7 +13,7 @@ import { S } from './17-dummies.js';
 const SND = { buf: {}, shift: {}, loading: false, choke: new Map(), amb: null };
 function sfxLoad() {
   if (SND.loading) return; SND.loading = true; const a = actx;
-  for (const g of ['m4', 'g17', 'm107', 'sg', 'drop', 'death', 'voice']) fetch('/sfx/' + g + '.mp3').then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status)).then(b => a.decodeAudioData(b)).then(buf => {
+  for (const g of ['m4', 'g17', 'm107', 'sg', 'drop', 'death', 'voice', 'dry']) fetch('/sfx/' + g + '.mp3').then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status)).then(b => a.decodeAudioData(b)).then(buf => {
     // (an mp3 decoder may start a few ms late: find where the first sound really is and shift every clip by the difference)
     const d = buf.getChannelData(0); let i = 0; while (i < d.length && Math.abs(d[i]) <= 0.004) i++;
     const sh = i / buf.sampleRate - SFX_CLIPS['_' + g]; SND.shift[g] = Math.abs(sh) < 0.08 ? sh : 0; SND.buf[g] = buf;

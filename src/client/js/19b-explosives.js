@@ -310,8 +310,30 @@ function boardsLoose(p) {
 // A wall is several layers (drywall on studs, a brick skin outside it, a board over a window): a charge that blows a hole
 // in one blows it through all of them. Whatever opened in a layer this blast is opened in every layer lying against it, cell
 // for cell, so the hole goes right through instead of leaving the skin (and the trim on it) standing across it.
+// What a blast leaves of a wall between its hole and the wall's edge (or between two holes) is no thicker than a hand: a strip
+// of plaster under a window, a sliver of brick down the side of the opening. Nothing that thin stands after a charge, so it
+// crumbles too: any solid cell with open wall (or an open edge: a window, a door, the hole) within two cells above and below
+// it, or to both sides, goes. An edge counts as open unless it stands on the floor.
+function blastErode(m, F) {
+  const G = m.userData.grid; if (!G || !F.size) return 0; const h = G.hold || {};
+  let i0 = 1e9, i1 = -1, j0 = 1e9, j1 = -1; for (const k of F) { const i = k % G.n1, j = (k - i) / G.n1; i0 = Math.min(i0, i); i1 = Math.max(i1, i); j0 = Math.min(j0, j); j1 = Math.max(j1, j); }
+  i0 = Math.max(0, i0 - 6); i1 = Math.min(G.n1 - 1, i1 + 6); j0 = Math.max(0, j0 - 6); j1 = Math.min(G.n2 - 1, j1 + 6);
+  // (only the floor counts as holding an edge here: what the sides touched when the wall was sound, a board, the next piece
+  // of wall across a window, is no help to a sliver at the very edge of a blown hole)
+  const open = (i, j) => i < 0 || i >= G.n1 ? true : j < 0 ? !h.bottom : j >= G.n2 ? true : G.cell[j * G.n1 + i] > 0;
+  let n = 0; const data = G.tex.image.data;
+  for (let pass = 0; pass < 2; pass++) { const add = [];
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * G.n1 + i; if (G.cell[k]) continue;
+      const v = (open(i, j + 1) || open(i, j + 2)) && (open(i, j - 1) || open(i, j - 2)), hz = (open(i + 1, j) || open(i + 2, j)) && (open(i - 1, j) || open(i - 2, j));
+      if (v || hz) add.push(k); }
+    for (const k of add) { G.cell[k] = 1; G.dmg[k] = Math.max(G.dmg[k], 1); data[k] = 255; F.add(k); n++; }
+    if (!add.length) break; }
+  if (n) { G.any = true; G.tex.needsUpdate = true; }
+  return n;
+}
 function blastLayers(fresh, p) {
   const _q = new V3(), _w = new V3();
+  for (const [A, F] of fresh) if (blastErode(A, F)) { const u = A.userData, D = DESTR[DESTR_OF[u.kind]]; if (D) updateWallGrid(A, D, new V3(0, -1, 0)); }
   for (const [A, F] of fresh) {
     const GA = A.userData.grid, bA = A.userData.box; if (!GA || !F.size) continue;
     // the part of the wall that opened, in the world
@@ -336,6 +358,7 @@ function blastLayers(fresh, p) {
       const D = DESTR[DESTR_OF[u.kind]]; holeify(B, SLOTS, D.inner); u.holeMax = SLOTS; wallMask(B); u.dmg = u.dmg || []; GB.tex.needsUpdate = true;
       _q.set(0, 0, 0); _q.setComponent(GB.a1, su / n); _q.setComponent(GB.a2, sv / n); const c = _q.clone().add(pB), dir = c.clone().sub(p); dir.y = 0; if (dir.lengthSq() < 1e-6) dir.setComponent(ax, 1); dir.normalize();
       spawnDebris(c, Math.min(14, 3 + Math.round(Math.sqrt(n) * 0.5)), dir, 0.6, rnd(1.5, 4), D, 0.03);
+      { const FB = new Set(); for (let k = 0; k < GB.cell.length; k++) if (GB.cell[k] && k >= j0 * GB.n1 && k <= (j1 + 1) * GB.n1) FB.add(k); blastErode(B, FB); }
       updateWallGrid(B, D, dir); structDirty && structDirty();
     }
   }

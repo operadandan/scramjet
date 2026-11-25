@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { V3, camera, clamp, rnd, scene } from './00-setup.js';
 import { colliders, worldMeshes } from './01-world.js';
 import { HOUSE, TOWN } from './01b-town.js';
-import { tdRelease } from './01c-town-detail.js';
+import { tdHoleCut, tdRelease } from './01c-town-detail.js';
 import { inside, noiseHit } from './10-audio.js';
 import { decals, splatGeo } from './11-fx.js';
 import { holeify } from './14-wounds.js';
@@ -86,6 +86,7 @@ function structFall(m, st) {
   const ud = m.userData, b = ud.box; ud.falling = true; if (typeof navDirty === 'function') navDirty(); if (TOWN.gone) TOWN.gone.push(boxKey(b));
   const i = worldMeshes.indexOf(m); if (i >= 0) worldMeshes.splice(i, 1);
   const j = colliders.indexOf(b); if (j >= 0) colliders.splice(j, 1);
+  tdHoleCut(m);   // (the finish on what is left round it that this wall was holding)
   const w = b.max.x - b.min.x, h = b.max.y - b.min.y, d = b.max.z - b.min.z;
   // (only a panel standing on something tips over; one with nothing under it, a lintel, a wall whose floor went, drops)
   const wall = h > Math.max(w, d) * 0.6 && Math.min(w, d) < 0.4 && Math.abs(floorUnder((b.min.x + b.max.x) / 2, (b.min.z + b.max.z) / 2, b.min.y + 0.02) - b.min.y) < 0.12;
