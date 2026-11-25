@@ -16,7 +16,7 @@ import { PITCH_MIN, canRack, localDeath, pointBlocked, pumpCurve, rackK, rackNee
 import { net } from './19-network.js';
 import { c4Mine } from './19b-explosives.js';
 import { TV, bashK, meleeBash, vmTools } from './19c-toolvm.js';
-import { closeInv, curSlot, dragRotate, dropHeld, openInv, pickUp, pressSlot } from './21-items-inventory.js';
+import { curSlot, pressSlot } from './21-items-inventory.js';
 import { SFX, specNext } from './21b-screenfx.js';
 import { renderScore } from './22-menu-loop.js';
 import { siegeKeyDown, siegeKeyUp } from './23-siege.js';
@@ -297,8 +297,6 @@ function updateHUD() {
 function toggleAds() { if (!P.alive || P.sprinting) return; P.adsOn = !P.adsOn; if (P.adsOn) P.inspecting = false; }
 addEventListener('keydown', e => {
   if (!S.mode || document.activeElement.tagName === 'INPUT') return;
-  if (S.inv) { if (e.code === 'KeyR' && !e.repeat) dragRotate(); if (!e.repeat && (e.code === 'KeyG' || e.code === 'Escape')) closeInv(); if (e.code === 'Space' && P.downed && P.alive) { P.anat.kill('gaveup'); localDeath(); } return; }
-  if (e.code === 'KeyG' && !e.repeat && P.alive) { openInv(); return; }
   keys[e.code] = true;
   if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
   if (e.code === 'Tab') { renderScore(); $('score').style.display = 'block'; }
@@ -306,10 +304,8 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyR') startReload();
   if (e.code === 'KeyM') startInspect();
   if (e.code === 'AltLeft' && !e.repeat) { e.preventDefault(); S.tp = !S.tp; blip(500, 0.03, 0.03); }
-  // F works the action when the gun needs it (or when there is nothing to pick up), otherwise picks things up
-  // F on a door works the door (a tap swings it, holding eases it open); otherwise the gun's action or picking up
-  if (e.code === 'KeyF' && !e.repeat) { if (rackNeeded()) workAction(); else if (siegeKeyDown(true)) { } else if (S.pick) pickUp(); else if (siegeKeyDown()) { } else if (S.mode && P.alive && !P.downed && doorKeyDown()) { } else if (canRack()) workAction(); else pickUp(); }
-  if (e.code === 'KeyB') dropHeld();
+  // F works the gun's action when it needs it; on a door it works the door (a tap swings it, holding eases it open)
+  if (e.code === 'KeyF' && !e.repeat) { if (rackNeeded()) workAction(); else if (siegeKeyDown(true)) { } else if (siegeKeyDown()) { } else if (S.mode && P.alive && !P.downed && doorKeyDown()) { } else if (canRack()) workAction(); }
   if (e.code === 'KeyV' && !e.repeat) meleeBash();
   if (S.mode === 'test' && e.code === 'KeyU') suppress(0.8, 900);
   if (e.code === 'KeyT') { P.deviceOn = !P.deviceOn; noiseHit(3000, 0.02, 0.04); }

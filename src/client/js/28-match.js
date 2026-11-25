@@ -85,7 +85,7 @@ function loadoutUI(open) {
   if (!open) { const was = el.style.display === 'block'; el.style.display = 'none'; if (was && S.mode && !S.locked && !S.inv) $('pause').style.display = 'flex'; return; }
   const t = loSide(), opt = (cls, id, name, on, sub) => '<button class="' + cls + (on ? ' on' : '') + '" data-v="' + id + '"><b>' + name + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</button>';
   const list = slot => Object.entries(GADGETS).filter(([k]) => loOK(k, slot, t));
-  const side = t === 'r' ? '<span style="color:#ff6a5a">ATTACK</span>' : t === 'b' ? '<span style="color:#6aa0ff">DEFEND</span>' : '<span style="color:#ffd166">TESTING RANGE</span>';
+  const side = t === 'r' ? '<span style="color:#ff6a5a">ATTACK</span>' : t === 'b' ? '<span style="color:#6aa0ff">DEFEND</span>' : '<span style="color:#ff9a6a">TESTING RANGE</span>';
   el.innerHTML = '<h3>LOADOUT · ' + side + '</h3><div id="lotime" class="ls"></div>' +
     '<h4>PRIMARY (1)</h4><div class="lrow">' + PRIMARIES.map(i => opt('lp', i, WEAPONS[i].name, P.loadout[0] === i)).join('') + '</div>' +
     '<h4>SIDEARM (2)</h4><div class="lrow">' + SECONDARIES.map(i => opt('ls2', i, WEAPONS[i].name, P.loadout[1] === i)).join('') + '</div>' +

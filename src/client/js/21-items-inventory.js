@@ -1,21 +1,19 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
-import { $, V3, camera, clamp, renderer, rnd, scene } from './00-setup.js';
+import { $, V3, renderer, rnd, scene } from './00-setup.js';
 import { mat } from './01-world.js';
 import { GC, plateGeo, vcMat } from './02-body-parts.js';
-import { _a, _b } from './04-ragdoll.js';
 import { WEAPONS, isPistol, isShotgun } from './06-weapons.js';
 import { bakeColored } from './07-gun-models.js';
 import { TP_KIT, gunItemMesh } from './08-hands.js';
-import { ATT, ATTS, ATT_DEFAULT, ATT_SLOTS, ATT_SLOT_NAME, applyAttachments, attOf, buildMedPouch, installPlate, saveAtt } from './09-attachments.js';
-import { blip, noiseHit } from './10-audio.js';
-import { doorHint } from './15b-doors.js';
+import { ATT, ATTS, ATT_DEFAULT, ATT_SLOTS, ATT_SLOT_NAME, applyAttachments, attOf, buildMedPouch, saveAtt } from './09-attachments.js';
+import { blip } from './10-audio.js';
 import { props } from './16-ballistics.js';
 import { P, S } from './17-dummies.js';
-import { flashMsg, magEstimate, rackNeeded, selectEmpty, switchWeapon } from './18-player.js';
+import { magEstimate, selectEmpty, switchWeapon } from './18-player.js';
 import { net } from './19-network.js';
 import { c4Mine, nadeAbandon, nadeReset, r3 } from './19b-explosives.js';
-import { SG, siegeHint } from './23-siege.js';
+import { SG } from './23-siege.js';
 import { GADGETS, gadgetGhostOff } from './27-gadgets.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- ground items, pickup (F), backpack
@@ -189,133 +187,6 @@ document.addEventListener('mouseover', e => {
   if (pic && iconItems.has(pic.dataset.ic)) { if (spinEl !== pic) { spinEl = pic; spinIt = iconItems.get(pic.dataset.ic); spinYaw = 0; } pic.style.visibility = 'hidden'; }
   else if (spinEl) { spinEl.style.visibility = ''; spinEl = null; spinIt = null; SPIN_C.style.display = 'none'; }
 });
-// backpack cell size: the panel is a quarter of the screen wide and the 6-column grid fills it
-let CS = 52;
-function invCell() { return Math.max(28, Math.floor((innerWidth * 0.25 - 34) / PACK_COLS)); }
-let invTimer = 0, invKey = '', drag = null;
-const DOLL_SVG = '<svg viewBox="0 0 160 300" class="dollsvg"><g fill="#2a3036" stroke="#4a545e" stroke-width="1.2">' +
-  '<ellipse cx="80" cy="30" rx="19" ry="23"/><rect x="70" y="50" width="20" height="12" rx="4"/><path d="M46 62 Q80 54 114 62 L118 132 Q80 140 42 132 Z"/>' +
-  '<path d="M44 132 Q80 142 116 132 L114 162 Q80 172 46 162 Z"/><rect x="24" y="64" width="18" height="62" rx="8"/><rect x="118" y="64" width="18" height="62" rx="8"/>' +
-  '<rect x="20" y="124" width="16" height="56" rx="7"/><rect x="124" y="124" width="16" height="56" rx="7"/><rect x="50" y="162" width="25" height="70" rx="10"/><rect x="85" y="162" width="25" height="70" rx="10"/>' +
-  '<rect x="52" y="230" width="21" height="58" rx="8"/><rect x="87" y="230" width="21" height="58" rx="8"/></g></svg>';
-function condBar(v) { v = clamp(v, 0, 100); return '<i class="cb"><b style="width:' + v + '%;background:' + (v <= 0 ? '#ff3b30' : v < 40 ? '#ffb020' : '#6fcf6a') + '"></b></i>'; }
-const tipAttr = (name, desc) => ' data-tn="' + name.replace(/"/g, '') + '" data-td="' + desc.replace(/"/g, '') + '"';
-function renderInv() {
-  if (!S.inv || drag) return;
-  if (spinEl && !spinEl.isConnected) spinEl = null;
-  CS = invCell();
-  const an = P.anat, A = an.armor, lo = P.activeLo, L = packLayout(packItems());
-  const key = JSON.stringify([CS, lo, L.list.map(i => [i.key, i.w, i.n, i.pos, i.r]), A, an.helmetOn, P.tools, P.invPlate && Math.round(P.invPlate.t * 10), lo.map(w => w != null && P.guns[w] ? [P.guns[w].next, attSummary(w)] : 0)]);
-  if (key === invKey) return; invKey = key;
-  const prog = P.invPlate ? '<span class="prog">installing ' + Math.round(P.invPlate.t / 2 * 100) + '%</span>' : '';
-  const slot = (id, label, body, tip, extra) => '<div class="eq" id="eq_' + id + '" data-slot="' + id + '"' + (tip || '') + (extra || '') + '><label>' + label + '</label>' + body + '</div>';
-  const mini = (it, w) => '<div class="mini">' + iconHtml(it, 0, Math.min(w / itemSize(it)[0], 62 / itemSize(it)[1])) + '</div>';
-  const gunSlot = (i) => {
-    const wi = lo[i], id = i ? 'sec' : 'pri', label = i ? 'SECONDARY' : 'PRIMARY';
-    if (wi == null) return slot(id, label, '', tipAttr('Empty ' + label.toLowerCase() + ' slot', 'Drag a ' + (i ? 'pistol' : 'rifle') + ' here.'));
-    const it = { kind: 'gun', w: wi, att: attOf(wi) };
-    return slot(id, label, mini(it, i ? pw * 0.36 : pw * 0.62) + '<button class="attb" data-wi="' + wi + '">ATTACHMENTS</button>', tipAttr(WEAPONS[wi].name, (attSummary2(it.att) || 'No attachments') + '. Drag into the backpack to stow, or onto the ground.'), ' data-drag="1" data-kind="eqgun" data-s="' + id + '" data-w="' + wi + '"');
-  };
-  const tool = (i) => { const t = P.tools[i]; return slot('t' + i, 'TOOL ' + (i + 3), t ? mini({ kind: t }, 70) + '<b class="cnt">x' + toolCount(t) + '</b>' : '', tipAttr(t ? TOOL_NAME[t] : 'Empty tool slot', t ? 'Key ' + (i + 3) + ' uses this. Drag another tool here to change it.' : 'Drag a medkit here.')); };
-  const pw = innerWidth * 0.25 - 34;
-  $('invL').innerHTML = '<div class="ihd"><b>INVENTORY</b><span>' + (S.names && S.myId && S.names[S.myId] || 'OPERATOR') + '</span></div>' +
-    '<div class="sec">LOADOUT</div><div class="eqg">' + gunSlot(0).replace('class="eq"', 'class="eq wide"') + gunSlot(1) +
-    tool(0) + '</div>';
-  const cards = L.list.filter(it => it.pos).map(it => {
-    const G = P.guns[it.w], nx = it.kind === 'mag' && it.k !== undefined && G && G.next === it.k;
-    let data = 'data-drag="1" data-key="' + it.key + '" data-kind="' + it.kind + '" data-r="' + (it.r || 0) + '"';
-    if (it.w !== undefined) data += ' data-w="' + it.w + '"';
-    if (it.kind === 'mag') data += it.k !== undefined ? ' data-wi="' + it.w + '" data-k="' + it.k + '"' : ' data-loose="' + it.loose + '"';
-    if (it.kind === 'gun') data += ' data-ref="' + it.ref + '"';
-    const full = it.kind === 'gun' ? Object.assign({ att: P.packGuns[it.ref].att }, it) : it;
-    return '<div class="pit ' + it.kind + (nx ? ' next' : '') + '" ' + data + tipAttr(itemName(it) + (nx ? ' (loads next)' : ''), itemDesc(full)) + ' style="left:' + it.pos[0] * CS + 'px;top:' + it.pos[1] * CS + 'px;width:' + it.cw * CS + 'px;height:' + it.ch * CS + 'px">' + iconHtml(it, it.r, CS) + '</div>';
-  }).join('');
-  $('invR').innerHTML = '<div class="sec">STORAGE <i>' + L.used + ' / 30</i></div>' +
-    '<div class="pack" data-slot="packgrid" style="width:' + PACK_COLS * CS + 'px;height:' + PACK_ROWS * CS + 'px;background-size:' + CS + 'px ' + CS + 'px">' + cards + '<div id="pghost"></div></div><div class="eq gdrop" data-slot="ground">DROP ON GROUND</div><div class="ihint">Drag to move · R rotates while dragging · G closes</div>';
-  $('inv').querySelectorAll('.attb').forEach(b => { b.addEventListener('mousedown', e => e.stopPropagation()); b.addEventListener('click', () => openAttMenu(+b.dataset.wi)); });
-}
-function setNextMag(wi, k) { const G = P.guns[wi]; if (!G) return; G.next = G.next === k ? null : k; blip(900, 0.03, 0.04); invKey = ''; renderInv(); }
-// ---- dragging: custom (not the browser's own drag and drop) so R can turn the item mid-drag
-function dragCell(e) {
-  const pk = document.querySelector('#invR .pack'); if (!pk) return null; const rc = pk.getBoundingClientRect();
-  const w = drag.r ? drag.bh : drag.bw, h = drag.r ? drag.bw : drag.bh;
-  if (e.clientX < rc.left - 20 || e.clientX > rc.right + 20 || e.clientY < rc.top - 20 || e.clientY > rc.bottom + 20) return null;
-  return { x: clamp(Math.round((e.clientX - rc.left) / CS - w / 2), 0, PACK_COLS - w), y: clamp(Math.round((e.clientY - rc.top) / CS - h / 2), 0, PACK_ROWS - h), w, h };
-}
-function dragUpdate(e) {
-  if (!drag) return; drag.e = e;
-  const w = drag.r ? drag.bh : drag.bw, h = drag.r ? drag.bw : drag.bh, gh = $('dragghost');
-  gh.style.display = 'block'; gh.style.width = w * CS + 'px'; gh.style.height = h * CS + 'px'; gh.style.left = (e.clientX - w * CS / 2) + 'px'; gh.style.top = (e.clientY - h * CS / 2) + 'px';
-  if (drag.dirty) { gh.innerHTML = iconHtml(drag.it, drag.r, CS); drag.dirty = false; }
-  const c = dragCell(e), pg = $('pghost');
-  if (pg) { if (c) { const free = gridFree(packLayout(packItems(), drag.d.key).grid, c.x, c.y, c.w, c.h); pg.style.display = 'block'; pg.style.left = c.x * CS + 'px'; pg.style.top = c.y * CS + 'px'; pg.style.width = c.w * CS + 'px'; pg.style.height = c.h * CS + 'px'; pg.className = free ? 'ok' : 'no'; drag.cell = free ? c : null; drag.over = true; } else { pg.style.display = 'none'; drag.cell = null; drag.over = false; } }
-}
-function dragEnd(e) {
-  const d = drag; if (!d) return; drag = null; $('dragghost').style.display = 'none'; if (d.el) d.el.classList.remove('drag');
-  if (!d.moved) { if (d.d.kind === 'mag' && d.d.k !== undefined) setNextMag(+d.d.wi, +d.d.k); invKey = ''; renderInv(); return; }
-  const el = document.elementFromPoint(e.clientX, e.clientY), tgt = el && el.closest('[data-slot]'), slot = tgt ? tgt.dataset.slot : null;
-  if (d.over) {
-    if (!d.cell) flashMsg('NO ROOM THERE', 900);
-    else if (d.d.kind === 'eqgun') { const si = d.d.s === 'pri' ? 0 : 1, old = unequipGun(si); if (old) { old.uid = ++itemSeq; P.packPos['g' + old.uid] = [d.cell.x, d.cell.y, d.r]; P.packGuns.push(old); noiseHit(500, 0.1, 0.07); } }
-    else { P.packPos[d.d.key] = [d.cell.x, d.cell.y, d.r]; blip(600, 0.02, 0.03); }
-  } else if (slot) invDrop(slot, d.d);
-  invKey = ''; renderInv();
-}
-$('inv').addEventListener('mousedown', e => {
-  if (e.button !== 0) return; const el = e.target.closest('[data-drag]'); if (!el) return; e.preventDefault();
-  const ds = Object.assign({}, el.dataset), it = ds.kind === 'eqgun' ? { kind: 'gun', w: +ds.w } : { kind: ds.kind, w: ds.w === undefined ? undefined : +ds.w };
-  const [bw, bh] = itemSize(it);
-  drag = { d: ds, it, bw, bh, r: +(ds.r || 0), el, sx: e.clientX, sy: e.clientY, moved: false, dirty: true }; $('tip').style.display = 'none';
-});
-addEventListener('mousemove', e => {
-  if (drag) { if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 5) { drag.moved = true; drag.el.classList.add('drag'); } if (drag.moved) dragUpdate(e); return; }
-  const tp = $('tip'); if (!S.inv) { if (tp.style.display !== 'none') tp.style.display = 'none'; return; }
-  const el = e.target.closest && e.target.closest('[data-tn]');
-  if (!el) { tp.style.display = 'none'; return; }
-  tp.innerHTML = '<b>' + el.dataset.tn + '</b>' + el.dataset.td; tp.style.display = 'block'; tp.style.left = Math.min(innerWidth - 250, e.clientX + 16) + 'px'; tp.style.top = (e.clientY + 18) + 'px';
-});
-addEventListener('mouseup', e => { if (drag) dragEnd(e); });
-function dragRotate() { if (!drag || drag.bw === drag.bh) return; drag.r ^= 1; drag.dirty = true; blip(800, 0.02, 0.03); if (drag.e) dragUpdate(drag.e); }
-function invDrop(slot, d) {
-  const toGround = it => { const [p, v] = throwPos(); spawnItem(it, p, v); };
-  if (slot === 'ground') {
-    if (d.kind === 'mag' && d.k !== undefined) { const G = P.guns[+d.wi]; if (G && G.pouch[+d.k] !== undefined) { toGround({ kind: 'mag', w: +d.wi, n: G.pouch.splice(+d.k, 1)[0] }); G.next = null; } }
-    else if (d.kind === 'mag' && d.loose !== undefined) { const m = P.loose.splice(+d.loose, 1)[0]; if (m) toGround({ kind: 'mag', w: m.w, n: m.n }); }
-    else if (d.kind === 'medkit' && P.medUses > 0) { P.medUses--; toGround({ kind: 'medkit' }); }
-    else if (d.kind === 'plate' && P.platesInv > 0) { P.platesInv--; toGround({ kind: 'plate' }); }
-    else if (d.kind === 'gun') { const g = P.packGuns.splice(+d.ref, 1)[0]; if (g) toGround(Object.assign({ kind: 'gun' }, g, { uid: undefined })); }
-    else if (d.kind === 'eqgun') dropWeapon(d.s === 'pri' ? 0 : 1);
-  } else if (d.kind === 'plate' && slot === 'plateF') {
-    if (!P.invPlate && !P.downed) { P.invPlate = { which: 'plateF', t: 0 }; noiseHit(600, 0.15, 0.06); }
-  } else if ((d.kind === 'medkit' || d.kind === 'plate') && (slot === 't0' || slot === 't1')) {
-    const i = +slot[1], o = 1 - i;
-    if (P.tools[o] === d.kind) P.tools[o] = P.tools[i];
-    P.tools[i] = d.kind; blip(700, 0.04, 0.04);
-  } else if (d.kind === 'mag' && d.k !== undefined && (slot === 'pri' || slot === 'sec')) {
-    if (P.activeLo[slot === 'pri' ? 0 : 1] === +d.wi) setNextMag(+d.wi, +d.k);
-  } else if (d.kind === 'gun' && (slot === 'pri' || slot === 'sec')) {
-    const g = P.packGuns[+d.ref], si = slot === 'pri' ? 0 : 1;
-    if (g && gunSlotOf(g.w) === si) {
-      P.packGuns.splice(+d.ref, 1);
-      const old = unequipGun(si);
-      equipGun(g, si);
-      if (old) { if (packFits(old)) P.packGuns.push(old); else { toGround(old); flashMsg('NO ROOM: OLD WEAPON DROPPED', 1500); } }
-      noiseHit(500, 0.1, 0.07);
-    } else flashMsg(si ? 'ONLY PISTOLS GO IN THE SECONDARY SLOT' : 'ONLY RIFLES GO IN THE PRIMARY SLOT', 1500);
-  } else if (d.kind === 'eqgun' && slot === 'pack') {
-    const si = d.s === 'pri' ? 0 : 1, w = P.activeLo[si];
-    if (w != null) { if (packFits({ kind: 'gun', w })) { const old = unequipGun(si); P.packGuns.push(old); noiseHit(500, 0.1, 0.07); } else flashMsg('NO ROOM IN THE BACKPACK', 1500); }
-  }
-  invKey = '';
-}
-// B: drop whatever is in your hands
-function dropHeld() {
-  if (!P.alive || P.downed) return;
-  if (P.slot < 2) { if (dropWeapon()) noiseHit(500, 0.08, 0.06); return; }
-  const [p, v] = throwPos();
-  if (P.slot === 2 && P.medUses > 0 && !P.healing) { P.medUses--; spawnItem({ kind: 'medkit' }, p, v); }
-  else if (P.slot === 3 && P.platesInv > 0 && !P.plating) { P.platesInv--; spawnItem({ kind: 'plate' }, p, v); }
-}
 const gunSlotOf = w => isPistol(w) ? 1 : 0;
 function equipGun(g, slot) {
   P.activeLo[slot] = g.w; P.guns[g.w] = { mag: g.mag, chamber: g.chamber, pouch: looseFor(g.w) };
@@ -331,52 +202,8 @@ function unequipGun(slot) {
   if (P.slot === slot) { P.slot = 4; P.emptySel = slot; }
   return { kind: 'gun', w, mag: G.mag, chamber: G.chamber, att: Object.assign({}, attOf(w)) };
 }
-function throwPos() { const f = new V3(); camera.getWorldDirection(f); return [camera.position.clone().addScaledVector(f, 0.45).add(new V3(0, -0.25, 0)), f.multiplyScalar(1.6).add(new V3(rnd(-0.4, 0.4), 1.2, rnd(-0.4, 0.4))).add(P.vel)]; }
-function dropWeapon(slot) {
-  if (slot === undefined) { if (P.slot >= 2) return false; slot = P.slot; }
-  const it = unequipGun(slot); if (!it) return false;
-  const [p, v] = throwPos(); spawnItem(it, p, v); return true;
-}
-function updatePickup() {
-  let best = null, bd = 1e9; hlMesh.visible = false;
-  if (S.mode && P.alive && !P.downed && !S.inv) {
-    const f = _a; camera.getWorldDirection(f);
-    for (const e of items.values()) {
-      const to = _b.subVectors(e.m.position, camera.position), d = to.length(); if (d > 2.6) continue;
-      const dot = to.dot(f) / (d || 1); if (dot < 0.8 && d > 0.9) continue;
-      const sc = d * (1.6 - dot); if (sc < bd) { bd = sc; best = e; }
-    }
-  }
-  S.pick = best; const el = $('pickup');
-  if (!best) {
-    // nothing to pick up: what F does to a door looked at, if anything
-    const t = !rackNeeded() ? siegeHint() || doorHint() : '';
-    if (t) { el.style.display = 'block'; if (el.innerHTML !== t) el.innerHTML = t; } else el.style.display = 'none';
-    return;
-  }
-  hlMesh.geometry = best.m.geometry; best.m.updateMatrixWorld(); hlMesh.matrix.copy(best.m.matrixWorld); hlMesh.matrixWorld.copy(best.m.matrixWorld); hlMesh.visible = true;
-  const it = best.it; el.style.display = 'block';
-  el.innerHTML = '<b>F</b> Pick up ' + itemName(it) + (it.kind === 'gun' ? '<small>' + (attSummary2(it.att) || 'no attachments') + '</small>' : '');
-}
 function attSummary2(A) { if (!A) return ''; const o = []; if (A.optic && A.optic !== 'irons') o.push(ATT.optic[A.optic]); if (A.muzzle === 'supp') o.push('Suppressor'); if (A.under && A.under !== 'none') o.push(ATT.under[A.under]); if (A.side && A.side !== 'none') o.push(ATT.side[A.side]); return o.join(', '); }
-function pickUp() {
-  const e = S.pick; if (!e || !P.alive || P.downed) return;
-  const it = e.it; let msg = '';
-  if (it.kind === 'gun') {
-    const slot = gunSlotOf(it.w);
-    if (P.activeLo[slot] == null) { equipGun(it, slot); msg = 'EQUIPPED ' + WEAPONS[it.w].name.toUpperCase(); }
-    else if (packFits(it)) { P.packGuns.push({ w: it.w, mag: it.mag, chamber: it.chamber, att: it.att }); msg = WEAPONS[it.w].name.toUpperCase() + ' STOWED IN BACKPACK'; }
-    else { flashMsg('NO ROOM<small>A ' + WEAPONS[it.w].name + ' needs ' + itemSize(it)[0] * itemSize(it)[1] + ' backpack slots</small>', 1500); return; }
-  } else {
-    if (!packFits(it)) { flashMsg('BACKPACK FULL', 1200); return; }
-    if (it.kind === 'mag') { const G = P.guns[it.w]; if (G && P.activeLo.includes(it.w)) G.pouch.push(it.n); else P.loose.push({ w: it.w, n: it.n }); }
-    else if (it.kind === 'medkit') P.medUses++; else P.platesInv++;
-    msg = 'PICKED UP ' + itemName(it).toUpperCase();
-  }
-  removeItem(it.id); if (S.mode === 'online' && net.ready()) net.send({ t: 'itake', iid: it.id });
-  flashMsg(msg, 1300); noiseHit(700, 0.08, 0.07); blip(520, 0.04, 0.04);
-}
-// ---------------------------------------------------------------- toolbar + inventory (G)
+// ---------------------------------------------------------------- toolbar
 const TOOL_NAME = { medkit: 'IFAK medkit', plate: 'Armor plate' };
 // number keys and the wheel pick a slot (0-3) whether or not anything is in it
 // the key of what is already in hand puts it away (empty hands); pressed again it comes back out
@@ -432,25 +259,6 @@ function attSummary(wi) {
   return out.join(' / ');
 }
 S.inv = false;
-function openInv() {
-  if (!S.mode || !P.alive) return;
-  S.inv = true; $('inv').style.display = 'flex'; invKey = ''; renderInv();
-  if (document.pointerLockElement) document.exitPointerLock();
-}
-function closeInv() {
-  S.inv = false; drag = null; spinEl = null; SPIN_C.style.display = 'none'; $('dragghost').style.display = 'none'; $('tip').style.display = 'none'; $('inv').style.display = 'none'; $('attm').style.display = 'none';
-  if (S.mode) renderer.domElement.requestPointerLock();
-}
-function updateInv(dt) {
-  if (P.invPlate) {
-    if (!P.alive || P.downed) P.invPlate = null;
-    else { P.invPlate.t += dt; if (P.invPlate.t >= 2) { installPlate(P.invPlate.which); P.invPlate = null; } }
-  }
-  if (!S.inv) return;
-  if (!P.alive) { closeInv(); return; }
-  spinUpdate(dt);
-  invTimer += dt; if (invTimer > 0.2) { invTimer = 0; if (!document.querySelector('#inv .drag')) renderInv(); }
-}
 // attachments picker (also reachable from the menus)
 let attWi = 0;
 function openAttMenu(wi) {
@@ -463,7 +271,7 @@ function openAttMenu(wi) {
   }
   $('attm').innerHTML = h; $('attm').style.display = 'block';
   $('attx').onclick = () => { $('attm').style.display = 'none'; };
-  $('attm').querySelectorAll('.aopt').forEach(b => b.onclick = () => { ATTS[id][b.dataset.s] = b.dataset.k; saveAtt(); applyAttachments(wi); blip(1000, 0.03, 0.04); openAttMenu(wi); invKey = ''; renderInv(); });
+  $('attm').querySelectorAll('.aopt').forEach(b => b.onclick = () => { ATTS[id][b.dataset.s] = b.dataset.k; saveAtt(); applyAttachments(wi); blip(1000, 0.03, 0.04); openAttMenu(wi); });
 }
 const ATT_DESC = {
   optic: { irons: 'Flip-up BUIS, widest view', holo: 'EXPS3-style, 1x, 68 MOA ring', reddot: 'Micro dot on a riser, 1x', acog: 'Fixed 4x, chevron reticle' },
@@ -473,5 +281,5 @@ const ATT_DESC = {
 };
 
 // ---- module exports: build.mjs strips this block ----
-export { breachHas, clearItems, closeInv, curSlot, drag, dragRotate, dropHeld, dropWeapon, eqCat, eqLoad, eqSync, hlMesh, items, openAttMenu, openInv, pickUp, pressSlot, removeItem, spawnItem, toolSlotIndex, updateInv, updatePickup, updateToolbar };
+export { breachHas, clearItems, curSlot, eqCat, eqLoad, eqSync, hlMesh, items, openAttMenu, pressSlot, removeItem, spawnItem, toolSlotIndex, updateToolbar };
 // ---- end module exports ----

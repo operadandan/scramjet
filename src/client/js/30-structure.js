@@ -78,7 +78,7 @@ function structCheck() {
 // (demolish takes out everything standing on the ground floor that could hold the house up: walls, posts, the stairs)
 // a piece with nothing under it comes down: out of the solids at once (so what it held is worked out again), then falling
 function structFall(m, st) {
-  tdRelease(m);
+  tdRelease(m); m.matrixWorldAutoUpdate = true; m.traverse(o => { o.matrixAutoUpdate = true; });
   const ud = m.userData, b = ud.box; ud.falling = true; if (typeof navDirty === 'function') navDirty(); if (TOWN.gone) TOWN.gone.push(boxKey(b));
   const i = worldMeshes.indexOf(m); if (i >= 0) worldMeshes.splice(i, 1);
   const j = colliders.indexOf(b); if (j >= 0) colliders.splice(j, 1);
@@ -178,8 +178,9 @@ function boxHit(m, E, who) {
   boxBreak(m);
 }
 function boxBreak(m) {
-  tdRelease(m);
-  const ud = m.userData, b = ud.box; if (typeof navDirty === 'function') navDirty(); if (TOWN.gone) TOWN.gone.push(boxKey(b));
+  tdRelease(m); m.matrixWorldAutoUpdate = true; m.traverse(o => { o.matrixAutoUpdate = true; });
+  // (a piece of furniture gone only opens up room: the bots' map of the house is still good, so it is not worked out again)
+  const ud = m.userData, b = ud.box; if (typeof navDirty === 'function' && !ud.furn) navDirty(); if (TOWN.gone) TOWN.gone.push(boxKey(b));
   const i = worldMeshes.indexOf(m); if (i >= 0) worldMeshes.splice(i, 1); const j = colliders.indexOf(b); if (j >= 0) colliders.splice(j, 1);
   ud.falling = true; structLand({ m, b: { min: b.min.clone(), max: b.max.clone() }, kind: ud.kind, footY: b.min.y }); structDirty();
 }

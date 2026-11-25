@@ -4,7 +4,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { V3 } from './00-setup.js';
 import { TEX, addBox, canvasTex, mat, speckle, worldGroup, worldMeshes } from './01-world.js';
-import { TOWN, lampMat } from './01b-town.js';
+import { HOUSE, TOWN, lampMat } from './01b-town.js';
 import { fx } from './11-fx.js';
 import { DOOR_FW, DOOR_H, DOOR_W, doors } from './15b-doors.js';
 import { P, S } from './17-dummies.js';
@@ -178,7 +178,7 @@ class Kit {
 }
 // ---- the solid part of a piece: a hidden box (bodies and rounds meet it; the model over it is what is seen)
 // placed in the piece's own frame (lx, lz: its centre; w across, d deep, h tall, standing on ly)
-const TD = { furn: [], keep: [] };
+const TD = { furn: [], keep: [], wall: [] };
 function tdPiece(x, y, z, rot) { return { x, y, z, rot, c: Math.round(Math.cos(rot)), s: Math.round(Math.sin(rot)) }; }
 function tdWorld(P, lx, lz) { return [P.x + lx * P.c + lz * P.s, P.z - lx * P.s + lz * P.c]; }
 function tdCol(P, lx, lz, w, d, h, ly, kind, surf) {
@@ -367,13 +367,13 @@ function tdRug(x, y, z, w, d, k, ry) {
   const K = new Kit(); K.plane(MT.rug(k), 0, 0, 0, w, d, { rx: -Math.PI / 2 }); const g = K.build(x, y + 0.011, z, ry || 0, { deco: false }); g.userData.rug = true; return g;
 }
 // a picture on a wall: the frame, the mat, the print (wall: which way it faces, the point is on the wall's face)
-function tdArt(x, y, z, rot, w, h, k, frameM) {
+function tdArt(x, y, z, rot, w, h, k, frameM) { TD.wall.push([x, y, z, w]);
   const K = new Kit(), F = frameM || MT.dark;
   K.box(F, 0, -h / 2, 0.012, w, h, 0.024); K.plane(MT.paper, 0, 0, 0.0245, w - 0.05, h - 0.05); K.plane(typeof k === 'number' ? MT.art(k) : k, 0, 0, 0.025, w - 0.14, h - 0.14);
   K.build(x, y, z, rot);
 }
-function tdMirror(x, y, z, rot, w, h) { const K = new Kit(); K.rbox(MT.brass, 0, -h / 2, 0.01, w, h, 0.02, 0.01); K.plane(MT.mirror, 0, 0, 0.021, w - 0.05, h - 0.05); K.build(x, y, z, rot); }
-function tdClock(x, y, z, rot) { const K = new Kit(); K.cyl(MT.black, 0, -0.02, 0, 0.17, 0.17, 0.04, 28, { rx: Math.PI / 2 }); K.cyl(MT.paper, 0, 0.0, 0.021, 0.15, 0.15, 0.002, 28, { rx: Math.PI / 2 }); K.box(MT.black, 0, 0.022, 0.03, 0.008, 0.1, 0.004); K.box(MT.black, 0.03, 0.022, 0.03, 0.07, 0.008, 0.004); K.build(x, y, z, rot); }
+function tdMirror(x, y, z, rot, w, h) { TD.wall.push([x, y, z, w]); const K = new Kit(); K.rbox(MT.brass, 0, -h / 2, 0.01, w, h, 0.02, 0.01); K.plane(MT.mirror, 0, 0, 0.021, w - 0.05, h - 0.05); K.build(x, y, z, rot); }
+function tdClock(x, y, z, rot) { TD.wall.push([x, y, z, 0.36]); const K = new Kit(); K.cyl(MT.black, 0, -0.02, 0, 0.17, 0.17, 0.04, 28, { rx: Math.PI / 2 }); K.cyl(MT.paper, 0, 0.0, 0.021, 0.15, 0.15, 0.002, 28, { rx: Math.PI / 2 }); K.box(MT.black, 0, 0.022, 0.03, 0.008, 0.1, 0.004); K.box(MT.black, 0.03, 0.022, 0.03, 0.07, 0.008, 0.004); K.build(x, y, z, rot); }
 // curtains either side of a window and a rod over it (u: along the wall; inside: the room side of the wall's face)
 function tdCurtains(K, w, top, fab) {
   const F = MT.fab(fab); K.rod(MT.brass, new V3(-(w / 2 + 0.45), top + 0.12, 0.06), new V3(w / 2 + 0.45, top + 0.12, 0.06), 0.012); for (const s of [-1, 1]) K.sph(MT.brass, s * (w / 2 + 0.45), top + 0.12, 0.06, 0.025);
@@ -388,7 +388,7 @@ function tdWasher(x, y, z, rot, dryer) {
   for (let i = 0; i < 3; i++) K.cyl(MT.black, -0.2 + i * 0.07, h - 0.08, w / 2 + 0.012, 0.018, 0.018, 0.02, 10, { rx: Math.PI / 2 });
   K.build(x, y, z, rot); tdCol(P, 0, 0, w, w, h, 0, 'metal', 'metal');
 }
-function tdWallShelf(x, y, z, rot, w, items) {
+function tdWallShelf(x, y, z, rot, w, items) { TD.wall.push([x, y, z, w]);
   const P = tdPiece(x, y, z, rot), K = new Kit(), d = 0.3;
   K.box(MT.oak, 0, 0, 0, w, 0.03, d); for (const s of [-1, 1]) K.box(MT.black, s * (w / 2 - 0.1), -0.15, -d / 2 + 0.02, 0.025, 0.15, 0.025);
   if (items) { let xx = -w / 2 + 0.1; while (xx < w / 2 - 0.15) { const kind = (Math.random() * 3) | 0;
@@ -435,7 +435,7 @@ function tdBench(x, y, z, rot, w, cushion) {
   for (let i = 0; i < Math.floor(w / 0.32); i++) K.rbox(MT.vc, -w / 2 + 0.2 + i * 0.32, 0.14, 0.02, 0.11, 0.08, 0.27, 0.03, { col: [0x2b2b2b, 0x7a4a2a, 0x3a5a8a][i % 3] });
   K.build(x, y, z, rot); tdCol(P, 0, 0, w, d, 0.45 + (cushion ? 0.06 : 0));
 }
-function tdCoatHooks(x, y, z, rot, w, coats) {
+function tdCoatHooks(x, y, z, rot, w, coats) { TD.wall.push([x, y, z, w]);
   const K = new Kit(); K.box(MT.oak, 0, 0, 0.01, w, 0.12, 0.02); const n = Math.max(2, Math.round(w / 0.25));
   for (let i = 0; i < n; i++) { const hx = -w / 2 + (i + 0.5) * w / n; K.rod(MT.brass, new V3(hx, 0.06, 0.02), new V3(hx, 0.1, 0.09), 0.008);
     if (coats && i % 2 === 0) K.rbox(MT.fab([0x3c4a5a, 0x7a5a3a, 0x2b2b2b, 0x8a2a2a][i % 4]), hx, -0.75, 0.1, 0.36, 0.84, 0.12, 0.05); }
@@ -622,7 +622,7 @@ function tdToyBox(x, y, z, rot, w) {
 }
 function tdBeanBag(x, y, z, col) { const P = tdPiece(x, y, z, 0), K = new Kit(); K.add(MT.fab(col), new THREE.SphereGeometry(0.36, 20, 14), 0, 0.27, 0, { sy: 0.75 }); K.add(MT.fab(col), new THREE.SphereGeometry(0.3, 16, 12), 0, 0.44, -0.12, { sy: 0.7 }); K.build(x, y, z, 0); tdCol(P, 0, 0, 0.66, 0.66, 0.6); }
 function tdGlobe(x, y, z) { const P = tdPiece(x, y, z, 0), K = new Kit(); K.cyl(MT.walnut, 0, 0, 0, 0.16, 0.18, 0.03, 16); K.cyl(MT.walnut, 0, 0.03, 0, 0.02, 0.03, 0.7, 8); K.add(MT.brass, new THREE.TorusGeometry(0.2, 0.008, 6, 28, Math.PI), 0, 0.92, 0, { rz: 0.4 }); K.sph(MT.vcG, 0, 0.92, 0, 0.18, { col: 0x3f7fa8 }); for (let i = 0; i < 6; i++) K.sph(MT.vc, Math.cos(i) * 0.12, 0.92 + Math.sin(i * 2) * 0.1, Math.sin(i) * 0.12, 0.06, { col: 0x8aa860, sx: 1.2, sy: 0.6 }); K.build(x, y, z, 0); tdCol(P, 0, 0, 0.42, 0.42, 1.12); }
-function tdTowelRack(x, y, z, rot, w) { const K = new Kit(); for (const s of [-1, 1]) K.box(MT.chrome, s * w / 2, -0.03, 0.04, 0.03, 0.06, 0.08); K.rod(MT.chrome, new V3(-w / 2, 0, 0.07), new V3(w / 2, 0, 0.07), 0.012); K.rbox(MT.fab(0xe8e0d0), 0, -0.45, 0.08, w * 0.6, 0.5, 0.03, 0.01); K.build(x, y, z, rot); }
+function tdTowelRack(x, y, z, rot, w) { TD.wall.push([x, y, z, w]); const K = new Kit(); for (const s of [-1, 1]) K.box(MT.chrome, s * w / 2, -0.03, 0.04, 0.03, 0.06, 0.08); K.rod(MT.chrome, new V3(-w / 2, 0, 0.07), new V3(w / 2, 0, 0.07), 0.012); K.rbox(MT.fab(0xe8e0d0), 0, -0.45, 0.08, w * 0.6, 0.5, 0.03, 0.01); K.build(x, y, z, rot); }
 function tdChandelier(x, y, z) {
   const K = new Kit(); K.cyl(MT.brass, 0, -0.04, 0, 0.08, 0.08, 0.04, 14); K.cyl(MT.brass, 0, -0.6, 0, 0.008, 0.008, 0.56, 6); K.lathe(MT.brass, [[0, -0.1], [0.06, -0.06], [0.05, 0], [0.01, 0.04]], 0, -0.68, 0);
   for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3, cx = Math.cos(a) * 0.32, cz = Math.sin(a) * 0.32; K.rod(MT.brass, new V3(0, -0.7, 0), new V3(cx, -0.66, cz), 0.008); K.cyl(MT.brass, cx, -0.68, cz, 0.03, 0.02, 0.03, 10); K.add(MT.shadeT, new THREE.CylinderGeometry(0.05, 0.08, 0.1, 14, 1, true), cx, -0.58, cz); }
@@ -765,7 +765,7 @@ function tdRoomsFurnish(H) {
   tdClock(-9.0, 2.0, -0.06, PI);
   // stair hall
   tdConsole(-0.24, 0, -7.6, -H2, 1.4, true); tdMirror(-0.06, 1.95, -7.6, -H2, 0.9, 0.7); tdBench(-5.6, 0, -0.26, PI, 1.6, 0x8a6e5a); tdShoeCabinet(-1.0, 0, -0.24, PI, 1.2);
-  tdPlant(-0.4, 0, -9.5, 1.0, 2); tdRug(-3.4, 0, -5.4, 3.6, 1.6, 2); tdArt(-6.94, 1.6, -5.8, H2, 0.9, 0.65, 0); tdArt(-3.6, 1.7, -0.06, PI, 0.7, 0.5, 2);
+  tdPlant(-0.4, 0, -9.5, 1.0, 2); tdRug(-3.4, 0, -5.4, 3.6, 1.6, 2); tdArt(-6.94, 1.6, -5.8, H2, 0.9, 0.65, 0); tdArt(-5.6, 1.7, -0.06, PI, 0.7, 0.5, 2);
   // kitchen
   tdFridge(0.57, 0, -9.5, 0);
   tdKitchenRun(5.98, 0, -9.59, 0, 9.84, { sinkX: 0.02, dwX: 0.97, stoveX: 2.22, hood: true, skip: [[-0.4, 0.4], [0.66, 1.28], [1.82, 2.62]], upper: [[-3.28, -0.68], [0.72, 1.87], [2.57, 3.32]],
@@ -812,7 +812,7 @@ function tdRoomsFurnish(H) {
   { const K = new Kit(); for (let i = 0; i < 8; i++) K.rbox(MT.vcG, 0.6 + Math.cos(i) * 0.5, 0, 6.2 + Math.sin(i * 1.7) * 0.4, 0.08, 0.08, 0.08, 0.01, { ry: i, col: [0xe35d5b, 0xf5d547, 0x3f7fbf, 0x6cc070][i % 4] }); K.build(0, F + 0.006, 0, 0, { deco: false }); }
   // study
   tdDesk(5.5, F, 9.5, PI, 1.4); tdOfficeChair(5.5, F, 8.75, PI); tdBookcase(3.24, F, 9.1, H2, 1.4, 2.0); tdBookcase(3.24, F, 1.15, H2, 1.4, 2.0); tdBookcase(7.76, F, 1.8, -H2, 1.4, 2.0);
-  tdArmchair(7.35, F, 9.2, -H2, 0, true); tdFloorLamp(7.55, F, 8.35); tdGlobe(3.9, F, 4.8); tdRug(5.4, F, 6.0, 2.6, 2.0, 0); tdArt(5.5, F + 1.65, 0.06, 0, 1.0, 0.6, 1);
+  tdArmchair(7.35, F, 9.2, -H2, 0, true); tdFloorLamp(7.55, F, 8.35); tdGlobe(3.9, F, 4.8); tdRug(5.4, F, 6.0, 2.6, 2.0, 0); tdArt(6.6, F + 1.65, 0.06, 0, 1.0, 0.6, 1);
   // second bathroom
   tdTub(13.0, F, 9.48, PI, 1.7, 0.8); tdToilet(13.53, F, 7.4, -H2); tdVanity(8.335, F, 7.0, H2, 1.4, true); tdShower(13.39, F, 0.57, -H2, 1.0);
   tdWardrobe(8.8, F, 0.36, 0, 1.0); tdPlant(9.0, F, 9.5, 0.9, 1); tdRug(11.0, F, 6.0, 1.0, 0.6, 1); tdTowelRack(13.9, F + 1.5, 8.8, -H2, 0.6);
@@ -897,7 +897,7 @@ function tdShrub(x, z, s, flowers) {
   const P = tdPiece(x, 0, z, 0), K = new Kit();
   for (let i = 0; i < 5; i++) { const a = i * 1.3; K.add(i % 2 ? MT.leaf : MT.leafD, new THREE.IcosahedronGeometry(0.26 * s, 1), Math.cos(a) * 0.12 * s, (0.26 + (i % 3) * 0.12) * s, Math.sin(a) * 0.12 * s, { sx: 1.15, sy: 0.85, sz: 1.15 }); }
   if (flowers) for (let i = 0; i < 9; i++) K.sph(MT.vcG, tdRnd(-0.2, 0.2) * s, (0.45 + tdRnd(0, 0.15)) * s, tdRnd(-0.2, 0.2) * s, 0.035 * s, { col: flowers });
-  K.build(x, 0, z, 0, { shadow: true, deco: false }); tdCol(P, 0, 0, 0.72 * s, 0.72 * s, 0.7 * s, 0, 'crate', 'dirt');
+  K.build(x, 0, z, 0, { shadow: true, deco: false });   // (no solid: you walk through a bush)
 }
 function tdYard(H, E) {
   const { z1 } = H;
@@ -1031,21 +1031,55 @@ function tdBatch() {
   worldGroup.updateMatrixWorld(true); TDB.meshes = [];
   const groups = []; worldGroup.traverse(o => { if (o.isGroup && o.userData.td && o.parent) groups.push(o); });
   const buckets = new Map(), _m = new THREE.Matrix4();
+  // what could hold a piece up, on a 1 m grid: everything solid round the house but the doors and the ground
+  const OG = new Map(), og = (i, j) => i * 4096 + j, WMS = new Set(worldMeshes);
+  for (const w of worldMeshes) { const u = w.userData, b = u.box; if (!b || u.door || u.doorFrame || u.doorPart || u.falling || u.board !== undefined || u.lamp !== undefined || u.bomb || u.reinf) continue;
+    const v = (b.max.x - b.min.x) * (b.max.y - b.min.y) * (b.max.z - b.min.z); if (v > 40 || b.max.x < HOUSE.x0 - 6 || b.min.x > HOUSE.x1 + 6 || b.max.z < HOUSE.z0 - 6 || b.min.z > HOUSE.z1 + 8) continue;
+    for (let i = Math.floor(b.min.x - 0.2); i <= Math.floor(b.max.x + 0.2); i++) for (let j = Math.floor(b.min.z - 0.2); j <= Math.floor(b.max.z + 0.2); j++) { const k = og(i, j); let L = OG.get(k); if (!L) OG.set(k, L = []); L.push([w, b, v]); } }
+  const ownerAt = (x, y, z) => { const L = OG.get(og(Math.floor(x), Math.floor(z))); if (!L) return null; let best = null, bv = 1e9;
+    for (const [w, b, v] of L) if (v < bv && x > b.min.x - 0.16 && x < b.max.x + 0.16 && z > b.min.z - 0.16 && z < b.max.z + 0.16 && y > b.min.y - 0.12 && y < b.max.y + 0.12) { bv = v; best = w; } return best; };
+  const add = (m, q, rec) => { const cm = tdCanon(m.material), key = cm.uuid + (m.castShadow ? 's' : ''); let B = buckets.get(key); if (!B) buckets.set(key, B = { mat: cm, shadow: m.castShadow, list: [], recs: [] });
+    // (a material that differs from others only by its colour: the colour goes into the vertices, and they share one)
+    if (cm !== m.material && !q.userData.baked) { const n = q.attributes.position.count, c = m.material.color, old = q.attributes.color, a = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { a[i * 3] = c.r * (old ? old.getX(i) : 1); a[i * 3 + 1] = c.g * (old ? old.getY(i) : 1); a[i * 3 + 2] = c.b * (old ? old.getZ(i) : 1); }
+      q.setAttribute('color', new THREE.BufferAttribute(a, 3)); q.userData.baked = true; }
+    B.list.push(q); B.recs.push(rec); return B; };
   for (const g of groups) {
-    const rec = { g, parent: g.parent, ranges: [] }, ms = g.children.filter(m => m.isMesh && m.visible); if (!ms.length) continue;
-    for (const m of ms) { const cm = tdCanon(m.material), key = cm.uuid + (m.castShadow ? 's' : ''); let B = buckets.get(key); if (!B) buckets.set(key, B = { mat: cm, shadow: m.castShadow, list: [], recs: [] });
-      const q = m.geometry.clone().applyMatrix4(_m.copy(m.matrixWorld));
-      // (a material that differs from others only by its colour: the colour goes into the vertices, and they share one)
-      if (cm !== m.material) { const n = q.attributes.position.count, c = m.material.color, old = q.attributes.color, a = new Float32Array(n * 3);
-        for (let i = 0; i < n; i++) { a[i * 3] = c.r * (old ? old.getX(i) : 1); a[i * 3 + 1] = c.g * (old ? old.getY(i) : 1); a[i * 3 + 2] = c.b * (old ? old.getZ(i) : 1); }
-        q.setAttribute('color', new THREE.BufferAttribute(a, 3)); }
-      B.list.push(q); B.recs.push(rec); }
-    (rec.parent.userData.tdRecs = rec.parent.userData.tdRecs || []).push(rec); g.removeFromParent();
+    const ms = g.children.filter(m => m.isMesh && m.visible); if (!ms.length) continue;
+    if (g.parent !== worldGroup) {
+      // a piece on something: it goes with it whole
+      const rec = { g, parent: g.parent, ranges: [] };
+      for (const m of ms) add(m, m.geometry.clone().applyMatrix4(_m.copy(m.matrixWorld)), rec);
+      (rec.parent.userData.tdRecs = rec.parent.userData.tdRecs || []).push(rec); g.removeFromParent(); continue;
+    }
+    // the outside finish (siding, trim, shutters, the porch, the roof edges...), built in one piece: each triangle goes with the
+    // wall, post or tile it is fixed to, so it comes down with that and nothing is left hanging when the house does
+    const recs = new Map(), rest = { g: null, parent: null, ranges: [] };
+    // (the downstairs floors are solids of their own: they stay put)
+    if (ms.some(m => WMS.has(m))) { for (const m of ms) add(m, m.geometry.clone().applyMatrix4(_m.copy(m.matrixWorld)), rest); g.removeFromParent(); continue; }
+    for (const m of ms) {
+      const q = m.geometry.clone().applyMatrix4(_m.copy(m.matrixWorld)), P = q.attributes.position, n = P.count / 3, own = new Array(n), by = new Map();
+      for (let t = 0; t < n; t++) { const x = (P.getX(t * 3) + P.getX(t * 3 + 1) + P.getX(t * 3 + 2)) / 3, y = (P.getY(t * 3) + P.getY(t * 3 + 1) + P.getY(t * 3 + 2)) / 3, z = (P.getZ(t * 3) + P.getZ(t * 3 + 1) + P.getZ(t * 3 + 2)) / 3;
+        const w = ownerAt(x, y, z); let L = by.get(w); if (!L) by.set(w, L = []); L.push(t); }
+      if (by.size === 1 && by.has(null)) { add(m, q, rest); continue; }
+      for (const [w, T] of by) {
+        const sub = new THREE.BufferGeometry();
+        for (const nm in q.attributes) { const A = q.attributes[nm], k = A.itemSize, src = A.array, out = new Float32Array(T.length * 3 * k); let o = 0;
+          for (const t of T) for (let v = 0; v < 3; v++) for (let c = 0; c < k; c++) out[o++] = src[(t * 3 + v) * k + c];
+          sub.setAttribute(nm, new THREE.BufferAttribute(out, k)); }
+        if (q.userData.baked) sub.userData.baked = true;
+        if (!w) { add(m, sub, rest); continue; }
+        let rec = recs.get(w); if (!rec) { recs.set(w, rec = { g: null, parent: w, ranges: [], parts: [] }); (w.userData.tdRecs = w.userData.tdRecs || []).push(rec); }
+        const B = add(m, sub, rec); rec.parts.push({ B, geo: sub });
+      }
+      q.dispose();
+    }
+    g.removeFromParent();
   }
   for (const B of buckets.values()) {
     const geo = mergeGeometries(B.list, false); if (!geo) continue; const M = new THREE.Mesh(geo, B.mat);
     M.castShadow = B.shadow; M.receiveShadow = !B.mat.transparent; M.userData.tdBatch = true; M.matrixAutoUpdate = false; worldGroup.add(M); TDB.meshes.push(M);
-    let at = 0; B.list.forEach((q, i) => { const n = q.attributes.position.count; B.recs[i].ranges.push([M, at, n]); at += n; q.dispose(); });
+    let at = 0; B.list.forEach((q, i) => { const n = q.attributes.position.count, r = B.recs[i]; r.ranges.push([M, at, n]); at += n; if (!r.parts) q.dispose(); });
   }
 }
 // a broken or falling piece of the house: what was merged from on and in it comes back as itself
@@ -1053,11 +1087,15 @@ function tdRelease(m) {
   if (!m) return;
   m.traverse(o => { const R = o.userData.tdRecs; if (!R) return; o.userData.tdRecs = null;
     for (const rec of R) { for (const [M, a, n] of rec.ranges) { const pa = M.geometry.attributes.position; pa.array.fill(0, a * 3, (a + n) * 3); pa.addUpdateRange(a * 3, n * 3); pa.needsUpdate = true; }
-      rec.parent.add(rec.g); tdRelease(rec.g); } });
+      if (rec.g) { rec.parent.add(rec.g); tdRelease(rec.g); continue; }
+      // (a piece of the outside finish: its triangles become a mesh of their own on what held them)
+      if (!rec.parts) continue; o.updateMatrixWorld(true); const inv = new THREE.Matrix4().copy(o.matrixWorld).invert();
+      for (const p of rec.parts) { const g = p.geo.clone().applyMatrix4(inv), mm = new THREE.Mesh(g, p.B.mat); mm.castShadow = p.B.shadow; mm.userData.deco = true; o.add(mm); }
+      rec.parts = null; } });
 }
 // ---- everything
 function townDetail(H) {
-  TD.furn = [];
+  TD.furn = []; TD.wall = [];
   tdRoomsFurnish(H); tdFloors(H);
   tdFan(-9.0, H.f1, 6.9, 0.2); tdFan(9.0, H.f1 + H.H, -7.4, 0.5); tdFan(-10.5, H.f1 + H.H, 6.8, 0.1, MT.oak); tdFan(-1.0, H.f1 + H.H, 7.4, 0.7, MT.painted); tdTrims(H); tdDoorCasings(H); tdRails(H);
   const E = new Kit();

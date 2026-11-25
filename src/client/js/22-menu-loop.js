@@ -23,7 +23,7 @@ import { api, joinPeer, net, netSend, onNet, roundHud, startHosting } from './19
 import { clearExplosives, updateExplosives } from './19b-explosives.js';
 import { updateBash } from './19c-toolvm.js';
 import { setPixelation, updateCamera, updateHUD, updateViewmodel } from './20-camera-hud-input.js';
-import { clearItems, hlMesh, openAttMenu, updateInv, updatePickup, updateToolbar } from './21-items-inventory.js';
+import { clearItems, hlMesh, openAttMenu, updateToolbar } from './21-items-inventory.js';
 import { screenFx } from './21b-screenfx.js';
 import { warmFx } from './22b-warm.js';
 import { SG, siegeClear, siegeUpdate } from './23-siege.js';
@@ -125,7 +125,7 @@ function leave() {
   for (const r of S.remotes.values()) r.dispose(); S.remotes.clear();
   for (const d of dummies) d.dispose(); dummies.length = 0; CQC.bots = []; navClear();
   while (ragdolls.length) ragdolls.pop().dispose();
-  clearItems(); drops.length = 0; hlMesh.visible = false; $('pickup').style.display = 'none';
+  clearItems(); drops.length = 0; hlMesh.visible = false;
   for (const d of decals) { scene.remove(d); if (d.geometry !== splatGeo) d.geometry.dispose(); } decals.length = 0; clearPools(); clearGore(); debris.length = 0; clearExplosives(); for (const P of DEB_POOLS) { P.im.count = 0; P.next = 0; P.slot.fill(null); } splatIM.count = 0; splatIM.userData.next = 0;
   for (const p of props) scene.remove(p.m); props.length = 0; for (const L of limbBodies) L.dispose(); limbBodies.length = 0;
   while (bullets.length) removeBullet(bullets.length - 1);
@@ -202,19 +202,23 @@ const _shV = new V3(); let _shF = 0;
 // there's room; never above 1.5x the CSS pixels (a 2x Retina screen was four times the pixels of a 1x one).
 // (it goes by the frame time over the last couple of seconds and changes at most every 3 s: resizing the canvas is itself a
 // hitch, and following every spike from a blast down and straight back up was a stutter on top of the spike)
-let _drT = 0, _drE = 1 / 60, _drR = Math.min(devicePixelRatio, 1.5);
+let _drSlow = 0, _drT = 0, _drE = 1 / 60, _drR = Math.min(devicePixelRatio, 1);
 function dynRes(dt) {
-  _drE += (Math.min(dt, 0.1) - _drE) * 0.02; if ((_drT -= dt) > 0) return; _drT = 0.5;
+  _drE += (Math.min(dt, 0.1) - _drE) * 0.05; if ((_drT -= dt) > 0) return; _drT = 0.5;
+  // a machine that can't keep up even at the lowest resolution: the sun's shadows are redrawn less often
+  _drSlow = _drE > 1 / 40 && renderer.getPixelRatio() <= Math.min(devicePixelRatio, 0.5) + 0.01 ? Math.min(_drSlow + 1, 6) : Math.max(_drSlow - 1, 0);
   if (GFX.res !== 'auto') { const r = +GFX.res; if (Math.abs(r - renderer.getPixelRatio()) > 0.01) { _drR = r; renderer.setPixelRatio(r); renderer.setSize(innerWidth, innerHeight, false); } return; }
-  const mx = Math.min(devicePixelRatio, 1.5), mn = Math.min(mx, 0.6);
+  // (no more than one rendered pixel per screen pixel on auto: the edges are antialiased already, and a sharper picture on a
+  // high-density screen cost two to three times the pixels)
+  const mx = Math.min(devicePixelRatio, 1), mn = Math.min(mx, 0.5);
   let r = _drR; if (_drE > 1 / 50) r = Math.max(mn, r * 0.88); else if (_drE < 1 / 75) r = Math.min(mx, r * 1.06);
   if (Math.abs(r - renderer.getPixelRatio()) / r > 0.03) { _drR = r; renderer.setPixelRatio(r); renderer.setSize(innerWidth, innerHeight, false); _drT = 3; }
 }
 // ---------------------------------------------------------------- settings
 function applyGfx() {
   const sh = GFX.shadows, want = sh !== 'off';
-  if (renderer.shadowMap.enabled !== want || (want && renderer.shadowMap.type !== (sh === 'low' ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap))) {
-    renderer.shadowMap.enabled = want; renderer.shadowMap.type = sh === 'low' ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+  if (renderer.shadowMap.enabled !== want || (want && renderer.shadowMap.type !== (sh === 'ultra' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap))) {
+    renderer.shadowMap.enabled = want; renderer.shadowMap.type = sh === 'ultra' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;   // (soft shadows only on ultra: they cost every lit pixel several times the taps)
     scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.needsUpdate = true); });
   }
   const ms = sh === 'ultra' ? 4096 : sh === 'low' ? 1024 : 2048;
@@ -275,7 +279,7 @@ function frame(now, hidden) {
       d._acc = (d._acc || 0) + wdt;
       if (k === 1 || (frameN + i) % k === 0) { d.update(Math.min(d._acc, 0.12)); d._acc = 0; }
     }
-    updateAI(); netSend(dt); updateHUD(); updateToolbar(); updateInv(dt); updatePickup();
+    updateAI(); netSend(dt); updateHUD(); updateToolbar();
   }
   updateBullets(wdt);
   for (const r of ragdolls) r.update(wdt);
@@ -293,7 +297,7 @@ function frame(now, hidden) {
   updateShadowCasters(dt); dynRes(dt);
   // (the sun's shadow map is drawn again every other frame, not every frame: it is the whole scene drawn a second time, and
   // the shadows moving at 30 a second instead of 60 can't be told apart)
-  renderer.shadowMap.autoUpdate = false; if ((_shF = (_shF + 1) % 2) === 0) renderer.shadowMap.needsUpdate = true;
+  renderer.shadowMap.autoUpdate = false; if ((_shF = (_shF + 1) % (_drSlow > 3 ? 4 : 2)) === 0) renderer.shadowMap.needsUpdate = true;
   renderer.clear();
   renderScope();
   const rt = retroTarget();

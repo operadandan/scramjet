@@ -27,7 +27,11 @@ const _fogDay = new THREE.Color(0xb4c2cf), _fogNight = new THREE.Color(0x0a0e15)
 const _sunReal = new V3();
 // the house lights: always there (a light added later would rebuild every shader), only lit at night
 // (one per room the map puts a lamp in: TOWN.lamps; the rest stay dark)
-const houseLights = []; for (let i = 0; i < 14; i++) { const l = new THREE.PointLight(0xffd8a0, 0, 12, 1.6); l.position.set(0, -50, 0); scene.add(l); houseLights.push(l); }
+// Only the few lamps nearest the camera get a real light (every light in the scene is paid for by every lit pixel, lit or not:
+// fourteen of them made the inside of the house the most expensive thing in the game to draw). The rest still glow (their
+// shades are emissive); a lamp coming into or leaving the nearest few fades rather than pops.
+const HL_N = 3, _hlW = new Map(), _hlS = [];
+const houseLights = []; for (let i = 0; i < HL_N; i++) { const l = new THREE.PointLight(0xffd8a0, 0, 12, 1.6); l.position.set(0, -50, 0); scene.add(l); houseLights.push(l); }
 // (the lamp shades' glowing material, lampMat, is in 01b-town: the map is built before this file runs)
 // rain: streaks in a box that follows the camera
 const RAIN_N = 2400, rainGeo = new THREE.BufferGeometry(), rainPos = new Float32Array(RAIN_N * 6);
@@ -93,7 +97,13 @@ function updateEnv(dt) {
   // the house lights: on through the day too when it is dark out (they are what lights the inside), brighter at night
   const lit = 1, lamps = (typeof TOWN !== 'undefined' && TOWN.lamps) || [];
   const all = (typeof TOWN !== 'undefined' && TOWN.lampAll) || [];
-  for (let i = 0; i < houseLights.length; i++) { const l = houseLights[i], q = lamps[i], dead = all.some(L => L.li === i && L.out); if (q && S.mode && !dead) { l.position.copy(q); l.intensity = 48; l.distance = 15; } else l.intensity = 0; }
+  { const cp = camera.position; _hlS.length = 0;
+    for (let i = 0; i < lamps.length; i++) { const q = lamps[i]; if (!q || !S.mode || all.some(L => L.li === i && L.out)) continue; const dy = Math.abs(q.y - cp.y); _hlS.push([i, Math.hypot(q.x - cp.x, q.z - cp.z) + (dy > 2 ? dy * 4 : 0)]); }
+    _hlS.sort((a, b) => a[1] - b[1]); const want = new Set(_hlS.slice(0, HL_N - 1).map(e => e[0]));
+    for (const e of _hlS) if (!_hlW.has(e[0])) _hlW.set(e[0], 0);
+    for (const [i, w] of _hlW) { if (!lamps[i]) { _hlW.delete(i); continue; } const nw = clamp(w + (want.has(i) ? 1 : -1) * Math.min(dt, 0.1) * 3, 0, 1); if (nw <= 0 && !want.has(i)) _hlW.delete(i); else _hlW.set(i, nw); }
+    const on = [..._hlW].sort((a, b) => b[1] - a[1]).slice(0, HL_N);
+    for (let k = 0; k < HL_N; k++) { const l = houseLights[k], e = on[k]; if (e && lamps[e[0]]) { l.position.copy(lamps[e[0]]); l.intensity = 48 * e[1]; l.distance = 15; } else l.intensity = 0; } }
   lampMat.emissiveIntensity = lamps.length ? 3 : 0;
   ENV.day = day; P.envDay = day; ENV.cloud = cloud; ENV.fogK = clamp((fogD - 0.002) / 0.02, 0, 1);
   // rain round the camera, falling and blown with the wind; not under a roof (it is only drawn outdoors)

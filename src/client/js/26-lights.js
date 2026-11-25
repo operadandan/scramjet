@@ -18,7 +18,7 @@ import { ENV, houseLights } from './24-env.js';
 // nearest players who have one on get them.
 const SL = { on: false, lvl: 1, chk: 0 };
 const shoulderLight = new THREE.SpotLight(0xfff1dc, 0, 32, 0.48, 0.55, 1.6); scene.add(shoulderLight, shoulderLight.target);
-const RL_N = 3, remoteLights = [], remoteLasers = [];
+const RL_N = 2, remoteLights = [], remoteLasers = [];
 const _coneGeo = new THREE.ConeGeometry(1, 1, 18, 1, true); _coneGeo.translate(0, -0.5, 0); _coneGeo.rotateX(-Math.PI / 2);   // (apex at the origin, opening along +z: lookAt aims it)
 const _coneMat = new THREE.MeshBasicMaterial({ color: 0xfff1dc, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
 for (let i = 0; i < RL_N; i++) {

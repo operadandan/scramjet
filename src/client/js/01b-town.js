@@ -257,6 +257,10 @@ function buildTown(pair) {
   });
   // (the furniture and the finish merged into a few big meshes: 01c-town-detail)
   tdBatch();
+  // nothing in the house moves until it breaks: its transforms are worked out once now, not every frame (structFall and
+  // boxBreak turn that back on for what comes down). The doors keep theirs: they swing.
+  worldGroup.updateMatrixWorld(true);
+  for (const m of worldMeshes) { const u = m.userData; if (u.door || u.doorPart || u.doorFrame) continue; m.matrixWorldAutoUpdate = false; m.traverse(o => { o.matrixAutoUpdate = false; }); }
 }
 
 // ---- module exports: build.mjs strips this block ----

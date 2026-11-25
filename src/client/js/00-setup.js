@@ -52,10 +52,10 @@ try { Object.assign(GFX, JSON.parse(localStorage.getItem('breach_gfx') || '{}'))
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 // a shader is not checked for errors when it is first used: that check made the renderer wait for the GPU to finish compiling it
 renderer.debug.checkShaderErrors = false;
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.55;
 renderer.outputColorSpace = THREE.SRGBColorSpace;

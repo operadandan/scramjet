@@ -18,7 +18,6 @@ import { CG, DESTR_OF, cgFresh, colNear, gridOpenW, pick, wallClipMat, wallDamag
 import { wmFor } from './16-ballistics.js';
 import { P, S } from './17-dummies.js';
 import { ez } from './19c-toolvm.js';
-import { drag } from './21-items-inventory.js';
 import { frame } from './22-menu-loop.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- holes in walls: decals with a clear middle

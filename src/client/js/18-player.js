@@ -20,7 +20,6 @@ import { P, S, arteryRate, bleedDrips, deathMasks, fpBody, fpClip, keys, localBo
 import { net } from './19-network.js';
 import { updateC4, updateFrag } from './19b-explosives.js';
 import { TV, keepSlot, updateFists } from './19c-toolvm.js';
-import { closeInv, dropWeapon } from './21-items-inventory.js';
 import { SFX, screenBlood, sfxClear } from './21b-screenfx.js';
 import { frame } from './22-menu-loop.js';
 import { CON } from './25-console.js';
@@ -140,7 +139,7 @@ const PB = {
   get react() { return P.react; }, set react(v) { P.react = v || null; },
   get reactDone() { return P.reactDone; }, set reactDone(v) { P.reactDone = v; },
   stanceKind() { return P.prone > 0.5 ? 'prone' : P.crouch > 0.5 ? 'crouch' : 'stand'; },
-  dropGun() { if (P.slot < 2 && P.guns[P.weapon]) dropWeapon(); },
+  dropGun() {},   // (you keep hold of your own gun: there is no picking it back up)
   goLimp(soft) { P.react = null; enterDowned({ soft: !!soft }); }
 };
 function standHeight() { return 1.8 - 0.6 * P.crouch - 1.3 * P.prone; }
@@ -623,8 +622,6 @@ function remoteShot(m) {
 // ---------------------------------------------------------------- death / spawn
 function killSelf(head, dir, part, byName, causeText) {
   if (!P.alive) return;
-  if (S.inv) closeInv();
-  dropWeapon();
   P.alive = false; P.reloading = false; P.inspecting = false; P.headDeath = head;
   mouse.left = false;
   localBody.update(0);
@@ -651,7 +648,6 @@ function onSelfHurt(res) {
   if (res && res.severed) flashMsg(LIMB_NAME[res.severed].toUpperCase() + ' SEVERED', 2500);
   P.pitch = clamp(P.pitch + rnd(0.02, 0.06), PITCH_MIN, 1.5); P.yaw += rnd(-0.04, 0.04); P.kick += 0.6;
   if (res && res.stopped) noiseHit(300, 0.15, 0.12);
-  if (res && (res.region === 'handL' || res.region === 'handR') && !res.missing && !res.stopped && !P.anat.dead && dropWeapon()) flashMsg('HIT IN THE HAND<small>You dropped your weapon. Press F to pick it up.</small>', 2600);
   if (res && res.helmetOff) { setHelmet(localBody, false, P.anat.lastDir); flashMsg('HELMET KNOCKED OFF', 2000); }
   else if (res && res.plate) flashMsg('FRONT PLATE ' + (res.stopped ? 'HIT' : 'PENETRATED') + '<small>Plate condition ' + Math.round(P.anat.armor[res.plate]) + '%</small>', 1600);
   // the same reactions as an AI body, from the same rules: a blast knocks you over; a round through the neck staggers you,
@@ -661,7 +657,7 @@ function onSelfHurt(res) {
   if (res && !an.dead && !P.downed) {
     const d = an.lastDir.clone().setY(0); if (d.lengthSq() < 1e-4) d.set(0, 0, 1); d.normalize();
     if (res.blast && res.blast.big) {
-      P.forceDown = true; dropWeapon();
+      P.forceDown = true;
       const mv = P.vel.clone(), moving = mv.length() > 1;
       enterDowned({ soft: true, vTop: moving ? mv.clone().multiplyScalar(rnd(1.05, 1.35)).addScaledVector(d, rnd(0.4, 0.9)) : d.clone().multiplyScalar(rnd(1.8, 2.8)).add(new V3(rnd(-0.3, 0.3), rnd(0.1, 0.4), rnd(-0.3, 0.3))), vLeg: moving ? mv.clone().multiplyScalar(rnd(0.2, 0.45)) : d.clone().multiplyScalar(rnd(-0.2, 0.3)) });
     } else if (P.react && P.react.t > 0.15 && P.react.kind !== 'neck') {

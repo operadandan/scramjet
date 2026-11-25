@@ -268,5 +268,5 @@ function siegeUpdate(dt) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { SG, boardBreak, boardWindow, reinforceBox, sgDisposeMarker, sgMarker, siegeBlast, siegeClear, siegeHint, siegeKeyDown, siegeKeyUp, siegeReset, siegeRound, siegeRx, siegeUpdate };
+export { SG, boardBreak, boardWindow, reinforceBox, sgDisposeMarker, sgMarker, siegeBlast, siegeClear, siegeKeyDown, siegeKeyUp, siegeReset, siegeRound, siegeRx, siegeUpdate };
 // ---- end module exports ----
