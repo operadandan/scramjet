@@ -69,6 +69,7 @@ const splatGeo = new THREE.PlaneGeometry(1, 1);
 const decals = [], heats = [];
 const decalHelper = new THREE.Object3D();
 function placeDecal(mesh, point, normal, size, material) {
+  if (mesh.material && mesh.material.visible === false) return null;   // (the hidden box round a piece of furniture: its marks would hang in the air)
   decalHelper.position.copy(point); decalHelper.lookAt(_a.copy(point).add(normal)); decalHelper.rotateZ(Math.random() * Math.PI * 2);
   let geo;
   try { geo = new DecalGeometry(mesh, point, decalHelper.rotation, new V3(size, size, Math.max(0.03, size * 0.6))); } catch (e) { return null; }

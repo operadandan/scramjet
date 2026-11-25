@@ -284,6 +284,7 @@ function wallClipMat(base, wall, skip) {
   return m;
 }
 function placeDecalD(mesh, point, normal, size, material, depth) {
+  if (mesh.material && mesh.material.visible === false) return null;   // (the hidden box round a piece of furniture: its marks would hang in the air)
   decalHelper.position.copy(point); decalHelper.lookAt(_a.copy(point).add(normal)); decalHelper.rotateZ(Math.random() * Math.PI * 2);
   let geo; try { geo = new DecalGeometry(mesh, point, decalHelper.rotation, new V3(size, size, depth)); } catch (e) { return null; }
   if (!geo.attributes.position || !geo.attributes.position.count) { geo.dispose(); return null; }

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { V3, camera, clamp, rnd, scene } from './00-setup.js';
 import { colliders, worldMeshes } from './01-world.js';
 import { HOUSE, TOWN } from './01b-town.js';
+import { tdRelease } from './01c-town-detail.js';
 import { inside, noiseHit } from './10-audio.js';
 import { decals, splatGeo } from './11-fx.js';
 import { holeify } from './14-wounds.js';
@@ -77,6 +78,7 @@ function structCheck() {
 // (demolish takes out everything standing on the ground floor that could hold the house up: walls, posts, the stairs)
 // a piece with nothing under it comes down: out of the solids at once (so what it held is worked out again), then falling
 function structFall(m, st) {
+  tdRelease(m);
   const ud = m.userData, b = ud.box; ud.falling = true; if (typeof navDirty === 'function') navDirty(); if (TOWN.gone) TOWN.gone.push(boxKey(b));
   const i = worldMeshes.indexOf(m); if (i >= 0) worldMeshes.splice(i, 1);
   const j = colliders.indexOf(b); if (j >= 0) colliders.splice(j, 1);
@@ -176,6 +178,7 @@ function boxHit(m, E, who) {
   boxBreak(m);
 }
 function boxBreak(m) {
+  tdRelease(m);
   const ud = m.userData, b = ud.box; if (typeof navDirty === 'function') navDirty(); if (TOWN.gone) TOWN.gone.push(boxKey(b));
   const i = worldMeshes.indexOf(m); if (i >= 0) worldMeshes.splice(i, 1); const j = colliders.indexOf(b); if (j >= 0) colliders.splice(j, 1);
   ud.falling = true; structLand({ m, b: { min: b.min.clone(), max: b.max.clone() }, kind: ud.kind, footY: b.min.y }); structDirty();

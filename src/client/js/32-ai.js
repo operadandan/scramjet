@@ -70,7 +70,7 @@ function buildNav0(b) {
   const nx = Math.ceil((b.x1 - b.x0) / NAV_CS), nz = Math.ceil((b.z1 - b.z0) / NAV_CS);
   for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
     const x = b.x0 + i * NAV_CS, z = b.z0 + j * NAV_CS, ys = [0];
-    for (const c of NAV_BK.get(Math.floor(x / 2) * 1000 + Math.floor(z / 2)) || []) if (x > c.min.x - 0.06 && x < c.max.x + 0.06 && z > c.min.z - 0.06 && z < c.max.z + 0.06 && c.max.y > 0.05 && c.max.y < 9) { const u = c.mesh && c.mesh.userData; if (!(u && (u.door || u.doorPart || u.gadget))) ys.push(c.max.y); }
+    for (const c of NAV_BK.get(Math.floor(x / 2) * 1000 + Math.floor(z / 2)) || []) if (x > c.min.x - 0.06 && x < c.max.x + 0.06 && z > c.min.z - 0.06 && z < c.max.z + 0.06 && c.max.y > 0.05 && c.max.y < 9) { const u = c.mesh && c.mesh.userData; if (!(u && (u.door || u.doorPart || u.gadget || u.furn))) ys.push(c.max.y); }   // (nobody stands on the furniture)
     const list = [];
     for (const y of ys) { if (list.some(n => Math.abs(n.y - y) < 0.05)) continue; if (y > 4.6 || navBlocked(x, y + 0.45, z, 1.25, 0.17)) continue;
       const n = { i: N.nodes.length, x, y, z, e: [], gi: i, gj: j }; N.nodes.push(n); list.push(n); }

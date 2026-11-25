@@ -198,5 +198,5 @@ function tpCyl(M, rad, len, c, parent, x, y, z, seg, r, m) {
 function mark(parent, x, y, z) { const o = new THREE.Object3D(); o.position.set(x, y, z); parent.add(o); return o; }
 
 // ---- module exports: build.mjs strips this block ----
-export { GM, RANGE_DISTS, RANGE_X, SURF, TEX, addBox, addGround, buildTest, canvasTex, clearWorld, colliders, fineNoise, makeTex, mark, mat, shadowMat, spawns, stipple, tpBox, worldGroup, worldMeshes, worldUV };
+export { GM, RANGE_DISTS, RANGE_X, SURF, TEX, addBox, addGround, buildTest, canvasTex, clearWorld, colliders, fineNoise, makeTex, mark, mat, shadowMat, spawns, speckle, stipple, tpBox, worldGroup, worldMeshes, worldUV };
 // ---- end module exports ----
