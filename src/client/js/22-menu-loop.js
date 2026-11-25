@@ -38,6 +38,7 @@ import { updateStructure } from './30-structure.js';
 import { deploy, serverCfg } from './31-menu.js';
 import { CQC, cqcReset, navClear, updateAI } from './32-ai.js';
 import { MW, menuWarStop, updateMenuWar } from './33-menu-war.js';
+import { startMission, updateMission } from './34-mission.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- scoreboard
 S.score = {};
@@ -132,7 +133,7 @@ function clearWorldFx() {
   while (bullets.length) removeBullet(bullets.length - 1);
 }
 function leave() {
-  S.migrating = false; net.close();
+  S.migrating = false; S.mission = null; { const el = document.getElementById('misleft'); if (el) el.style.display = 'none'; } net.close();
   for (const r of S.remotes.values()) r.dispose(); S.remotes.clear();
   clearWorldFx();
   S.slow = false; S.ts = 1; S.target = null; S.testKills = 0; S.testDeaths = 0; P.downed = false; $('scope').style.display = 'none'; $('score').style.display = 'none'; S.filt = ''; renderer.domElement.style.filter = ''; $('slowmo').style.display = 'none';
@@ -149,6 +150,7 @@ $('create').onclick = () => { S.cfg = serverCfg(); S.pub = !!S.cfg.pub; let c = 
 $('join').onclick = () => { S.pub = false; S.cfg = null; const c = $('code').value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (c.length < 4) { $('err').textContent = 'Enter a valid room code'; return; } deploy('JOINING ' + c, () => startOnline(c, false)); };
 $('code').addEventListener('keydown', e => { if (e.key === 'Enter') $('join').click(); });
 $('test').onclick = () => deploy('TESTING RANGE', () => startTest());
+$('mis1').onclick = () => deploy('MISSION 1', () => startMission(1));
 $('resume').onclick = () => renderer.domElement.requestPointerLock();
 try { S.showTarget = localStorage.getItem('breach_target_panel') === '1'; } catch (e) { S.showTarget = false; }
 $('opt_target').checked = !!S.showTarget;
@@ -285,7 +287,7 @@ function frame(now, hidden) {
       d._acc = (d._acc || 0) + wdt;
       if (k === 1 || (frameN + i) % k === 0) { d.update(Math.min(d._acc, 0.12)); d._acc = 0; }
     }
-    updateAI(); netSend(dt); updateHUD(); updateToolbar();
+    updateAI(); netSend(dt); updateHUD(); updateToolbar(); if (S.mission) updateMission(dt);
   } else updateMenuWar(wdt);
   updateBullets(wdt);
   for (const r of ragdolls) r.update(wdt);
@@ -316,5 +318,5 @@ function frame(now, hidden) {
 schedule();
 
 // ---- module exports: build.mjs strips this block ----
-export { CODE_CHARS, applyGfx, clearWorldFx, frame, last, leave, renderScore, scoreOf, setLoadout, settingsUI, startOnline };
+export { CODE_CHARS, applyGfx, clearWorldFx, enterGame, frame, last, leave, renderScore, scoreOf, setLoadout, settingsUI, startOnline };
 // ---- end module exports ----

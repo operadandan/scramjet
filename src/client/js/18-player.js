@@ -28,6 +28,7 @@ import { gadgetGhostOff, updateGadget, updateSledge } from './27-gadgets.js';
 import { applyGadgets } from './28-match.js';
 import { eyeReset } from './29-eyes.js';
 import { aiNoise } from './32-ai.js';
+import { missionFailed } from './34-mission.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- physics helpers
 function blocked(pos, h, r) {
@@ -325,7 +326,7 @@ function startReload() {
   if (!P.alive || P.slot >= 2 || P.reloading || P.rack || P.switchT > 0 || P.sprinting || P.react || P.stun > 0) return;
   if (G.mag >= w.cap && G.chamber) return;
   if (w.pellets) return startShellLoad(w, G);
-  if (S.mode === 'test' && !G.pouch.some(n => n > 0)) G.pouch = G.pouch.concat(Array(w.spare).fill(w.cap));
+  if (S.mode === 'test' && !S.mission && !G.pouch.some(n => n > 0)) G.pouch = G.pouch.concat(Array(w.spare).fill(w.cap));
   if (!G.pouch.some(n => n > 0)) { flashMsg(G.pouch.length ? 'NO LOADED MAGAZINES' : 'NO SPARE MAGAZINES', 1200); blip(200, 0.06, 0.03); return; }
   P.inspecting = false;
   P.reloading = true; P.reloadT = 0; P.reloadStage = 0; P.reloadFum = false; P.rlSeed = Math.random() * 100;
@@ -424,7 +425,7 @@ function shellTime(w) {
   return w.tac * rnd(0.88, 1.15) * (1 + P.anat.pain * 0.35 + (P.supp || 0) * 0.45) * (P.anat.handBroken('L') || P.anat.handBroken('R') ? 1.6 : 1) * 1;
 }
 function startShellLoad(w, G) {
-  if (S.mode === 'test' && !shellsLeft(G)) G.pouch = G.pouch.concat(Array(w.spare).fill(w.carrier));
+  if (S.mode === 'test' && !S.mission && !shellsLeft(G)) G.pouch = G.pouch.concat(Array(w.spare).fill(w.carrier));
   P.inspecting = false; P.reloading = true; P.reloadT = 0; P.reloadEmpty = false; P.reloadFum = true; P.reloadStage = 0; P.sgStop = false; P.sgIn = false; P.sgLoaded = 0; P.rlSeed = Math.random() * 100;
   if (G.mag >= w.cap || !shellsLeft(G)) {
     if (G.chamber || !G.mag) { flashMsg(shellsLeft(G) ? 'TUBE FULL' : 'NO SHELLS', 1200); blip(200, 0.06, 0.03); P.reloading = false; return; }
@@ -695,6 +696,7 @@ function localDeath() {
   killSelf(head, an.lastDir.clone(), part, killer, DEATH_TEXT[an.cause]);
   const dm = P.deathM = deathMasks(an);
   if (S.mode === 'online') net.send({ t: 'died', lf: S.life, dp: [P.pos.x, P.pos.y, P.pos.z].map(v => Math.round(v * 100) / 100), by: an.lastBy || 0, part, head, d: an.lastDir.toArray(), dist: Math.round(an.lastDist || 0), cause: an.cause, gib: dm.gib ? 1 : 0, tear: dm.tear ? 1 : 0, bl: Math.round(dm.bleed), tw: +dm.twitch.toFixed(1) });
+  else if (S.mission) missionFailed();
   else { S.testDeaths = (S.testDeaths || 0) + 1; setTimeout(() => { if (S.mode === 'test') respawnLocal(spawns[0]); }, 4000); }
 }
 function onSelfHurt(res) {
@@ -780,7 +782,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 function testDeath(head) {
   if (!P.alive) return;
   killSelf(head, new V3(Math.sin(P.yaw), 0, Math.cos(P.yaw)), head ? 'head' : 'torso', 'test');
-  setTimeout(() => { if (S.mode === 'test') respawnLocal(spawns[0]); }, 3000);
+  if (S.mission) missionFailed(); else setTimeout(() => { if (S.mode === 'test') respawnLocal(spawns[0]); }, 3000);
 }
 
 // ---- module exports: build.mjs strips this block ----

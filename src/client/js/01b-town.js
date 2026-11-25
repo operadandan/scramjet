@@ -8,6 +8,7 @@ import { shade } from './15-destruction.js';
 import { DOOR_FW, DOOR_H, DOOR_W, addDoor } from './15b-doors.js';
 import { items } from './21-items-inventory.js';
 import { boardWindow, reinforceBox } from './23-siege.js';
+import { MIS, missionWorld } from './34-mission.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- map building helpers (the multiplayer map is at the end)
 // (the helpers below were written for a whole street of houses: walls with openings, flats, cars, trees, fences)
@@ -112,17 +113,22 @@ function slab(cx, y, cz, w, h, d, kind, col) {
   const nx = Math.max(1, Math.ceil(w / 3.5)), nz = Math.max(1, Math.ceil(d / 3.5)), tw = w / nx, td = d / nz;
   for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) { addBox(cx - w / 2 + tw * (i + 0.5), y, cz - d / 2 + td * (j + 0.5), tw, h, td, kind, col, 'planks'); worldMeshes[worldMeshes.length - 1].userData.slab = true; }
 }
-function buildTown(pair) {
+// opt.mission: the mission's neighbourhood (the same house and street at its heart, three times the size, more houses, held
+// by a militia; 34-mission) instead of the siege map
+function buildTown(pair, opt) {
+  opt = opt || {}; const MIS = !!opt.mission; TOWN.mission = MIS;
   clearWorld();
   TOWN.windows = []; TOWN.demolished = false; TOWN.gone = []; TOWN.sites = []; TOWN.def = []; TOWN.atk = []; TOWN.lamps = []; TOWN.lampAll = [];
-  addGround(420, 'ground'); { const g = worldMeshes[worldMeshes.length - 1], t = TOWN_TEX.grass.clone(); t.needsUpdate = true; t.repeat.set(140, 140); g.material.map = t; }
-  const E = 46;
+  addGround(MIS ? 1400 : 420, 'ground'); { const g = worldMeshes[worldMeshes.length - 1], t = TOWN_TEX.grass.clone(); t.needsUpdate = true; t.repeat.set(MIS ? 466 : 140, MIS ? 466 : 140); g.material.map = t; }
+  const E = MIS ? 138 : 46; TOWN.half = E;
   // the street out front, the side road to the west, pavements, the drive and the path
-  townFlat(0, 22, 2 * E, 8, 'asphalt', 6, 0.003); townFlat(-26, -12, 8, 60, 'asphalt', 6, 0.0032);
+  townFlat(0, 22, 2 * E, 8, 'asphalt', 6, 0.003); townFlat(-26, MIS ? -24 : -12, 8, MIS ? 84 : 60, 'asphalt', 6, 0.0032);
   townFlat(0, 16.8, 2 * E, 2.4, 'pave', 1.2, 0.005); townFlat(-20.8, -12, 2.4, 60, 'pave', 1.2, 0.0052);
   townFlat(-1, 13.3, 1.4, 6.6, 'pave', 1.2, 0.0055); townFlat(9.5, 13.4, 3.4, 6.8, 'pave', 1.5, 0.005);
   // the edge of the playing area: tall hedges all round
-  for (const s of [-1, 1]) { addBox(0, 0, s * E, 2 * E + 2, 3.2, 1.6, 'concrete', 0x3c5a2c); addBox(s * E, 0, 0, 1.6, 3.2, 2 * E, 'concrete', 0x3c5a2c); }
+  // (the mission's edge is an invisible wall: the neighbourhood goes on past it, out of reach)
+  if (MIS) for (const s of [-1, 1]) { addBox(0, 0, s * E, 2 * E + 2, 40, 1, 'concrete', 0); worldMeshes[worldMeshes.length - 1].material.visible = false; addBox(s * E, 0, 0, 1, 40, 2 * E, 'concrete', 0); worldMeshes[worldMeshes.length - 1].material.visible = false; }
+  else for (const s of [-1, 1]) { addBox(0, 0, s * E, 2 * E + 2, 3.2, 1.6, 'concrete', 0x3c5a2c); addBox(s * E, 0, 0, 1.6, 3.2, 2 * E, 'concrete', 0x3c5a2c); }
   const { x0, x1, z0, z1, f1, H, t } = HOUSE, col = 0xd9d4c4, col2 = 0xc9cfc8;
   const tag = (n0, floor, ext) => { for (let i = n0; i < worldMeshes.length; i++) { const m = worldMeshes[i]; m.userData.house = floor; m.userData.ext = ext; } };
   // a wall of the house, recording its windows (for the boards) as it goes. Outside walls are timber frame and drywall with a
@@ -209,10 +215,10 @@ function buildTown(pair) {
   // ---- the two bombs this round
   const sp = SITE_PAIRS[((pair | 0) % SITE_PAIRS.length + SITE_PAIRS.length) % SITE_PAIRS.length];
   TOWN.sites = sp.map(s => ({ id: s.id, p: new V3(s.p[0], s.p[1] ? f1 : 0, s.p[2]), name: s.name })); TOWN.pair = SITE_PAIRS.indexOf(sp);
-  for (const s of TOWN.sites) townBomb(s.p);
+  if (MIS) TOWN.sites = []; for (const s of TOWN.sites) townBomb(s.p);
   // ---- every window boarded up to begin with, and the walls round the sites already reinforced
   for (let i = 0; i < TOWN.windows.length; i++) boardWindow(i);
-  for (const r of SITE_RF[TOWN.pair]) { const fl = r[4] ? f1 : 0, hh = r[4] ? H : f1; reinforceBox([r[0], fl, r[2], r[3], hh, r[5]]); }
+  if (!MIS) for (const r of SITE_RF[TOWN.pair]) { const fl = r[4] ? f1 : 0, hh = r[4] ? H : f1; reinforceBox([r[0], fl, r[2], r[3], hh, r[5]]); }
   // ---- the lot: fences round the back garden, a shed, a patio, a car in the drive, bins, trees, the street
   townFence('x', x0 - 6, x1 + 6, -16, 1.8); townFence('z', -16, 2, x0 - 6, 1.5); townFence('z', -16, 2, x1 + 6, 1.5);
   addBox(15.5, 0, -13.5, 3, 2.3, 2.4, 'crate', 0x7a6650);
@@ -230,6 +236,7 @@ function buildTown(pair) {
   TOWN.atk = [new V3(-5, 0, 33.4), new V3(-2, 0, 33.4), new V3(3, 0, 32.6), new V3(6, 0, 32.6), new V3(-37.6, 0, -10), new V3(-37.6, 0, -8), new V3(-37.6, 0, -6), new V3(-37.6, 0, -11.8), new V3(-14, 0, 33), new V3(13, 0, 33.5)];
   spawns = TOWN.atk.concat(TOWN.def);
   // ---- the furniture, fittings and finishes, the roof, the garden and the street
+  if (MIS) missionWorld(E);
   townDetail({ x0, x1, z0, z1, f1, H, t, sx0, sz0, sz1, sTop, run, rise });
   // the little things go with what they sit on, hang from or are fixed to (a falling shelf takes its books, a ceiling its
   // light, a wall its sill), so nothing is left floating when that goes
@@ -264,5 +271,5 @@ function buildTown(pair) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { BOARD_COL, HOUSE, SITE_PAIRS, TOWN, buildTown, decoMat, lampMat, slab, townTree };
+export { BOARD_COL, HOUSE, SITE_PAIRS, TOWN, buildTown, decoMat, doorHole, lampMat, slab, townFlat, townTree, townWall, winHole };
 // ---- end module exports ----

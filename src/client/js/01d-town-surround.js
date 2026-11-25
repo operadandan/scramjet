@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { V3, scene } from './00-setup.js';
 import { TEX, mat } from './01-world.js';
-import { townTree } from './01b-town.js';
+import { TOWN, townTree } from './01b-town.js';
 import { Kit, MT, TDM, TEXD, tdCar, tdCarBody, tdMat, tdPanel, tdRnd, tdTex } from './01c-town-detail.js';
 import { fx } from './11-fx.js';
 import { S } from './17-dummies.js';
@@ -167,12 +167,14 @@ function tdSurround() {
     const tf = (lx, lz) => { const c = Math.cos(ry), s = Math.sin(ry); return [x + lx * c + lz * s, z - lx * s + lz * c]; };
     const [t1x, t1z] = tf((i % 2 ? 1 : -1) * (w / 2 - 1.5), -d / 2 - 6.5); tdTreeX(t1x, t1z, 1.15 + (i % 3) * 0.12, i % 7 === 3 ? 2 : 0, { far: true });
     const [t2x, t2z] = tf((i % 2 ? -1 : 1) * (w / 2 + 3), d / 2 + 6); tdTreeX(t2x, t2z, 1.2, i % 3 === 0 ? 1 : 0, { far: true }); } };
-  row([-66, -44, -22, 0, 22, 44, 66], 58, 'x', 0);             // across the street, past the hedge, facing us
-  row([-66, -44, -22, 0, 22, 44, 66], -58, 'x', Math.PI);       // behind the back gardens
-  row([-36, -12, 12, 36], -60, 'z', -Math.PI / 2);              // down the west side
-  row([-36, -12, 12, 36], 60, 'z', Math.PI / 2);                // and the east
+  // (in the mission the neighbourhood is three times the size and its own houses are real ones: these stand out past its edge)
+  const F = TOWN.mission ? 3 : 1, XS = TOWN.mission ? [-176, -132, -88, -44, 0, 44, 88, 132, 176] : [-66, -44, -22, 0, 22, 44, 66], ZS = TOWN.mission ? [-132, -88, -44, 0, 44, 88, 132] : [-36, -12, 12, 36];
+  row(XS, 58 * (TOWN.mission ? 2.9 : 1), 'x', 0);             // across the street, past the hedge, facing us
+  row(XS, -58 * (TOWN.mission ? 2.9 : 1), 'x', Math.PI);      // behind the back gardens
+  row(ZS, -60 * (TOWN.mission ? 2.8 : 1), 'z', -Math.PI / 2); // down the west side
+  row(ZS, 60 * (TOWN.mission ? 2.8 : 1), 'z', Math.PI / 2);   // and the east
   // woodland on the horizon all round: a ragged band of conifers and broadleaves
-  for (let i = 0; i < 50; i++) { const a = i / 50 * 6.283 + Math.sin(i * 3.7) * 0.03, r = 92 + Math.abs(Math.sin(i * 7.3)) * 22, x = Math.cos(a) * r, z = Math.sin(a) * r;
+  for (let i = 0; i < 50 * F; i++) { const a = i / (50 * F) * 6.283 + Math.sin(i * 3.7) * 0.03, r = (92 + Math.abs(Math.sin(i * 7.3)) * 22) * (TOWN.mission ? 2.45 : 1), x = Math.cos(a) * r, z = Math.sin(a) * r;
     tdTreeX(x, z, 1.5 + Math.abs(Math.sin(i * 1.9)) * 0.9, i % 3 === 0 ? 0 : 1, { far: true });
     if (i % 2 === 0) tdTreeX(x + Math.cos(a) * 8, z + Math.sin(a) * 8, 1.7 + Math.abs(Math.cos(i * 2.3)) * 0.8, 1, { far: true }); }
   // inside the hedges: trees along the verges and in the corners, out of everyone's way

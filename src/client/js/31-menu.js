@@ -55,7 +55,7 @@ let mPane = 'play';
 function menuPane(p) {
   mPane = p;
   document.querySelectorAll('#mnav .mi').forEach(b => b.classList.toggle('on', b.dataset.p === p));
-  for (const k of ['play', 'raid', 'train', 'opts']) $('mp_' + k).style.display = k === p ? 'flex' : 'none';
+  for (const k of ['play', 'raid', 'mis', 'train', 'opts']) $('mp_' + k).style.display = k === p ? 'flex' : 'none';
   if (p === 'opts') settingsUI(true);
   if (p === 'play') serverList();
 }

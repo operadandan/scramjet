@@ -293,7 +293,7 @@ class AIBot extends Dummy {
       let K = this.know.get(t.id); if (!K) { K = { aw: 0, seen: 0, last: null, vis: false, heard: 0, heardP: null }; this.know.set(t.id, K); }
       const dx = t.pos.x - e0.x, dz = t.pos.z - e0.z, d = Math.hypot(dx, dz), cs = d > 0.01 ? (dx * fwd.x + dz * fwd.z) / d : 1;
       let vis = false, side = 0;
-      if (!blind && !smoke && d < 70 && (cs > AI_FOV || d < 2.2)) {
+      if (!blind && !smoke && d < (this.sniper ? 170 : 70) && (cs > AI_FOV || d < 2.2)) {
         const h = t.dn ? 0.35 : t.pr > 0.5 ? 0.3 : 1.55 - 0.6 * (t.c || 0), hd = new V3(t.pos.x, t.pos.y + h, t.pos.z), bd = new V3(t.pos.x, t.pos.y + h * 0.55, t.pos.z);
         if (aiSees(e0, hd) || aiSees(e0, bd)) vis = true;
         // round the corner: what it would see leaning out either way (only standing, only near enough to matter)
@@ -604,7 +604,7 @@ class AIBot extends Dummy {
     if (!T || !T.vis) return;
     this.engT += dt;
     // the first look is rough; it settles onto the target over about half a second (worse at range, moving, hurt, gassed)
-    const base = 0.008 * (1 + this.dist / 30) * (this.speedNow > 1 ? 1.8 : 1) * (1 - 0.35 * this.proneK) * (1 + hurtLevel(this.anat)) * ((this.gasK || 0) > 0.3 && this.lo.hg !== 'gasmask' ? 3 : 1);
+    const base = 0.008 * (1 + this.dist / (this.sniper ? 140 : 30)) * (this.speedNow > 1 ? 1.8 : 1) * (1 - 0.35 * this.proneK) * (1 + hurtLevel(this.anat)) * ((this.gasK || 0) > 0.3 && this.lo.hg !== 'gasmask' ? 3 : 1);
     this.err = Math.max(base, this.err - dt * 0.28);
     if (Math.random() < dt * 4) { this.errY = rnd(-1, 1) * this.err; this.errP = rnd(-1, 1) * this.err * 0.6; }
     // looking at them: the line it is aiming along has to pass within a body's width of them (and it has had time to react)
@@ -614,6 +614,7 @@ class AIBot extends Dummy {
     // (and not while still swinging round onto them: it settles, then fires, so it is always seen looking at what it shoots)
     if (this.engT < 0.22 || off > body + this.err * 0.6 || Math.abs(this.yawV) > 2) return;
     if (W.pellets) this.fireT = 60 / W.rpm + rnd(0.05, 0.2);
+    else if (this.mg) { this.burst++; this.fireT = this.burst >= 14 + Math.floor(Math.random() * 10) ? (this.burst = 0, rnd(0.6, 1.2)) : 60 / W.rpm * 0.85; }
     else if (this.dist > 14) { this.burst++; this.fireT = this.burst >= 3 + Math.floor(Math.random() * 3) ? (this.burst = 0, rnd(0.25, 0.5)) : 60 / W.rpm; }
     else this.fireT = 60 / W.rpm;
     this.shoot();
@@ -882,5 +883,5 @@ function aiClearAll() { for (const b of AIS.slice()) { b.dispose(); const k = du
 function updateAI() { const now = performance.now(); if (AIS.length && now - (updateAI.t || 0) > 500) { updateAI.t = now; navSkipDoors(); } while (AI_NOISE.length && now - AI_NOISE[0].t > 1500) AI_NOISE.shift(); }
 
 // ---- module exports: build.mjs strips this block ----
-export { AIBot, AIS, AI_PAL, CQC, aiClear, aiNoise, aiSees, buildCqc, cqcReset, navBlocked, navClear, navDirty, raidAddBots, raidBodies, spawnAI, updateAI };
+export { AIBot, AIS, AI_PAL, CQC, aiClear, aiLoadout, aiNoise, aiSees, buildCqc, cqcReset, navBlocked, navClear, navDirty, raidAddBots, raidBodies, spawnAI, updateAI };
 // ---- end module exports ----

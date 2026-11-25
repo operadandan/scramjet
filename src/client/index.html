@@ -332,6 +332,7 @@ button small{text-transform:none;letter-spacing:.3px}
     <nav id="mnav">
       <button class="mi on" data-p="play"><b>PLAY</b><small>Quick match, servers, your own server</small></button>
       <button class="mi" data-p="raid"><b>RAID</b><small>Attack a house held by six AI defenders</small></button>
+      <button class="mi" data-p="mis"><b>MISSIONS</b><small>Single player: take a neighbourhood back from a militia</small></button>
       <button class="mi" data-p="train"><b>TRAINING</b><small>The testing range and the close-quarters course</small></button>
       <button class="mi" data-p="opts"><b>SETTINGS</b><small>Graphics, view, controls</small></button>
     </nav>
@@ -364,6 +365,10 @@ button small{text-transform:none;letter-spacing:.3px}
     <div class="card"><div class="ch"><b>HOST A RAID</b></div><div class="note">The defenders patrol, set traps, hold angles and hunt by sound. They see only what is in front of them, and they aim as well as a player.</div>
       <div class="frm"><label>Visibility<select id="rd_pub"><option value="1">Public (others can queue in)</option><option value="0">Private (code only)</option></select></label><label>Time of day<select id="rd_tod"><option value="6.4">Dawn</option><option value="13">Noon</option><option value="23">Night</option></select></label></div>
       <button class="go" id="raidcreate">START RAID LOBBY</button></div>
+  </div>
+  <div class="mpane" id="mp_mis" style="display:none">
+    <div class="card hero" id="mis1"><small>MISSION 1 · SINGLE PLAYER</small><b>CLEAR THE NEIGHBOURHOOD</b><span>A militia has taken the suburb: barricades, machine-gun nests, snipers in towers, men in every house. Go in alone and take them all down.</span><em>START MISSION</em></div>
+    <div class="card"><div class="ch"><b>BRIEFING</b></div><div class="note">Three times the size of the siege map, fourteen houses, no bombs. The towers see far; the nests cover the streets. Your ammunition is what you carry. Pick your kit when it starts (L reopens the loadout).</div></div>
   </div>
   <div class="mpane" id="mp_train" style="display:none">
     <div class="card hero" id="test"><small>OFFLINE</small><b>TESTING RANGE</b><span>Every weapon and gadget · dummies · the close-quarters course with AI defenders</span><em>ENTER</em></div>
