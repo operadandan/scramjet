@@ -133,7 +133,7 @@ function clearWorldFx() {
   while (bullets.length) removeBullet(bullets.length - 1);
 }
 function leave() {
-  S.migrating = false; S.mission = null; { const el = document.getElementById('misleft'); if (el) el.style.display = 'none'; } net.close();
+  S.migrating = false; S.mission = null; for (const id of ['misleft', 'mismark']) { const el = document.getElementById(id); if (el) el.style.display = 'none'; } net.close();
   for (const r of S.remotes.values()) r.dispose(); S.remotes.clear();
   clearWorldFx();
   S.slow = false; S.ts = 1; S.target = null; S.testKills = 0; S.testDeaths = 0; P.downed = false; $('scope').style.display = 'none'; $('score').style.display = 'none'; S.filt = ''; renderer.domElement.style.filter = ''; $('slowmo').style.display = 'none';

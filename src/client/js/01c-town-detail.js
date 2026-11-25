@@ -1214,5 +1214,5 @@ function townDetail(H) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { Kit, MT, TDM, TEXD, tdBatch, tdBed, tdCar, tdCarBody, tdCoffeeTable, tdHoleCut, tdKitchenRun, tdMat, tdNightstand, tdPanel, tdRelease, tdRnd, tdRoundTable, tdRug, tdSofa, tdTex, tdToilet, tdTree, tdVanity, townDetail };
+export { Kit, MT, TDM, TEXD, tdArmchair, tdArt, tdBatch, tdBed, tdBookcase, tdCar, tdCarBody, tdClock, tdCoffeeTable, tdDresser, tdFloorLamp, tdFridge, tdHoleCut, tdKitchenRun, tdMat, tdMediaUnit, tdNightstand, tdPanel, tdPlant, tdRelease, tdRnd, tdRoundTable, tdRug, tdShrub, tdSofa, tdTex, tdToilet, tdTree, tdTub, tdVanity, tdWardrobe, townDetail };
 // ---- end module exports ----

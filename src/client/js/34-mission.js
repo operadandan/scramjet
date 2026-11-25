@@ -1,14 +1,15 @@
 // ---- module links: for code tools only, build.mjs strips this block (all files share one scope at runtime) ----
 import * as THREE from 'three';
-import { V3 } from './00-setup.js';
+import { V3, camera } from './00-setup.js';
 import { addBox, spawns, worldMeshes } from './01-world.js';
 import { TOWN, buildTown, doorHole, townFlat, townTree, townWall, winHole } from './01b-town.js';
-import { Kit, MT, TEXD, tdBed, tdCar, tdCoffeeTable, tdKitchenRun, tdMat, tdNightstand, tdPanel, tdRoundTable, tdRug, tdSofa, tdToilet, tdVanity } from './01c-town-detail.js';
+import { Kit, MT, TEXD, tdArmchair, tdArt, tdBed, tdBookcase, tdCar, tdClock, tdCoffeeTable, tdDresser, tdFloorLamp, tdFridge, tdKitchenRun, tdMat, tdMediaUnit, tdNightstand, tdPanel, tdPlant, tdRoundTable, tdRug, tdSofa, tdToilet, tdTub, tdVanity, tdWardrobe } from './01c-town-detail.js';
 import { WEAPONS } from './06-weapons.js';
 import { fx } from './11-fx.js';
 import { addDoor } from './15b-doors.js';
-import { P, S, dummies } from './17-dummies.js';
+import { P, S, dummies, keys } from './17-dummies.js';
 import { flashMsg, respawnLocal } from './18-player.js';
+import { explode } from './19b-explosives.js';
 import { items } from './21-items-inventory.js';
 import { enterGame, leave } from './22-menu-loop.js';
 import { boardWindow } from './23-siege.js';
@@ -17,6 +18,7 @@ import { loadoutUI } from './28-match.js';
 import { deploy } from './31-menu.js';
 import { AIBot, AI_PAL, aiLoadout } from './32-ai.js';
 import { menuWarStop } from './33-menu-war.js';
+import { mdRemove, missionDecor } from './34b-mission-decor.js';
 // ---- end module links ----
 // Mission mode. Mission 1, "Clear the Neighbourhood": the suburb round the house, three times the size of the siege map, with
 // a dozen more houses (each its own layout) and a militia holding the lot: barricades and burnt-out cars across the streets,
@@ -44,6 +46,8 @@ class MilitiaBot extends AIBot {
     if (this.mg && this.reloadT > 0 && this.reloadT < 2.6 && !this.mgSlow) { this.reloadT += 3; this.mgSlow = true; } else if (this.reloadT <= 0) this.mgSlow = false;
     super.update(dt);
   }
+  // (for the first seconds after you are in, out of the loadout, nobody has spotted you yet)
+  perceive(dt) { if (S.mission && MIS.grace > 0) return; super.perceive(dt); }
 }
 
 // ---- the houses: one storey, each laid out from its own seed (two or three bays across, one of them split front to back),
@@ -103,6 +107,18 @@ function missionHouse(cx, cz, w, d, front, seed, col) {
       else if (kind === 'kitchen') { const [a1, b1] = at(0.32); tdKitchenRun(a1, 0, b1, rot, Math.min(3, len - 1)); const [a2, b2] = at(Math.min(2.2, (ax === 'x' ? rd : rw) / 2)); tdRoundTable(a2, 0, b2, 0.5); }
       else if (kind === 'bed') { const [a1, b1] = at(1.05); tdBed(a1, 0, b1, rot, 1.5, 2.0); const [a2, b2] = at(0.25, len / 2 - 0.5 > 1.4 ? 1.3 : -1.3); tdNightstand(a2, 0, b2, rot, true); }
       else { const [a1, b1] = at(0.35, -0.6); tdToilet(a1, 0, b1, rot); const [a2, b2] = at(0.3, 0.6); tdVanity(a2, 0, b2, rot, 0.8, true); }
+    } catch (e) {}
+    // more of it: the other free wall, the corners, pictures on the walls, a rug, a plant; in the rooms the militia hold, their kit
+    const W2 = walls[1], at2 = (depth, along) => !W2 ? null : W2[0] === 'x' ? [mx + (along || 0), W2[1] + (W2[2] === 0 ? 1 : -1) * depth] : [W2[1] + (W2[2] === -Math.PI / 2 ? 1 : -1) * depth, mz + (along || 0)];
+    const cn = [[r.x0 + 0.45, r.z0 + 0.45], [r.x1 - 0.45, r.z0 + 0.45], [r.x0 + 0.45, r.z1 - 0.45], [r.x1 - 0.45, r.z1 - 0.45]].filter(([x, z]) => !doorsAt.some(([dx, dz]) => Math.hypot(dx - x, dz - z) < 1.3));
+    const art = k => { const [a, b] = at(0.0); tdArt(a, 1.75, b, rot, Math.min(1.0, len * 0.3), 0.7, k); };
+    try {
+      if (kind === 'living') { if (W2) { const [a, b] = at2(0.3); tdMediaUnit(a, 0, b, W2[2], Math.min(1.8, W2[3] - 1)); const [c2, d2] = at2(1.9, W2[3] > 3.4 ? 1.1 : 0); tdArmchair(c2, 0, d2, W2[2] + Math.PI, [0x6a5a4a, 0x3a4a5a][seed % 2]); }
+        art(seed % 6); if (cn[0]) tdFloorLamp(cn[0][0], 0, cn[0][1]); if (cn[1]) tdPlant(cn[1][0], 0, cn[1][1], 1.2, seed % 2); if (cn[2] && rw * rd > 16) tdBookcase(cn[2][0], 0, cn[2][1], rot, 0.8, 1.9); }
+      else if (kind === 'kitchen') { if (W2) { const [a, b] = at2(0.36, W2[3] / 2 - 0.5); tdFridge(a, 0, b, W2[2]); } if (cn[0]) tdPlant(cn[0][0], 0, cn[0][1], 0.8, 1); tdClock(...(([a, b]) => [a, 1.9, b])(at(0.0, len / 2 - 0.4)), rot); }
+      else if (kind === 'bed') { art((seed + i) % 6); if (W2) { const [a, b] = at2(0.32); tdWardrobe(a, 0, b, W2[2], Math.min(1.4, W2[3] - 1.2)); }
+        else if (cn[1]) tdDresser(cn[1][0], 0, cn[1][1], rot, 1.0, true); const [a3, b3] = at(1.05); tdRug(a3, 0, b3, 2.2, 1.6, (seed + i) % 3, rot); }
+      else if (W2) { const [a, b] = at2(0.4); tdTub(a, 0, b, W2[2], Math.min(1.6, W2[3] - 0.4), 0.75); }
     } catch (e) {}
     r.kind = kind;
   });
@@ -174,54 +190,112 @@ function missionWorld(E) {
   sandbags(30, 20, 3.2, 'z', 1.1); sandbags(-24, 30, 3.2, 'x', 1.1); sandbags(40, 31, 2.8, 'x', 1.0); sandbags(-40, 17.6, 2.8, 'x', 1.0);
   // the nests and the towers
   MIS.nests = [mgNest(51, 22, Math.PI / 2), mgNest(-49, 22, -Math.PI / 2), mgNest(-4, -66.6, Math.PI)];
-  MIS.towers = [tower(40, 36.5), tower(-40, 36.5), tower(72, -64), tower(-70, -80)];
+  MIS.towers = [tower(34, 38), tower(-40, 36.5), tower(72, -64), tower(-70, -80)];
+  // and everything else a lived-in street has, the militia's leavings on top (34b)
+  missionDecor(E);
 }
-// ---- the men: where each one is posted
+// ---- the men: where each one is posted, stretch by stretch along the way through (st: which objective's stretch).
+// Only the houses on the way are held; the rest of the street stands empty behind the walls
 function missionBots() {
   const out = []; let k = 0;
-  const add = (p, o) => { const b = new MilitiaBot(p, Object.assign({ pal: k++, post: p.clone() }, o)); dummies.push(b); out.push(b); return b; };
   const night = typeof ENV !== 'undefined' && (ENV.tod < 6.5 || ENV.tod > 19);
-  // the nests: a gunner each, facing down the street
-  for (const n of MIS.nests) { const b = add(n.clone().setY(0), { w: 3, mg: true, zone: 0.4, area: { x0: n.x - 0.8, x1: n.x + 0.8, z0: n.z - 0.8, z1: n.z + 0.8 }, lo: aiLoadout(0, night, 3) }); b.stance = 1; }
-  // the towers: a marksman on each
-  for (const t of MIS.towers) add(t.clone(), { w: 2, sniper: true, zone: 0.6, area: { x0: t.x - 1.3, x1: t.x + 1.3, z0: t.z - 1.3, z1: t.z + 1.3 }, lo: aiLoadout(0, night, 2) });
-  // the houses: one or two in each, kept to the house
-  MIS.houses.forEach((h, i) => { const area = { x0: h.x0 + 0.3, x1: h.x1 - 0.3, z0: h.z0 + 0.3, z1: h.z1 - 0.3 };
-    const n = 1 + (i % 3 === 0 ? 1 : 0); for (let j = 0; j < n; j++) { const r = h.rooms[(i + j) % h.rooms.length], p = new V3((r.x0 + r.x1) / 2 + (j ? 0.8 : -0.4), 0, (r.z0 + r.z1) / 2);
-      add(p, { w: [0, 5, 3][(i + j) % 3], zone: 4, area, lo: aiLoadout(i, night, [0, 5, 3][(i + j) % 3]) }); } });
-  // the main house: four inside, two upstairs
+  const add = MIS.addBot = (p, o) => { const b = new MilitiaBot(p, Object.assign({ pal: k++, post: p.clone() }, o)); b.st = o.st; dummies.push(b); out.push(b); return b; };
+  const st = (n, x, z, w, o) => add(new V3(x, 0, z), Object.assign({ st: n, w, zone: 3, lo: aiLoadout(k, night, w) }, o || {}));
+  // 1, the main street: the gun at the barricade, men behind the cars and in the gardens, the marksman on the tower over it
+  { const n = MIS.nests[0], b = add(n.clone().setY(0), { st: 0, w: 3, mg: true, zone: 0.4, area: { x0: n.x - 0.8, x1: n.x + 0.8, z0: n.z - 0.8, z1: n.z + 0.8 }, lo: aiLoadout(0, night, 3) }); b.stance = 1; }
+  for (const [x, z, w] of [[55.5, 21, 0], [54.8, 26.2, 3], [76, 26, 0], [92, 18.4, 5], [68, 30.6, 0], [84, 13.4, 3]]) st(0, x, z, w);
+  { const t = MIS.towers[0]; add(t.clone(), { st: 0, w: 2, sniper: true, side: true, zone: 0.6, area: { x0: t.x - 1.3, x1: t.x + 1.3, z0: t.z - 1.3, z1: t.z + 1.3 }, lo: aiLoadout(0, night, 2) }); }
+  // 2, the radio house: three inside
+  { const h = MIS.houses[2], area = { x0: h.x0 + 0.3, x1: h.x1 - 0.3, z0: h.z0 + 0.3, z1: h.z1 - 0.3 };
+    h.rooms.forEach((r, j) => { if (j < 3) add(new V3((r.x0 + r.x1) / 2 + 0.4, 0, (r.z0 + r.z1) / 2), { st: 1, w: [0, 5, 3][j], zone: 4, area, lo: aiLoadout(j, night, [0, 5, 3][j]) }); }); }
+  // 3, the gardens down to the back street, the marksman on the tower past the fence
+  for (const [x, z, w] of [[56, -14, 0], [51, -33, 5], [59, -50, 0]]) st(2, x, z, w);
+  { const t = MIS.towers[2]; add(t.clone(), { st: 2, w: 2, sniper: true, side: true, zone: 0.6, area: { x0: t.x - 1.3, x1: t.x + 1.3, z0: t.z - 1.3, z1: t.z + 1.3 }, lo: aiLoadout(0, night, 2) }); }
+  // 4, the back street: the gun, men at the barricade and guarding the cache
+  { const n = MIS.nests[2], b = add(n.clone().setY(0), { st: 3, w: 3, mg: true, zone: 0.4, area: { x0: n.x - 0.8, x1: n.x + 0.8, z0: n.z - 0.8, z1: n.z + 0.8 }, lo: aiLoadout(0, night, 3) }); b.stance = 1; }
+  for (const [x, z, w] of [[2, -68.6, 0], [-12, -66.2, 3], [24, -75.5, 5], [36, -69.5, 0], [-9, -76, 0]]) st(3, x, z, w);
+  // 5, the headquarters: two in the back garden, four in the house, the commander upstairs
+  for (const [x, z, w] of [[-9, -30, 0], [11, -24, 5]]) st(4, x, z, w);
   const HH = { x0: -13.8, x1: 13.8, z0: -9.8, z1: 9.8 };
-  for (const [x, y, z, w] of [[-9.5, 0, 2.8, 0], [5.5, 0, -2.8, 5], [-1.5, 3, -4.5, 3], [9, 3, -3.5, 0]]) add(new V3(x, y, z), { w, zone: 5, area: HH, lo: aiLoadout(1, night, w) });
-  // on the streets: by the barricades and the sandbags
-  for (const [x, z, w] of [[55.5, 21, 0], [54.8, 26.2, 3], [-53.5, 23, 0], [-51.5, 18.6, 5], [2, -68.6, 0], [-12, -66.2, 3], [29, 21.2, 0], [-24, 31.2, 3], [40, 32, 0], [-40, 18.8, 5]])
-    add(new V3(x, 0, z), { w, zone: 3, lo: aiLoadout(2, night, w) });
+  for (const [x, y, z, w] of [[-9.5, 0, 2.8, 0], [5.5, 0, -2.8, 5], [-1.5, 3, -4.5, 3], [9, 3, -3.5, 0]]) add(new V3(x, y, z), { st: 4, w, zone: 5, area: HH, lo: aiLoadout(1, night, w) });
+  MIS.cmdr = add(new V3(-8, 3, -5), { st: 4, w: 5, zone: 5, area: HH, pal: 2, lo: aiLoadout(2, night, 5) }); MIS.cmdr.cmdr = true;
   return out;
 }
+// ---- the objectives, one after another. kind: 'kill' (every man of its stretch down), 'use' (hold F at the spot), 'reach'
+// (get to the spot), 'hold' (stay alive till the time is up). at: where the marker points
+const MIS_OBJ = [
+  { kind: 'kill', st: 0, text: 'Push down Main Street and silence the machine gun at the barricade', at: () => new V3(51, 1.2, 22) },
+  { kind: 'use', text: 'Search the house at No. 14 for the militia\'s radio', hint: 'searching', t: 2.5, at: () => MIS.radio },
+  { kind: 'reach', text: 'Through the gate: cut down the gardens to the back street', at: () => new V3(55, 1.2, -66), r: 6 },
+  { kind: 'use', text: 'Blow the weapons cache against the wall on the back street', hint: 'planting the charge', t: 3.5, at: () => new V3(0, 1.0, -63.6) },
+  { kind: 'wait', text: 'Get clear of the cache!', t: 6 },
+  { kind: 'cmdr', text: 'Storm their headquarters and take down the commander', at: () => MIS.cmdr && !misDown(MIS.cmdr) ? MIS.cmdr.pos.clone().setY(MIS.cmdr.pos.y + 1.9) : new V3(0, 1.5, 0) },
+  { kind: 'use', text: 'Out to the street: pop smoke for the helicopter', hint: 'popping smoke', t: 1.5, at: () => new V3(0, 0.6, 22) },
+  { kind: 'hold', text: 'Hold the street until the helicopter is down', t: 50, at: () => new V3(0, 0.6, 22) }
+];
 // ---- the mission itself
 function startMission(n) {
   menuWarStop(); MIS.n = n || 1; MIS.done = false; MIS.cleared = false; MIS.failT = 0;
   for (const d of dummies) d.dispose(); dummies.length = 0;
   buildTown(0, { mission: MIS.n });
-  spawns = [new V3(130, 0, 21), new V3(130, 0, 23)];
-  MIS.bots = missionBots();
+  // the radio: on a table in the house's back room
+  { const h = MIS.houses[2], r = h.rooms[h.rooms.length - 1]; MIS.radio = new V3((r.x0 + r.x1) / 2 - 0.6, 0.85, (r.z0 + r.z1) / 2 + 0.5);
+    const K = new Kit(); K.box(MT.oak, 0, 0.74, 0, 0.9, 0.05, 0.6); for (const a of [-1, 1]) for (const c of [-1, 1]) K.box(MT.dark, a * 0.4, 0, c * 0.25, 0.05, 0.74, 0.05);
+    K.rbox(tdMat('mdRadio', { color: 0x3a4030, roughness: 0.6 }), 0, 0.79, 0, 0.42, 0.22, 0.26, 0.02); K.rod(MT.black, new V3(0.15, 1.0, 0), new V3(0.17, 1.6, 0), 0.006); K.box(MT.glow, -0.1, 0.92, 0.131, 0.12, 0.04, 0.005);
+    K.build(MIS.radio.x, 0, MIS.radio.z, 0, { shadow: true }); }
+  spawns = [new V3(131, 0, 21), new V3(131, 0, 23)];
+  MIS.bots = missionBots(); MIS.obj = 0; MIS.objT = 0; MIS.use = 0; MIS.extra = false;
   S.mission = { n: MIS.n }; enterGame('test'); respawnLocal(spawns[0]); P.yaw = Math.PI / 2;
-  MIS.start = performance.now();
-  setTimeout(() => { if (S.mission) { loadoutUI(true); flashMsg('MISSION 1 · CLEAR THE NEIGHBOURHOOD<small>A militia holds the street. ' + MIS.bots.length + ' of them: in the houses, behind the barricades, on the towers and the guns. Take them all down.</small>', 7000); } }, 300);
+  MIS.start = performance.now(); MIS.grace = 12;
+  setTimeout(() => { if (S.mission) { loadoutUI(true); flashMsg('MISSION 1 · CLEAR THE NEIGHBOURHOOD<small>A militia holds the street and their headquarters is the big house. Fight down Main Street, find their radio, blow their weapons cache, take down the commander, then get out by helicopter.</small>', 8000); } }, 300);
 }
 // down and out: the ones dead, or bleeding out on the ground with no getting up
 const misDown = b => b.dead || (b.rag && (b.anat.paralyzed || b.anat.bothLegs() || b.anat.blood < 2500));
+function misEl(id, css) { let el = document.getElementById(id); if (!el) { el = document.createElement('div'); el.id = id; el.style.cssText = css; document.body.appendChild(el); } return el; }
+// one objective done: what it opens, and on to the next
+function misNext() {
+  const o = MIS_OBJ[MIS.obj];
+  if (MIS.obj === 1) { mdRemove(MIS.gate); MIS.gate = null; flashMsg('RADIO FOUND<small>The gate code is taped to it. Their cache is on the back street, their commander in the big house.</small>', 5000); }
+  if (MIS.obj === 4) { explode(new V3(0, 0.5, -63.6), 'c4', S.myIdOr0(), true, new V3(0, 1, 0)); mdRemove(MIS.plug); MIS.plug = null; flashMsg('CACHE DESTROYED<small>The wall is down. Their headquarters is through the garden.</small>', 4500); }
+  if (MIS.obj === 5) flashMsg('COMMANDER DOWN<small>Get out to the street and call the helicopter in.</small>', 4500);
+  if (MIS.obj === 6) { // the rest of them come for you: four up the street from either end, the marksman on the west tower
+    const night = ENV.tod < 6.5 || ENV.tod > 19;
+    for (const [x, z, w] of [[-21, 27.5, 0], [-20.5, 15.5, 5], [21, 27.5, 3], [20.5, 15.5, 0]]) MIS.addBot(new V3(x, 0, z), { st: 6, w, zone: 6, lo: aiLoadout(1, night, w) });
+    const t = MIS.towers[1]; MIS.addBot(t.clone(), { st: 6, w: 2, sniper: true, zone: 0.6, area: { x0: t.x - 1.3, x1: t.x + 1.3, z0: t.z - 1.3, z1: t.z + 1.3 }, lo: aiLoadout(0, night, 2) });
+    flashMsg('SMOKE OUT<small>The helicopter is fifty seconds away. They know you are here.</small>', 4500); }
+  MIS.obj++; MIS.objT = 0; MIS.use = 0;
+}
 function updateMission(dt) {
   if (!S.mission || MIS.done) return;
-  const left = MIS.bots.filter(b => !misDown(b)).length;
-  // (how many are left, at the top of the screen)
-  let el = document.getElementById('misleft'); if (!el) { el = document.createElement('div'); el.id = 'misleft'; el.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);font:600 13px/1 Inter,system-ui,sans-serif;letter-spacing:.18em;color:#e8e4dc;text-shadow:0 1px 3px #000;z-index:6;pointer-events:none'; document.body.appendChild(el); }
-  el.style.display = S.mode ? 'block' : 'none';
-  if (S.mission.left !== left) { S.mission.left = left; el.innerHTML = 'MISSION 1 · CLEAR THE NEIGHBOURHOOD &nbsp;·&nbsp; <span style="color:#ff6a5a">' + left + '</span> HOSTILES LEFT'; }
-  if (left === 0) {
-    MIS.done = true; MIS.cleared = true; const t = Math.round((performance.now() - MIS.start) / 1000);
-    flashMsg('NEIGHBOURHOOD CLEARED<small>Every one of them is down · ' + Math.floor(t / 60) + ' min ' + (t % 60) + ' s · back to the menu shortly</small>', 9000);
-    setTimeout(() => { if (S.mission && MIS.cleared) leave(); }, 9500);
+  if (!S.loOpen && MIS.grace > 0) MIS.grace = Math.max(0, MIS.grace - dt);
+  const o = MIS_OBJ[MIS.obj], left = MIS.bots.filter(b => !misDown(b)).length, me = P.pos;
+  // what to do now (top of the screen), how far it is (a marker on it)
+  const top = misEl('misleft', 'position:fixed;top:12px;left:50%;transform:translateX(-50%);font:600 12px/1.5 Inter,system-ui,sans-serif;letter-spacing:.14em;color:#e8e4dc;text-shadow:0 1px 3px #000;z-index:6;pointer-events:none;text-align:center');
+  const mk = misEl('mismark', 'position:fixed;z-index:6;pointer-events:none;font:600 11px/1 Inter,system-ui,sans-serif;color:#ffd27a;text-shadow:0 1px 2px #000;transform:translate(-50%,-100%);text-align:center');
+  top.style.display = mk.style.display = S.mode ? 'block' : 'none';
+  let sub = '';
+  if (o) {
+    MIS.objT += dt;
+    if (o.kind === 'kill') { const n = MIS.bots.filter(b => b.st === o.st && !b.sniper && !misDown(b)).length; sub = n + ' left on this stretch'; if (!n) misNext(); }
+    else if (o.kind === 'reach') { const p = o.at(); if (Math.hypot(me.x - p.x, me.z - p.z) < o.r) misNext(); }
+    else if (o.kind === 'use') { const p = o.at(), d = Math.hypot(me.x - p.x, me.z - p.z);
+      if (d < 1.8 && Math.abs(me.y - (p.y - 0.8)) < 1.5 && P.alive && !P.downed) { sub = keys.KeyF ? o.hint + ' ' + Math.round(100 * MIS.use / o.t) + '%' : 'hold F'; if (keys.KeyF) { MIS.use += dt; if (MIS.use >= o.t) misNext(); } else MIS.use = 0; } else MIS.use = 0; }
+    else if (o.kind === 'wait') { sub = Math.ceil(o.t - MIS.objT) + ' s'; if (MIS.objT >= o.t) misNext(); }
+    else if (o.kind === 'cmdr') { if (MIS.cmdr && misDown(MIS.cmdr)) misNext(); }
+    else if (o.kind === 'hold') { const r = Math.max(0, o.t - MIS.objT); sub = 'helicopter in ' + Math.floor(r / 60) + ':' + String(Math.ceil(r) % 60).padStart(2, '0'); if (r <= 0) misNext(); }
   }
+  const o2 = MIS_OBJ[MIS.obj]; if (o2 !== o) sub = '';
+  if (!o2) {
+    MIS.done = true; MIS.cleared = true; const t = Math.round((performance.now() - MIS.start) / 1000); top.innerHTML = '';
+    flashMsg('MISSION COMPLETE<small>Extracted · ' + (MIS.bots.length - left) + ' militia down · ' + Math.floor(t / 60) + ' min ' + (t % 60) + ' s · back to the menu shortly</small>', 9000);
+    setTimeout(() => { if (S.mission && MIS.cleared) leave(); }, 9500); return;
+  }
+  const html = 'MISSION 1 · OBJECTIVE ' + (MIS.obj + 1) + '/' + MIS_OBJ.length + '<br><span style="color:#ffd27a;letter-spacing:.06em;font-size:14px">' + o2.text + '</span>' + (sub ? '<br><span style="color:#ff8a7a">' + sub + '</span>' : '');
+  if (S.mission.html !== html) { S.mission.html = html; top.innerHTML = html; }
+  const p = o2.at && o2.at();
+  if (p && S.mode) { const v = p.clone().project(camera), on = v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2;
+    mk.style.display = on ? 'block' : 'none'; if (on) { mk.style.left = ((v.x + 1) / 2 * innerWidth) + 'px'; mk.style.top = ((1 - v.y) / 2 * innerHeight) + 'px'; mk.innerHTML = '◆<br>' + Math.round(p.distanceTo(me)) + ' m'; } }
+  else mk.style.display = 'none';
 }
 function missionFailed() {
   if (MIS.done) return; MIS.done = true;
@@ -230,5 +304,5 @@ function missionFailed() {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { MIS, missionFailed, missionWorld, startMission, updateMission };
+export { MIS, MIS_HOUSES, missionFailed, missionWorld, sandbags, startMission, updateMission };
 // ---- end module exports ----
