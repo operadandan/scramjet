@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { $, V3, camera, clamp, rnd, scene } from './00-setup.js';
 import { colliders, worldMeshes } from './01-world.js';
+import { TOWN } from './01b-town.js';
 import { CH_GIB, chunkCount, chunkRootOf, chunkShot, headCrater } from './02b-chunks.js';
 import { RAG_MASS, _Y, _a, ragdolls, setHelmet, syncLost } from './04-ragdoll.js';
 import { LIMB_OF, LSEG, hitToFrame, regionOf } from './05-anatomy.js';
@@ -12,13 +13,14 @@ import { sfxDrop, sfxHas } from './10c-sfx.js';
 import { bulletHole, fragScuff, impactFx, puffTex, tracer } from './11-fx.js';
 import { goreBlast, spawnGore } from './12b-gore.js';
 import { addWound, bloodFx, blowSpatter, bodyPen, bodyWound, exitThrough, holeInGroup, wallSpatter, worldPen } from './14-wounds.js';
-import { DESTR_OF, holePass, markPlate, packHit, ragHitInfo, wallGrid } from './15-destruction.js';
+import { DESTR_OF, gridOpenW, holePass, markPlate, packHit, ragHitInfo, wallGrid } from './15-destruction.js';
 import { door50, doorPartHit, doorShotgun } from './15b-doors.js';
 import { P, S, dummies, localBody } from './17-dummies.js';
 import { pointBlocked } from './18-player.js';
 import { applyHurt, net } from './19-network.js';
 import { ez, seg } from './19c-toolvm.js';
 import { frame } from './22-menu-loop.js';
+import { boardBreak } from './23-siege.js';
 import { lampBreak } from './24-env.js';
 import { GD, gadgetDisarm, gadgetTargets } from './27-gadgets.js';
 import { boxHit } from './30-structure.js';
@@ -62,10 +64,13 @@ function ejectShell(pos, right, up, fwd, base, type) {
   const v = right.clone().multiplyScalar(rnd(2.2, 3.4)).addScaledVector(up, rnd(1.2, 2)).addScaledVector(fwd, rnd(-0.6, 0.1)).add(base);
   addProp(m, type === '12g' ? v.multiplyScalar(0.7) : v, new V3(rnd(-25, 25), rnd(-10, 10), rnd(15, 35)), type === '12g' ? 0.011 : 0.005, 'shell', 25); props[props.length - 1].type = type;
 }
+const _gpU = new V3();
 function updateProps(dt) {
   for (let i = props.length - 1; i >= 0; i--) {
     const p = props[i]; p.life += dt;
     if (p.life > p.max) { scene.remove(p.m); props.splice(i, 1); continue; }
+    // (resting on something that has gone: it falls again; checked now and then)
+    if (p.rest && (p.chk = (p.chk || 0) + dt) > 0.4) { p.chk = 0; const q = p.m.position; if (q.y > p.r + 0.02 && !colliders.some(c => q.x > c.min.x && q.x < c.max.x && q.z > c.min.z && q.z < c.max.z && q.y >= c.max.y - 0.03 && q.y <= c.max.y + p.r + 0.06 && !(c.mesh && gridOpenW(c.mesh, _gpU.set(q.x, c.max.y - 0.01, q.z))))) { p.rest = false; p.v.set(0, -0.2, 0); } }
     if (p.rest) continue;
     const m = p.m, ox = m.position.x, oy = m.position.y, oz = m.position.z;
     p.v.y -= 9.8 * dt;
@@ -432,6 +437,12 @@ function onBulletHit(b, hit, dir, dist) {
   // a ceiling light: the shade and bulb burst, the light goes out (every client sees the same round hit it)
   if (ud.lamp !== undefined && b.frag) return { point: hit.point.clone().addScaledVector(dir, 0.3), dir, v };
   if (ud.lamp !== undefined && !b.frag) { lampBreak(ud.lamp, hit.point, dir); return { point: hit.point.clone().addScaledVector(dir, 0.3), dir, v: v * 0.95 }; }
+  // a plank over a window: rounds chew it until it lets go (a .50 takes it at once); whoever fired decides, everyone gets the break
+  if (ud.board !== undefined && !b.frag && (b.local || (b.ai && net.mode !== 'peer'))) {
+    ud.bHits = (ud.bHits || 0) + (b.w === 2 ? 99 : WEAPONS[b.w].pellets ? 0.4 : WEAPONS[b.w].kind === 'pistol' ? 0.7 : 1);
+    if (ud.bHits >= 5) { const i = ud.board, w = TOWN.windows[i], k = w && w.boards ? w.boards.indexOf(hit.object) : -1;
+      if (k >= 0) { boardBreak(i, k, dir); net.send({ t: 'sg', a: 'bk', i, k }); return { point: hit.point.clone().addScaledVector(dir, 0.06), dir, v: v * 0.85 }; } }
+  }
   if (ud.box && !ud.door && !b.frag && !ud.grid && !wallGrid(hit.object)) boxHit(hit.object, Eh * 0.6, b.local ? 'own' : 'peer');   // (fragments and spall, whose paths are random per machine, leave furniture alone)
   if (ud.door && b.local && !b.frag && WEAPONS[b.w].pellets) doorShotgun(ud.door, hit.point, dir, Eh, b.shot);
   if (ud.door && b.local && !b.frag && b.w === 2 && ud.door.kind === 'metal') door50(ud.door, hit.point, dir);
@@ -443,8 +454,25 @@ function onBulletHit(b, hit, dir, dist) {
   }
   return null;
 }
+// your own corpse: no wound was ever drawn on the body you saw yourself through (its blood would have hung in front of your
+// eyes), so when you go down every round that hit you is put through the ragdoll now: the same entry and exit wounds, holes
+// and blood anyone else's body would carry
+function corpseWounds(rag, an) {
+  if (!rag || !an || !an.hitPts) return;
+  rag.group.updateMatrixWorld(true); const tg = []; rag.group.traverse(o => { if (o.isMesh && o.visible && !o.userData.keep && !o.userData.organ && !o.userData.inner && !o.userData.tube) tg.push(o); });
+  const rc = new THREE.Raycaster();
+  for (const h of an.hitPts) {
+    if (h.onCorpse === rag) continue; h.onCorpse = rag;
+    const [g, dy] = rag.frameGroup(h.frame, h.e.y); if (!g) continue;
+    const p = g.localToWorld(h.e.clone().setY(h.e.y + dy)), dir = h.d.clone().transformDirection(g.matrixWorld).normalize();
+    rc.set(p.clone().addScaledVector(dir, -0.25), dir); rc.far = 0.5; const hit = rc.intersectObjects(tg, false)[0]; if (!hit) continue;
+    const info = ragHitInfo(hit, dir), ex = exitThrough(hit.object.parent.children.filter(o => o.isMesh && !o.userData.keep && !o.userData.organ && !o.userData.inner && !o.userData.tube), hit.point, dir, 0.8);
+    const pen = bodyPen(info.frame, info.e, info.d, ex ? ex.len : 0.3, h.v || 850, h.w || 0);
+    try { bodyWound(hit, dir, h.w || 0, pen, ex, null, false); } catch (e) {}
+  }
+}
 function showRange(t) { const e = $('range'); e.textContent = t; e.style.transition = 'none'; e.style.opacity = '1'; clearTimeout(showRange.t); showRange.t = setTimeout(() => { e.style.transition = 'opacity .6s'; e.style.opacity = '0'; }, 1300); }
 
 // ---- module exports: build.mjs strips this block ----
-export { addProp, bulletTargets, bullets, ejectShell, onBulletHit, props, removeBullet, spawnBullet, updateBullets, updateProps, wmFor };
+export { addProp, bulletTargets, bullets, corpseWounds, ejectShell, onBulletHit, props, removeBullet, spawnBullet, updateBullets, updateProps, wmFor };
 // ---- end module exports ----

@@ -129,7 +129,7 @@ function freezeEnd() { if (!_frz) return; FREEZE_KEYS.forEach((k, i) => { if (ke
 async function queueUp(mode) {
   $('err').textContent = mode === 'raid' ? 'Looking for a raid...' : 'Looking for a match...';
   let j = null; try { j = await api('/api/queue', { mode: mode || 'siege' }); } catch (e) {}
-  S.cfg = { name: mode === 'raid' ? 'Raid lobby' : 'Public match', mode: mode || 'siege', pub: 1, tod: 6.4, weather: 'rain', dayLen: 60, win: 5, max: 12 }; S.pub = true;
+  S.cfg = { name: mode === 'raid' ? 'Raid lobby' : 'Public match', mode: mode || 'siege', pub: 1, tod: 6.4, weather: 'random', dayLen: 60, win: 5, max: 12 }; S.pub = true;
   if (j && j.room) {
     // (a lobby just made by someone else queueing may take a second to come up)
     for (let k = 0; k < 8; k++) { try { await api('/api/room?room=' + j.room); break; } catch (e) { await sleep(800); } }

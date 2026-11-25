@@ -25,6 +25,7 @@ import { ENV } from './24-env.js';
 import { SL, lightLevel } from './26-lights.js';
 import { GADGETS, GD, gadgetAdd, gadgetRemove, sledgeBody, smokeAt } from './27-gadgets.js';
 import { floorUnder } from './30-structure.js';
+import { aiSay, voDeath } from './32b-ai-voice.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- AI defenders (raid mode, the CQC course, "spawn ai")
 // Each one is a full body (the same Dummy, so it takes rounds, bleeds, breaks and dies like anyone) with a brain on top:
@@ -539,6 +540,7 @@ class AIBot extends Dummy {
     this.campStance = this.campWish === 2 && !this.campLean && Math.abs(angWrap(this.lookYaw - this.ayaw)) < 0.3 ? (this.stance === 2 || this.roomToLie(t) ? 2 : 1) : this.campLean ? 0 : this.campWish === 2 ? 1 : this.campWish || 0;
   }
   goTo(p, st) {
+    if ((st === 'hunt' || st === 'rush') && this.state !== st && Math.random() < 0.4) aiSay(this, 'vo_moveup');
     this.state = st; const now = performance.now();
     // (never out of its building: a place outside is swapped for the nearest place inside)
     if (!this.inA(p)) { const N = navFor(this.pos); let b = null, bd = 1e9; for (const n of N.nodes) { if (!this.inA(n) || Math.abs(n.y - p.y) > 1.5) continue; const d = Math.hypot(n.x - p.x, n.z - p.z); if (d < bd) { bd = d; b = n; } } if (!b) return; p = new V3(b.x, b.y, b.z); }
@@ -616,8 +618,10 @@ class AIBot extends Dummy {
     else this.fireT = 60 / W.rpm;
     this.shoot();
   }
-  reload() { if (this.reloadT > 0) return; this.reloadT = WEAPONS[this.w].pellets ? 2.8 : 2.6; this.burst = 0; }
+  reload() { if (this.reloadT > 0) return; this.reloadT = WEAPONS[this.w].pellets ? 2.8 : 2.6; this.burst = 0; if (Math.random() < 0.8) aiSay(this, 'vo_reload'); }
   shoot() {
+    // (a mate close by is changing magazines: this one says it has him covered)
+    if (Math.random() < 0.12 && AIS.some(o => o !== this && !o.dead && o.reloadT > 0 && o.pos.distanceTo(this.pos) < 15 && (!o.hostP || !this.hostP || o.hostP.team === this.hostP.team))) aiSay(this, 'vo_cover');
     const W = WEAPONS[this.w], e = this.eye, cp = Math.cos(this.pitch), dir = new V3(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp).normalize();
     dir.x += rnd(-1, 1) * W.disp * 2; dir.y += rnd(-1, 1) * W.disp * 2; dir.normalize();
     const o = e.clone().addScaledVector(dir, 0.55).add(new V3(0, -0.12, 0));
@@ -673,6 +677,7 @@ class AIBot extends Dummy {
     if (!Array.isArray(wd)) return; const d = new V3().fromArray(wd); this.lookYaw = Math.atan2(d.x, d.z);
     this.noise = { p: this.pos.clone().addScaledVector(d.normalize(), -8), t: performance.now() };
     if (!this.tgtVis() && Math.random() < 0.5) this.fallBack();
+    if (Math.random() < 0.7) aiSay(this, 'vo_fire');
   }
   respawn(p) {
     this.out = false; this.dead = false; this.respawnT = 0; this.deadT = 0; this.neckHits = 0; this.hum.erosion = []; this.hum._skullOpen = false; this.unarmed = false; this.credited = false;
@@ -702,6 +707,7 @@ class AIBot extends Dummy {
   die() {
     if (this.dead) return;
     super.die(); this.respawnT = 1e12; this.tgt = null; this.path = null;
+    if (S.mode !== 'online') voDeath(this.pid, 0, this.pos.clone(), this.hostP ? this.hostP.team : undefined);
     if (this.hostP && net.host) {
       const an = this.anat, d = an.lastDir.clone();
       net.host.died(this.hostP, { t: 'died', by: this.lastBy || an.lastBy || 0, part: PART_OF_REGION(an.lastRegion), head: an.cause === 'brain', d: d.toArray().map(r4x), dist: Math.round(an.lastDist || 0), cause: an.cause || 'bleed', gib: an.gibHead ? 1 : 0, lf: this.hostP.life });
@@ -876,5 +882,5 @@ function aiClearAll() { for (const b of AIS.slice()) { b.dispose(); const k = du
 function updateAI() { const now = performance.now(); if (AIS.length && now - (updateAI.t || 0) > 500) { updateAI.t = now; navSkipDoors(); } while (AI_NOISE.length && now - AI_NOISE[0].t > 1500) AI_NOISE.shift(); }
 
 // ---- module exports: build.mjs strips this block ----
-export { AIBot, CQC, aiClear, aiNoise, buildCqc, cqcReset, navClear, navDirty, raidAddBots, raidBodies, spawnAI, updateAI };
+export { AIBot, AIS, CQC, aiClear, aiNoise, buildCqc, cqcReset, navClear, navDirty, raidAddBots, raidBodies, spawnAI, updateAI };
 // ---- end module exports ----

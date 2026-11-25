@@ -118,7 +118,8 @@ function updateEyes(dt) {
   eyeEls.gas.style.opacity = String(clamp(EYE.gasK * 0.9, 0, 0.9));
   P.gasK = EYE.gasK; P.smokeK = EYE.smokeK;
   // ---- the eyelids: blinking, watering eyes in gas, blacking out when downed
-  const out = on && P.downed && (an.koT > 0 || an.painDown || an.o2 < 0.35 || (an.blood || 5000) < 1800);
+  // (down and not paralysed is down unconscious: the screen goes fully black, only the 'downed' line shows over it)
+  const out = on && P.downed && !an.paralyzed;
   EYE.outK = damp(EYE.outK, out ? 1 : 0, out ? 1.4 : 2.2, dt);
   // (unconscious, the hearing goes too: the HUD's muffle follows this; down but awake, you still hear)
   S.eyeOut = out && EYE.outK > 0.6; EYE.wasOut = out;
@@ -132,6 +133,8 @@ function updateEyes(dt) {
   if (EYE.blink > 0) { EYE.blink = Math.max(0, EYE.blink - dt); bl = blinkShape(1 - EYE.blink / EYE.blinkTot) * EYE.blinkDepth; }
   const squint = EYE.gasK * 0.55 + (P.flashBlind > 0 ? 0.15 : 0);
   setLid(on ? clamp(Math.max(bl, squint, EYE.outK), 0, 1) : 0);
+  if (!eyeEls.out) eyeEls.out = (() => { const d = document.createElement('div'); d.style.cssText = 'position:fixed;inset:0;background:#000;pointer-events:none;z-index:5;opacity:0'; document.body.appendChild(d); return d; })();
+  eyeEls.out.style.opacity = String(on ? clamp(EYE.outK * 1.15, 0, 1) : 0);
   // ---- a CSS filter over the game view: smoke and gas blur, night vision green and bright
   const nvg = on && P.head === 'nvg' && P.nvgOn;
   const gl = nvg ? nvgGlare(dt) : 0; EYE.glare = damp(EYE.glare || 0, gl, gl > (EYE.glare || 0) ? 14 : 2.5, dt);

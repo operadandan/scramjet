@@ -28,7 +28,8 @@ import { lightState } from './26-lights.js';
 import { clearGadgets } from './27-gadgets.js';
 import { LOBBY_SP, goLobbyWorld, loadoutUI, lobbyStrip } from './28-match.js';
 import { damageApply, damageSnap, demolish } from './30-structure.js';
-import { raidAddBots, raidBodies } from './32-ai.js';
+import { AIS, raidAddBots, raidBodies } from './32-ai.js';
+import { voDeath, voRoundGo, voRoundWon, voRx } from './32b-ai-voice.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- transport (Durable Object websocket, or peer-to-peer WebRTC with the room creator as host)
 const net = {
@@ -81,7 +82,7 @@ class HostRoom {
   // snap: when a lobby moves to this player because its host left, what the round was (from their last round message): the
   // ids, teams and score carry on, and so does the round, timers included
   constructor(snap) {
-    this.players = new Map(); this.nextId = snap ? snap.myId : 1; this.cfg = Object.assign({ name: 'BREACH server', mode: 'siege', win: 5, max: MAX_P2P, tod: 6.4, weather: 'rain', pub: 0 }, S.cfg || {}); this.rInit();
+    this.players = new Map(); this.nextId = snap ? snap.myId : 1; this.cfg = Object.assign({ name: 'BREACH server', mode: 'siege', win: 5, max: MAX_P2P, tod: 6.4, weather: 'random', pub: 0 }, S.cfg || {}); this.rInit();
     this.self = this.add(null);
     if (snap) { this.migT = Date.now(); this.nextId = Math.max(this.nextId, ...snap.ids.map(i => i + 1), ...((snap.r && Array.isArray(snap.r.ai)) ? snap.r.ai.map(i => (i | 0) + 1) : [])); this.migIds = new Set(snap.ids.filter(i => i !== snap.myId && !(snap.r && Array.isArray(snap.r.ai) && snap.r.ai.includes(i)))); this.migPl = snap.pl || {}; this.rResume(snap);
       // (the bots carry on too: back on their posts if a round is on)
@@ -231,6 +232,7 @@ class HostRoom {
     p.alive = false; p.deaths++; this.sgDrop(p, m.dp);
     const by = this.players.has(m.by) && m.by !== p.id ? m.by : 0, kc = by && !p.credited && this.players.get(by).team !== p.team ? 1 : 0;
     if (kc) this.players.get(by).kills++;
+    { const pb = AIS.find(b => b.hostP === p), st = pb ? pb.pos : p.state && Array.isArray(p.state.p) ? new V3().fromArray(p.state.p) : null; voDeath(p.id, by, st ? st.clone() : null, p.team); }   // (the bots call it: 32b-ai-voice)
     this.broadcast({ t: 'die', id: p.id, by, kc, part: ['head', 'torso', 'arm', 'leg'].includes(m.part) ? m.part : 'torso', head: !!m.head, gib: m.gib ? 1 : 0, d: Array.isArray(m.d) ? m.d.slice(0, 3).map(Number) : [0, 0, -1], dist: clamp(Math.round(Number(m.dist) || 0), 0, 5000), cause: String(m.cause || '').slice(0, 10) });
     // on the baseplate: back in 3 s; in a round: out until the next one
     if (this.R.ph === 'lobby') setTimeout(() => { if (this.players.has(p.id) && net.host === this && this.R.ph === 'lobby' && !p.alive) this.spawn(p); }, 3000); else this.rCheck();
@@ -308,7 +310,7 @@ class HostRoom {
   // the loadouts are in: the round starts (held still for the first 5 s)
   rGo() {
     const R = this.R, now = Date.now(); R.ph = 'live'; R.go = now + 5000; R.end = now + 5000 + 180000;
-    this.broadcast(this.rMsg()); this.rCheck();
+    this.broadcast(this.rMsg()); this.rCheck(); voRoundGo(this);
     const n = R.n; this.rTimer(185000, () => { if (R.n === n && R.ph === 'live' && !R.plant) this.rEnd('b', 'time'); });
   }
   // ---------------------------------------------------------------- the bomb, the defuser, boards and reinforcements (Siege)
@@ -360,7 +362,7 @@ class HostRoom {
     const R = this.R; if (R.ph !== 'live') return;
     R.ph = 'post'; R.sc[win]++; R.end = Date.now() + 7000; R.go = 0; if (R.pt) clearTimeout(R.pt); R.pt = null;
     const over = R.sc[win] >= (this.cfg.win || 5);
-    this.broadcast(this.rMsg({ win, why, over: over ? 1 : 0 }));
+    this.broadcast(this.rMsg({ win, why, over: over ? 1 : 0 })); voRoundWon(win);
     // first to 5 wins the match: its result stays up, then everyone goes back to the baseplate
     this.rTimer(over ? 12000 : 7000, () => over ? this.rLobby() : this.rStart());
   }
@@ -527,6 +529,7 @@ function onNet(m) {
     case 'punched': onPunched(m); break;
     case 'demo': demolish(); break;
     case 'hurt': applyHurt(m); break;
+    case 'vo': voRx(m); break;
     case 'die': {
       const dir = new V3().fromArray(m.d || [0, 0, -1]).normalize();
       const killer = S.names[m.by] || ('P' + m.by), victim = S.names[m.id] || ('P' + m.id);
@@ -626,7 +629,7 @@ function resetRoundWorld() {
   if (net.mode === 'host' && net.host && net.host.bots) raidBodies();
   // every round on the house map starts at dawn, in the rain
   // each round starts at the server's time of day and weather (dawn and rain unless the host set otherwise)
-  { const c = (net.mode === 'host' && net.host ? net.host.cfg : S.cfgIn) || {}; ENV.tod = Number.isFinite(+c.tod) ? +c.tod : 6.4; envSet(c.weather || 'rain', true); if (+c.dayLen > 0) ENV.rate = 0.4 / +c.dayLen; }
+  { const c = (net.mode === 'host' && net.host ? net.host.cfg : S.cfgIn) || {}; ENV.tod = Number.isFinite(+c.tod) ? +c.tod : 6.4; envSet(c.weather || 'random', true); if (+c.dayLen > 0) ENV.rate = 0.4 / +c.dayLen; }
   envShare();
 }
 let bannerT = 0, leftT = 0;

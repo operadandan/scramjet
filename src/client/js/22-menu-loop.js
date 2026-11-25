@@ -6,6 +6,7 @@ import { buildTown } from './01b-town.js';
 import { updateCloth } from './02-body-parts.js';
 import { limbBodies, ragdolls, updateLimbs } from './04-ragdoll.js';
 import { freshGuns } from './06-weapons.js';
+import { armTeam } from './06c-arm-rig.js';
 import { updateDevices } from './09-attachments.js';
 import { audio, inside } from './10-audio.js';
 import { sfxAmbience } from './10c-sfx.js';
@@ -27,7 +28,7 @@ import { clearItems, hlMesh, openAttMenu, updateToolbar } from './21-items-inven
 import { screenFx } from './21b-screenfx.js';
 import { warmFx } from './22b-warm.js';
 import { SG, siegeClear, siegeUpdate } from './23-siege.js';
-import { updateEnv } from './24-env.js';
+import { envSet, updateEnv } from './24-env.js';
 import { updateConsole } from './25-console.js';
 import { updateLights } from './26-lights.js';
 import { gadgetGhostOff, updateGadgets, wireDrag } from './27-gadgets.js';
@@ -74,7 +75,7 @@ $('name').value = localStorage.getItem('breach_name') || '';
 if (!ENABLE_TEST_MODE) $('test').style.display = 'none';
 function playerName() { const n = $('name').value.trim().slice(0, 16) || ('Op' + Math.floor(Math.random() * 900 + 100)); try { localStorage.setItem('breach_name', n); } catch (e) {} return n; }
 function enterGame(mode) {
-  S.mode = mode; $('menu').style.display = 'none'; $('hud').style.display = 'block'; $('err').textContent = '';
+  S.mode = mode; if (mode === 'test') envSet('random', true); $('menu').style.display = 'none'; $('hud').style.display = 'block'; $('err').textContent = '';
   $('vig').style.display = $('vigads').style.display = 'block';
   $('help').innerHTML = mode === 'test' ? 'TESTING RANGE · L loadout · ` console (give, spawn, explode, hurt, sites, lights...)<br>K test headshot death, J test body death, Y take a test rifle hit, U be suppressed<br>Shooting range on your right: 25 m to 750 m · the close-quarters course with AI defenders is behind you' : '';
   $('pauseinfo').innerHTML = mode === 'online' ? 'Room code: <b style="color:#fff;letter-spacing:3px">' + S.room + '</b><br>Share it so friends can join.' : 'Testing mode';
@@ -283,7 +284,7 @@ function frame(now, hidden) {
   }
   updateBullets(wdt);
   for (const r of ragdolls) r.update(wdt);
-  updateFx(wdt); updateDebris(wdt); updateStructure(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); siegeUpdate(wdt); roundHud(); matchHud(); screenFx(wdt); updateEyes(wdt); updateConsole(dt); updateEnv(dt); updateLights(dt); updateLimbs(wdt); updateHeats(wdt); sfxAmbience(dt);
+  updateFx(wdt); updateDebris(wdt); updateStructure(wdt); updateGore(wdt); updateBlood(wdt); updatePools(wdt); updateProps(wdt); updateDoors(wdt); siegeUpdate(wdt); roundHud(); matchHud(); screenFx(wdt); updateEyes(wdt); updateConsole(dt); updateEnv(dt); updateLights(dt); updateLimbs(wdt); updateHeats(wdt); sfxAmbience(dt); armTeam();
   updateCamera(dt); if (S.mode && P.alive && !P.downed) tpCamera();
   if (S.mode) { updateViewmodel(dt); vmCamera.updateMatrixWorld(true); updateDevices(); } else updateDevices();
   updateTPBody(dt);

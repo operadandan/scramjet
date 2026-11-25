@@ -33,7 +33,10 @@ const MOUNTS = {
   m9: { muzzle: [0, 0.013, -0.1], muzR: 0.0145, supLen: 0.15, side: [0, -0.024, -0.062], pistol: true }
 };
 // the Studio M4: rails on its shorter quad-rail handguard
-if (IMPORTED.m4) Object.assign(MOUNTS.m4, { under: [0, -0.0397, -0.2], side: [0.0315, -0.007, -0.205] });
+// the imported M4's rails, measured: top rail teeth at y 0.0246, bottom rail teeth at -0.0383, both 19 mm across. Each
+// attachment sits with its clamp's underside on the teeth (EOTech base 7.9 mm up from its jaw tips, MRO 9.7 mm, the grip's
+// slot 8.5 mm deep), the jaws hugging the rail's sides
+if (IMPORTED.m4) Object.assign(MOUNTS.m4, { under: [0, -0.0383 + 0.0085, -0.2], side: [0.0315, -0.007, -0.205], holoAt: [0, 0.0246 - 0.0079, -0.005], dotAt: [0, 0.0246 - 0.0097, -0.005] });
 const dotTex = canvasTex((g, s) => { g.clearRect(0, 0, s, s); g.fillStyle = '#ff2a1a'; g.shadowColor = '#ff2a1a'; g.shadowBlur = 10; g.beginPath(); g.arc(s / 2, s / 2, s * 0.06, 0, 7); g.fill(); }, 128, false);
 const lensGlow = new THREE.MeshBasicMaterial({ color: 0xff2020, toneMapped: false });
 const lightLens = new THREE.MeshBasicMaterial({ color: 0xfff6dd, toneMapped: false });
@@ -189,8 +192,8 @@ for (const [wi, W] of VMW.entries()) {
     else W.parts.optic.irons = { g: new THREE.Group(), ret: null, sightY: M.ironsH };
     if (M.sideMount) { const sm = new THREE.Group(); W.g.add(sm); vrbox(0.006, 0.05, 0.06, 0.002, GM.anod, sm, -0.021, 0.005, -0.01); vrbox(0.04, 0.006, 0.07, 0.002, GM.anod, sm, -0.002, 0.03, -0.01); rail(sm, -0.045, 0.025, 0.033); W.sideMountG = sm; }
     const top = M.sideMount ? [0, 0.036, -0.01] : M.optic;
-    W.parts.optic.holo = IMPORTED.eotech ? impOptic(W.g, top, IMPORTED.eotech, reticleTex, 0.0095, 0.0491, -0.036) : buildHoloSight(W.g, top);
-    W.parts.optic.reddot = IMPORTED.mro ? impOptic(W.g, top, IMPORTED.mro, dotTex, 0.008, 0.0424, -0.012) : buildRedDot(W.g, top);
+    W.parts.optic.holo = IMPORTED.eotech ? impOptic(W.g, W.imported && M.holoAt ? M.holoAt : top, IMPORTED.eotech, reticleTex, 0.0095, 0.0491, -0.036) : buildHoloSight(W.g, top);
+    W.parts.optic.reddot = IMPORTED.mro ? impOptic(W.g, W.imported && M.dotAt ? M.dotAt : top, IMPORTED.mro, dotTex, 0.008, 0.0424, -0.012) : buildRedDot(W.g, top);
   }
   if (ATT_SLOTS[id].includes('under')) { W.parts.under.vert = IMPORTED.vfg ? impPart(W.g, M.under, IMPORTED.vfg) : buildVertGrip(W.g, M.under); W.vfgHand = buildVfgHand(W, M.under, W.elbow); }
 }

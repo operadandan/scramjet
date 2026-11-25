@@ -13,7 +13,7 @@ import { S } from './17-dummies.js';
 const SND = { buf: {}, shift: {}, loading: false, choke: new Map(), amb: null };
 function sfxLoad() {
   if (SND.loading) return; SND.loading = true; const a = actx;
-  for (const g of ['m4', 'g17', 'm107', 'sg', 'drop', 'death']) fetch('/sfx/' + g + '.mp3').then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status)).then(b => a.decodeAudioData(b)).then(buf => {
+  for (const g of ['m4', 'g17', 'm107', 'sg', 'drop', 'death', 'voice']) fetch('/sfx/' + g + '.mp3').then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status)).then(b => a.decodeAudioData(b)).then(buf => {
     // (an mp3 decoder may start a few ms late: find where the first sound really is and shift every clip by the difference)
     const d = buf.getChannelData(0); let i = 0; while (i < d.length && Math.abs(d[i]) <= 0.004) i++;
     const sh = i / buf.sampleRate - SFX_CLIPS['_' + g]; SND.shift[g] = Math.abs(sh) < 0.08 ? sh : 0; SND.buf[g] = buf;
@@ -28,7 +28,7 @@ const sfxHit = (name, i) => { const c = SFX_CLIPS[name]; return c ? c[1][(i | 0)
 function sfxPlay(name, o) {
   const c = SFX_CLIPS[name]; if (!c || !SND.buf[c[0]]) return null; o = o || {};
   const a = audio(), L = c[1], i = o.i !== undefined ? o.i % L.length : Math.floor(Math.random() * L.length), [off, dur, hit] = L[i], rate = o.rate || 1;
-  const now = a.currentTime, want = (o.at !== undefined ? o.at : now) - hit / rate;
+  const now = a.currentTime, want = o.at !== undefined ? o.at - hit / rate : now;   // (lined up on its hit only when told when that should land)
   const S_ = o.dry ? spatial(a, now, null, 0, 'step') : spatial(a, now, o.pos || null, o.dist || 0, o.kind || 'shot');
   const start = Math.max(now, want + (S_.start - now)), skip = Math.max(0, now - want) * rate;
   if (skip >= dur - 0.02) return null;
@@ -104,5 +104,5 @@ function sfxAmbience(dt) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { rackCues, reloadCues, runCues, sfxAmbience, sfxDeath, sfxDrop, sfxHas, sfxLoad, sfxShot };
+export { rackCues, reloadCues, runCues, sfxAmbience, sfxDeath, sfxDrop, sfxHas, sfxLoad, sfxPlay, sfxShot };
 // ---- end module exports ----

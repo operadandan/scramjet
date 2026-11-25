@@ -134,7 +134,7 @@ class Anatomy {
     const region = regionOf(frame, e);
     this.lastRegion = region; this.lastW = w; this.lastV = v;
     // where it went in, in the frame's own coordinates: a body with no wound meshes (the player's) bleeds from these
-    (this.hitPts = this.hitPts || []).push({ frame, e: e.clone(), d: d.clone() }); if (this.hitPts.length > 8) this.hitPts.shift();
+    (this.hitPts = this.hitPts || []).push({ frame, e: e.clone(), d: d.clone(), v, w }); if (this.hitPts.length > 8) this.hitPts.shift();
     const limb = LIMB_OF[region];
     if (limb && this.lost[limb[0]] && this.lost[limb[0]] <= limb[1]) return { region, missing: true };
     let vel = v;

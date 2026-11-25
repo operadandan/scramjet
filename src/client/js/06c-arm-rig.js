@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { V3, clamp, lerp, renderer } from './00-setup.js';
 import { mat } from './01-world.js';
-import { P } from './17-dummies.js';
+import { P, S } from './17-dummies.js';
 // ---- end module links ----
 // ---------------------------------------------------------------- skinned viewmodel arms (rigged from the Studio arm model)
 // public/models/arms/arms.bin holds both arms already skinned (assets/models/arms/rig.py): upper arm, forearm, hand, and three
@@ -16,7 +16,7 @@ await (async () => {
     const b = await r.arrayBuffer(), n = new DataView(b).getUint32(0, true), H = JSON.parse(new TextDecoder().decode(new Uint8Array(b, 4, n))), o = 4 + n;
     const tex = await new THREE.TextureLoader().loadAsync('/models/arms/arm_col.jpg'); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.82, metalness: 0 });
-    ARM_DATA = { mat };
+    ARM_DATA = { mat, tex, team: armTeamTex(tex.image) };
     for (const side of ['R', 'L']) {
       const a = H.arms[side], g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(b, o + a.p, a.n * 3), 3));
@@ -30,6 +30,45 @@ await (async () => {
     }
   } catch (e) { console.warn('rigged arms not loaded, using the built-in hands', e); ARM_DATA = null; }
 })();
+// the sleeves in the team's colour: the camouflage is replaced by a plain combat-shirt fabric in red (attackers) or navy
+// (defenders), keeping the folds of the original (its blurred brightness) and adding a fine weave and the seams; the gloves
+// become black synthetic gloves with darker knuckle pads; the fingers stay skin
+function armTeamTex(img) {
+  const W = img.width, H = img.height, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+  const src = g.getImageData(0, 0, W, H).data;
+  const sm = document.createElement('canvas'); sm.width = sm.height = 48; const sg = sm.getContext('2d'); sg.imageSmoothingQuality = 'high'; sg.drawImage(img, 0, 0, 96, 96);
+  const bl = document.createElement('canvas'); bl.width = W; bl.height = H; const bg = bl.getContext('2d'); bg.imageSmoothingEnabled = true; bg.imageSmoothingQuality = 'high'; bg.filter = 'blur(14px)'; bg.drawImage(sm, 0, 0, W, H);
+  const blur = bg.getImageData(0, 0, W, H).data;
+  const make = (base, hi) => {
+    const out = g.createImageData(W, H), d = out.data;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4, r = src[i], gg = src[i + 1], b = src[i + 2];
+      d[i + 3] = 255;
+      const isBg = Math.abs(r - 28) < 6 && Math.abs(gg - 28) < 6 && Math.abs(b - 28) < 6;
+      if (isBg) { d[i] = r; d[i + 1] = gg; d[i + 2] = b; continue; }
+      const skin = r > 165 && r - b > 45;
+      if (y > H * 0.6 && skin) { d[i] = r; d[i + 1] = gg; d[i + 2] = b; continue; }
+      const L = (blur[i] * 0.3 + blur[i + 1] * 0.59 + blur[i + 2] * 0.11) / 255, Lf = (r * 0.3 + gg * 0.59 + b * 0.11) / 255;
+      if (y > H * 0.6) {
+        // glove: black, the original's light and dark kept, a little sheen
+        const k = 0.1 + Lf * 0.3; d[i] = 255 * k * 0.95; d[i + 1] = 255 * k * 0.96; d[i + 2] = 255 * k; continue;
+      }
+      // sleeve fabric: the folds from the blurred brightness, a twill weave, a darker seam every so often
+      const fold = 0.9 + (L - 0.42) * 0.45 + (Math.sin(x * 0.045 + Math.sin(y * 0.02) * 2.2) * 0.05) + (Math.sin(y * 0.11 + x * 0.013) * 0.03), weave = ((x + y) % 4 < 2 ? 0.04 : -0.04) + ((x * 7 + y * 13) % 11 === 0 ? -0.05 : 0), seam = (x % 170 < 3) ? -0.18 : 0;
+      const k = Math.max(0.2, fold + weave + seam);
+      d[i] = Math.min(255, base[0] * k + hi[0] * Math.max(0, k - 1)); d[i + 1] = Math.min(255, base[1] * k + hi[1] * Math.max(0, k - 1)); d[i + 2] = Math.min(255, base[2] * k + hi[2] * Math.max(0, k - 1));
+    }
+    const cc = document.createElement('canvas'); cc.width = W; cc.height = H; cc.getContext('2d').putImageData(out, 0, 0);
+    const t = new THREE.CanvasTexture(cc); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy()); return t;
+  };
+  return { r: make([158, 38, 34], [90, 40, 30]), b: make([40, 64, 126], [30, 40, 80]) };
+}
+// the arms wear the colour of the side you are on (the testing range: attackers' red)
+function armTeam() {
+  if (!ARM_DATA || !ARM_DATA.team) return;
+  const t = S.mode === 'online' && S.team && S.team[S.myId] === 'b' ? 'b' : 'r', tex = ARM_DATA.team[t];
+  if (ARM_DATA.mat.map !== tex) { ARM_DATA.mat.map = tex; ARM_DATA.mat.needsUpdate = true; }
+}
 const FINGERS = ['thumb', 'index', 'middle', 'ring', 'pinky'];
 const _aq = new THREE.Quaternion(), _aq2 = new THREE.Quaternion(), _av = new V3(), _av2 = new V3(), _am = new THREE.Matrix4(), _am2 = new THREE.Matrix4();
 const v3a = a => new V3().fromArray(a);
@@ -212,5 +251,5 @@ function lerpCurls(a, b, u, out) {
 }
 
 // ---- module exports: build.mjs strips this block ----
-export { ARM_DATA, ArmRig, FINGERS, GraspCloud, fingerTo, graspSolve, lerpCurls, thumbTo, v3a };
+export { ARM_DATA, ArmRig, FINGERS, GraspCloud, armTeam, fingerTo, graspSolve, lerpCurls, thumbTo, v3a };
 // ---- end module exports ----

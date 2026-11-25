@@ -15,7 +15,7 @@ import { muzzleSmoke } from './12-blood.js';
 import { tpAim } from './13-third-person.js';
 import { clearWounds, floorAt } from './14-wounds.js';
 import { gridOpenW, gridPass } from './15-destruction.js';
-import { addProp, ejectShell, spawnBullet, wmFor } from './16-ballistics.js';
+import { addProp, corpseWounds, ejectShell, spawnBullet, wmFor } from './16-ballistics.js';
 import { P, S, arteryRate, bleedDrips, deathMasks, fpBody, fpClip, keys, localBody, mouse, reactRun, reactStart } from './17-dummies.js';
 import { net } from './19-network.js';
 import { updateC4, updateFrag } from './19b-explosives.js';
@@ -53,7 +53,7 @@ function enterDowned(extra) {
   P.downed = true; P.adsOn = false; P.reloading = false; P.healing = false; P.inspecting = false; mouse.left = false; P.react = null; P.stun = 0;
   localBody.update(0);
   P.rag = spawnRagdoll(localBody, P.vel.clone(), an.lastDir.clone(), PART_OF_REGION(an.lastRegion), false, Object.assign({ bb: an.brokenMask(), ls: an.lostMask(), lc: an.cutArr(), keep: true, w: playerWoundMasks(an) }, extra || {}));
-  P.rag.owner = { anat: an };
+  P.rag.owner = { anat: an }; corpseWounds(P.rag, an);
   $('downmsg').style.display = 'block';
   $('downwhy').textContent = an.koT > 0 ? 'Knocked out. You will come round in a few seconds.' : an.paralyzed ? 'Spinal cord injury. You will not get up.' : P.trapDown ? 'Caught in a bear trap: your leg is crushed and held.' : P.forceDown ? 'You went down and cannot get back up.' : 'You blacked out from the pain. You may come to if it eases.';
   downText();
@@ -72,6 +72,14 @@ function wakeUp() {
 }
 // climbing over: something ahead whose top is between knee and chest-plus height, with room to stand on it. The body goes up
 // first (hands on the edge, gun pulled in), then over, slower the higher it is
+// for climbing into or over: blocked, and a plank over a window always counts, shot full of holes or not (nobody climbs
+// through boards); a wall with a hole in it only counts as open where it really is
+function climbBlocked(pos, h, r) {
+  const c = blocked(pos, h, r); if (c) return c;
+  for (const b of colliders) { const u = b.mesh && b.mesh.userData; if (!u || u.board === undefined) continue;
+    if (pos.x + r > b.min.x && pos.x - r < b.max.x && pos.z + r > b.min.z && pos.z - r < b.max.z && pos.y + h > b.min.y && pos.y < b.max.y) return b; }
+  return null;
+}
 function tryMantle() {
   const fwd = new V3(-Math.sin(P.yaw), 0, -Math.cos(P.yaw));
   for (let d = 0.2; d <= 0.75; d += 0.08) {
@@ -81,7 +89,7 @@ function tryMantle() {
     if (up < 0.4 || up > 1.75) return false;
     for (const ex of [0.35, 0.5, 0.65]) {
       const L = P.pos.clone().addScaledVector(fwd, d + ex); L.y = top + 0.005;
-      if (!blocked(L, 1.8, PR - 0.03) && !blocked(new V3(P.pos.x, top + 0.05, P.pos.z), 1.8 - up * 0.3, PR - 0.1)) {
+      if (!climbBlocked(L, 1.8, PR - 0.03) && !climbBlocked(new V3(P.pos.x, top + 0.05, P.pos.z), 1.8 - up * 0.3, PR - 0.1)) {
         const edge = P.pos.clone().addScaledVector(fwd, d + 0.03); edge.y = top;
         P.mantle = { t: 0, dur: 0.75 + up * 0.45, a: P.pos.clone(), a2: P.pos.clone().addScaledVector(fwd, Math.max(0, d - 0.3)), b: L, up, edge: edge.toArray() }; P.adsOn = false; P.leanState = 0; P.inspecting = false; P.sprinting = false;
         return true;
@@ -103,12 +111,17 @@ function tryVault() {
     let far = -1; for (let e = d; e <= d + 0.9; e += 0.05) { const q = P.pos.clone().addScaledVector(fwd, e); q.y = top - 0.08; if (!blocked(q, 0.05, 0.05)) { far = e; break; } }
     if (far < 0) return false;
     // the gap above it has to be open (a window: a little over a metre)
-    for (let e = d - 0.1; e <= far + 0.2; e += 0.1) { const q = P.pos.clone().addScaledVector(fwd, e); q.y = top + 0.04; if (blocked(q, 0.8, 0.18)) return false; }
+    for (let e = d - 0.1; e <= far + 0.2; e += 0.1) { const q = P.pos.clone().addScaledVector(fwd, e); q.y = top + 0.04; if (climbBlocked(q, 0.8, 0.18)) return false; }
     const L = P.pos.clone().addScaledVector(fwd, far + 0.5); const fy = floorAt(L.x, top, L.z); if (top - fy > 2.2 || fy > top) return false; L.y = fy;
-    if (blocked(L, 1.75, PR - 0.05)) return false;
+    if (climbBlocked(L, 1.75, PR - 0.05)) return false;
     const edge = P.pos.clone().addScaledVector(fwd, d + 0.02); edge.y = top;
     // what is overhead through the gap (a window's head): the view is kept under it, eased, so it never pokes into the wall
     let ceil = 1e9; for (let e = d - 0.1; e <= far + 0.3; e += 0.1) { const q = P.pos.clone().addScaledVector(fwd, e); for (const c of colliders) if (q.x > c.min.x - 0.15 && q.x < c.max.x + 0.15 && q.z > c.min.z - 0.15 && q.z < c.max.z + 0.15 && c.min.y > top + 0.2 && c.min.y < ceil) ceil = c.min.y; }
+    // and a hole knocked through a wall: its top edge is part of the same wall (the solid round the hole), found in its grid
+    for (let e = d - 0.1; e <= far + 0.3; e += 0.1) { const q = P.pos.clone().addScaledVector(fwd, e);
+      for (const c of colliders) { if (!c.mesh || !c.mesh.userData.grid || c.min.y > top + 0.2 || c.max.y < top + 0.3 || q.x <= c.min.x || q.x >= c.max.x || q.z <= c.min.z || q.z >= c.max.z) continue;
+        const qq = new V3(q.x, 0, q.z);
+        for (let y = top + 0.25; y < Math.min(c.max.y, ceil); y += 0.04) { qq.y = y; if (!gridOpenW(c.mesh, qq)) { ceil = Math.min(ceil, y); break; } } } }
     P.mantle = { t: 0, dur: 0.55 + up * 0.25, a: P.pos.clone(), a2: P.pos.clone(), b: L, up, top, ceil, vault: true, edge: edge.toArray() }; P.adsOn = false; P.leanState = 0; P.inspecting = false; P.sprinting = false;
     return true;
   }
@@ -629,7 +642,7 @@ function killSelf(head, dir, part, byName, causeText) {
   const dm = P.deathM || deathMasks(P.anat); P.deathM = null;
   if (P.downed && P.rag) { P.rag.keep = false; P.rag.bleedR = Math.max(P.rag.bleedR, dm.bleed); P.rag.twitch = dm.twitch; P.rag.asleep = false; }
   else P.rag = spawnRagdoll(localBody, P.vel.clone(), dir, part, head, Object.assign({ w: playerWoundMasks(P.anat) }, dm));
-  P.rag.owner = { anat: P.anat };
+  P.rag.owner = { anat: P.anat }; corpseWounds(P.rag, P.anat);
   if (head) { $('black').style.transition = 'none'; $('black').style.opacity = '1'; $('deathmsg').style.display = 'none'; }
   else { $('dmgv').style.opacity = '1'; $('deathmsg').style.display = 'block'; $('deathmsg').textContent = (byName ? 'KILLED BY ' + byName.toUpperCase() : 'YOU DIED') + (causeText ? '  (' + causeText.toUpperCase() + ')' : ''); }
 }

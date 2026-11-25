@@ -41,7 +41,9 @@ const rainMat = new THREE.LineBasicMaterial({ color: 0xaab4c0, transparent: true
 const rainMesh = new THREE.LineSegments(rainGeo, rainMat); rainMesh.frustumCulled = false; rainMesh.visible = false; scene.add(rainMesh);
 
 const envMix = key => { const a = WEATHER[ENV.from][key], b = WEATHER[ENV.w][key]; return a + (b - a) * ENV.k; };
-function envSet(w, now) { if (!WEATHER[w]) return false; if (w !== ENV.w) { ENV.from = now ? w : envCur(); ENV.w = w; ENV.k = now ? 1 : 0; } ENV.nextT = rnd(180, 360); return true; }
+// a weather picked at random, the common ones more often (every round starts on one; nothing is forced)
+function envRandom() { const wts = { clear: 3, cloudy: 3, rain: 2, storm: 1.5, fog: 1 }; let r = Math.random() * 10.5; for (const k in wts) { r -= wts[k]; if (r <= 0) return k; } return 'clear'; }
+function envSet(w, now) { if (w === 'random' || !w) w = envRandom(); if (!WEATHER[w]) return false; if (w !== ENV.w) { ENV.from = now ? w : envCur(); ENV.w = w; ENV.k = now ? 1 : 0; } ENV.nextT = rnd(180, 360); return true; }
 // (whatever it is closest to right now, mid-change)
 function envCur() { return ENV.k > 0.5 ? ENV.w : ENV.from; }
 function envSnap() { return { tod: Math.round(ENV.tod * 1000) / 1000, rate: ENV.rate, w: ENV.w }; }

@@ -362,7 +362,9 @@ function bashBoard(m, d, two) {
   const i = m.userData.board, w = TOWN.windows[i]; if (!w || !w.boards) return;
   const k = w.boards.indexOf(m); if (k < 0) return;
   boardBreak(i, k, d); net.send({ t: 'sg', a: 'bk', i, k });
-  if (two || Math.random() < 0.5) { const k2 = w.boards.findIndex((b, j) => b && j !== k && Math.abs(j - k) === 1); if (k2 >= 0) { boardBreak(i, k2, d); net.send({ t: 'sg', a: 'bk', i, k: k2 }); } }
+  // (a punch takes the plank you hit, nothing else; a sledge takes the one next to it too, the one nearer where it landed)
+  if (two) { const hp = m.position.y, k2 = w.boards.map((b, j) => [b, j]).filter(([b, j]) => b && j !== k && Math.abs(j - k) === 1).sort((a, b2) => Math.abs(a[0].position.y - hp) - Math.abs(b2[0].position.y - hp))[0];
+    if (k2) { boardBreak(i, k2[1], d); net.send({ t: 'sg', a: 'bk', i, k: k2[1] }); } }
 }
 // someone punched us
 function onPunched(m) {

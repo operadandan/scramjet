@@ -360,7 +360,7 @@ const DEB_GEO = [0, 1, 2, 3].map(() => {
 // All debris is drawn instanced: one mesh per shape (four rough rock forms, a splinter box, a flat slab), each piece a slot
 // with its own matrix and colour. Thousands of pieces cost a handful of draw calls, so a wall can come apart into as many
 // chunks as it really would and the rubble can stay on the floor.
-const DEB_CAP = 1400, debris = [];
+const DEB_CAP = 1400, debris = []; let _dChk = 0;
 const DEB_POOLS = [...DEB_GEO, fxBox, new THREE.BoxGeometry(1, 1, 1, 2, 1, 2)].map((geo, gi) => {
   if (gi === 5) { const p = geo.attributes.position; for (let i = 0; i < p.count; i++) p.setXYZ(i, p.getX(i) * rnd(0.85, 1.15), p.getY(i), p.getZ(i) * rnd(0.85, 1.15)); geo.computeVertexNormals(); }
   const im = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.97 }), DEB_CAP);
@@ -438,6 +438,15 @@ function updateDebris(dt) {
     debWrite(d);
   }
   debris.length = Math.max(0, w);
+  // a piece lying on something that has since gone (a plank knocked out, a hole shot under it, a wall fallen) drops again:
+  // the resting pieces are checked a few dozen a frame, in turn
+  if (debris.length) for (let n = Math.min(60, debris.length), k = 0; k < n; k++) {
+    const d = debris[_dChk = (_dChk + 1) % debris.length]; if (!d || !d.rest || d.dead || d.p.y <= d.r + 0.02) continue;
+    let held = false; const near = colNear(d.p);
+    for (let ci = 0, cn = near.length + CG.big.length; ci < cn && !held; ci++) { const c = ci < near.length ? near[ci] : CG.big[ci - near.length], p = d.p;
+      if (p.x > c.min.x - 0.01 && p.x < c.max.x + 0.01 && p.z > c.min.z - 0.01 && p.z < c.max.z + 0.01 && p.y >= c.max.y - 0.03 && p.y <= c.max.y + d.r + 0.06 && !(c.mesh && gridOpenW(c.mesh, _dprev.set(p.x, c.max.y - 0.01, p.z)))) held = true; }
+    if (!held) { d.rest = false; d.v.set(0, -0.2, 0); }
+  }
   for (const P of DEB_POOLS) if (P.dirty) { P.im.instanceMatrix.needsUpdate = true; P.dirty = false; }
 }
 function dust(p, n, col, size, op, life) {
