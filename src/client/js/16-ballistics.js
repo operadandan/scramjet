@@ -222,7 +222,9 @@ function updateBullets(dt) {
     b.life += dt;
     if (!b.local && !b.whizz && S.mode && P.alive && len > 0) {
       const tc = clamp(_a.subVectors(camera.position, _bp).dot(_bd), 0, hit ? hit.distance : len), dd = _a.copy(_bp).addScaledVector(_bd, tc).distanceTo(camera.position);
-      if (dd < 2.4 && b.dist + tc > 2 && !(hit && hit.object.userData.hum === localBody)) { b.whizz = true; suppress(1 - dd / 2.4, sp); }
+      // (landing beside you: it stops within a couple of metres of your head; otherwise it is one going past)
+      const landed = !!hit && hit.point.distanceTo(camera.position) < 2.6;
+      if (b.dist + tc > 2 && !(hit && hit.object.userData.hum === localBody) && (dd < 2.4 || landed)) { b.whizz = true; suppress(clamp(1 - Math.min(dd, landed ? hit.point.distanceTo(camera.position) : dd) / 2.6, 0, 1), sp, landed); }
     }
     if (hit) {
       // the round may carry on through what it hit, slower and slightly deflected

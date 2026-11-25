@@ -286,13 +286,17 @@ function gunAK(K) {
 // the Studio M82A1 (it is the Barrett in game): the charging handle and bolt carrier slide back together on the right, the
 // magazine drops with its rounds; everything else is fixed. The scope's rear lens is where the scope picture is drawn.
 function gunM82Imported(K) {
-  const I = IMPORTED.m82, g = new THREE.Group(), own = ['Magazine', 'MagazineCartridges', 'ChargingHandle'], MAG = new V3(0, -0.09, -0.009);
+  const I = IMPORTED.m82, g = new THREE.Group(), own = ['Magazine', 'MagazineCartridges', 'ChargingHandle', 'BipodL', 'BipodR'], MAG = new V3(0, -0.09, -0.009);
   const mesh = (name, P, off) => { const p = I.parts[name]; if (!p) return null; const m = new THREE.Mesh(p.geo, impMat(I, p, brassMatVM)); m.userData.keep = true; m.userData.part = name; m.castShadow = p.mat !== -1; if (off) m.position.copy(off).negate(); P.add(m); return m; };
   for (const n in I.parts) if (n !== '_sets' && !own.includes(n)) mesh(n, g);
   const mag = K.grp(g, MAG.x, MAG.y, MAG.z); mesh('Magazine', mag, MAG);
   const cart = K.grp(mag); cart.userData.keep = true; mesh('MagazineCartridges', cart, MAG);
   const bolt = K.grp(g); mesh('ChargingHandle', bolt);
-  return { g, mag, chg: null, slide: null, bolt, boltMode: 'slide', travel: 0.085, cart, imported: true, textured: true, muzzle: [0, 0, -0.95], port: [0.03, 0.006, -0.06], brass: [0, '50'], eye: [0, 0.0753, 0.1668], eyeR: 0.026 };
+  // the bipod: each leg on its own hinge at the mount, folded forward along the barrel; it swings down (and a little out)
+  // when the gun is rested (see bipodUpdate)
+  const bipod = [];
+  for (const [nm, s] of [['BipodL', 1], ['BipodR', -1]]) { const H = new V3(s * 0.0356, -0.0498, -0.3313), piv = K.grp(g, H.x, H.y, H.z); mesh(nm, piv, H); bipod.push({ piv, s, fold: new V3(s * 0.0116, 0.008, -0.2365).normalize() }); }
+  return { g, mag, chg: null, slide: null, bolt, bipod, boltMode: 'slide', travel: 0.085, cart, imported: true, textured: true, muzzle: [0, 0, -0.95], port: [0.03, 0.006, -0.06], brass: [0, '50'], eye: [0, 0.0753, 0.1668], eyeR: 0.026 };
 }
 // the Studio M870: the forend and its action bars ride the pump; the shell in the loading port is the hand-built one
 function gunM870Imported(K) {

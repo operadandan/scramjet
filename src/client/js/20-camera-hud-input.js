@@ -166,7 +166,7 @@ function updateViewmodel(dt) {
   { const mk2 = P.mantleK || 0; if (mk2 > 0.001) { ip.x -= 0.05 * mk2; ip.y -= 0.16 * mk2; ip.z += 0.04 * mk2; ir.x -= 0.35 * mk2; ir.z += 0.6 * mk2; } }   // gun swung down out of the way while climbing
   // at the hip a long gun rides with the muzzle tipped up toward the middle of the view; a pistol sits low with the wrists relaxed,
   // the muzzle a touch down and canted in. Either way the hands are never still: breathing and a slow drift
-  const hipK = pis ? 0 : 1 - a, pk = pis ? 1 - a : 0, tb = performance.now() / 1000, still = (1 - a * 0.75) * (1 - s);
+  const hipK = pis ? 0 : 1 - a, pk = pis ? 1 - a : 0, tb = performance.now() / 1000, still = (1 - a * 0.75) * (1 - s) * (1 - 0.85 * (P.bipodK || 0));
   ir.x += -0.05 * pk + Math.sin(tb * 1.55) * 0.007 * still + Math.sin(tb * 0.43 + 1) * 0.006 * still;
   ir.y += 0.05 * pk + Math.sin(tb * 0.61 + 2) * 0.007 * still;
   ir.z += 0.07 * pk + Math.sin(tb * 0.37) * 0.012 * still * (pis ? 1.4 : 1);
@@ -185,7 +185,7 @@ function updateViewmodel(dt) {
     vm.position.add(_v2.copy(pv).applyMatrix4(_m0).add(ip).sub(_v3.copy(pv).applyMatrix4(vm.matrix))); vm.updateMatrix();
     _m1.copy(g.matrix).invert().multiply(_m2.copy(vm.matrix).invert()).multiply(_m0).multiply(g.matrix);
     for (const A of [W.armR, W.armL]) if (A) { if (!A.e0) { A.e0 = A.elbowT.clone(); A.s0 = A.shoulderT.clone(); } A.elbowT.copy(A.e0).applyMatrix4(_m1); A.shoulderT.copy(A.s0).applyMatrix4(_m1); } }
-  { const tt = performance.now() / 1000, an = P.anat, sh = an.pain * 0.008 + (an.blood < 3500 ? 0.01 : 0) + (P.supp || 0) * 0.014;
+  { const tt = performance.now() / 1000, an = P.anat, sh = (an.pain * 0.008 + (an.blood < 3500 ? 0.01 : 0) + (P.supp || 0) * 0.014) * (1 - 0.8 * (P.bipodK || 0));
     vm.rotation.x += Math.sin(tt * 6.3) * sh; vm.rotation.y += Math.sin(tt * 4.7 + 1) * sh; vm.position.x += Math.sin(tt * 3.9) * sh * 0.3; }
   // left hand + magazine choreography
   const L = W.L;
@@ -275,7 +275,7 @@ function updateViewmodel(dt) {
 const bodyPanel = makeBodyPanel($('bodyui'), 'CONDITION'), targetPanel = makeBodyPanel($('targetui'), 'TARGET');
 function updateHUD() {
   const w = WEAPONS[P.weapon];
-  $('wname').textContent = P.downed ? (P.anat.paralyzed ? 'PARALYZED' : 'UNCONSCIOUS') : P.slot === 2 ? (GADGETS[P.tool2] ? GADGETS[P.tool2].name.toUpperCase() + ' x' + P.gN + '  (CLICK TO PLACE)' : '') : P.slot === 5 ? (P.toolB === 'sledge' ? 'SLEDGEHAMMER  (CLICK TO SWING)' : P.toolB === 'bcharge' ? 'BREACH CHARGE x' + P.bcN + '  (CLICK TO PLACE)' : (P.c4N > 0 ? 'C4 x' + P.c4N : 'REMOTE DETONATOR') + (c4Mine().length ? '  (' + c4Mine().length + ' SET)' : '')) : P.slot === 3 ? GADGETS[P.tool3 || 'frag'].name.toUpperCase() + ' x' + P.fragN + (P.nade && P.nade.cook ? '  (COOKING)' : P.nade && P.nade.ph === 'ready' ? '  (PIN OUT)' : '') : P.slot === 4 ? (P.defOut ? 'DEFUSER' : 'FISTS') : w.name;
+  $('wname').textContent = P.downed ? (P.anat.paralyzed ? 'PARALYZED' : 'UNCONSCIOUS') : P.slot === 2 ? (GADGETS[P.tool2] ? GADGETS[P.tool2].name.toUpperCase() + ' x' + P.gN + '  (CLICK TO PLACE)' : '') : P.slot === 5 ? (P.toolB === 'sledge' ? 'SLEDGEHAMMER  (CLICK TO SWING)' : P.toolB === 'bcharge' ? 'BREACH CHARGE x' + P.bcN + '  (CLICK TO PLACE)' : (P.c4N > 0 ? 'C4 x' + P.c4N : 'REMOTE DETONATOR') + (c4Mine().length ? '  (' + c4Mine().length + ' SET)' : '')) : P.slot === 3 ? GADGETS[P.tool3 || 'frag'].name.toUpperCase() + ' x' + P.fragN + (P.nade && P.nade.cook ? '  (COOKING)' : P.nade && P.nade.ph === 'ready' ? '  (PIN OUT)' : '') : P.slot === 4 ? (P.defOut ? 'DEFUSER' : 'FISTS') : w.name + ((P.bipodK || 0) > 0.5 ? '  (BIPOD)' : '');
   if (P.downed) $('downwhy').textContent = P.anat.paralyzed ? 'Spinal cord injury. You will not get up.' : 'You blacked out from the pain. You may come to if it eases (pain ' + Math.round(P.anat.painLvl) + ').';
   if (!P.alive || P.downed || P.slot >= 2) { $('scope').style.display = 'none'; $('acog').style.display = 'none'; }
   bodyPanel.update(P.alive ? P.anat : null, P.prone > 0.5 ? (P.anat.bothLegs() ? 'Legs out: crawling' : 'Prone') : '');

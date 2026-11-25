@@ -18,24 +18,37 @@ import { AIBot, AI_PAL, aiSees, navBlocked } from './32-ai.js';
 // every so often break from cover and dash for another spot, diving the last stretch into it. Hits are real (rounds,
 // tracers, flashes, blood, wounds) and one or two of them fall in each fight; the rest shrug off what would drop them.
 // None of it is heard: the menu is quiet.
-const MW = { on: false, list: [], shot: 0, shotT: 0, t: 0, loc: Math.floor(Math.random() * 3), locT: 0, deaths: 0 };
+const MW = { on: false, list: [], shot: 0, shotT: 0, t: 0, loc: Math.floor(Math.random() * 6), locT: 0, deaths: 0 };
 const MW_RED = { shirt: 0x6e2a22, vest: 0x58241f, vest2: 0x4a1e1a, pack: 0x4e2420, helmet: 0x5a2a24 };
 // each place: the attackers' and defenders' cover spots (x, z), more spots than fighters so they have somewhere to run to,
 // and the weapons they carry (indices into WEAPONS: 0 M4, 3 AK-74, 5 M870)
-// (each side's spots are kept within a few metres of each other across the line of fire, so the whole fight fits the
-// clear strip of screen beside the menu)
+// each place: how many a side, their spots (x, z; more than fighters, so they have somewhere to run to), spread about rather
+// than in two lines, and for the places indoors the camera shots (high in a corner of the room) since one from outside
+// would only see the wall
 const MW_LOCS = [
-  { name: 'street',
-    r: [[-0.3, 31.5], [2.8, 31.75], [5.0, 31.75], [7.2, 31.6], [-0.5, 33.2], [6.2, 33.4]],
-    b: [[-2.4, 12.4], [0.2, 13.4], [2.6, 12.2], [-1.0, 11.4], [4.4, 12.8], [1.4, 11.2]] },
-  { name: 'west road',
-    r: [[-27.7, -2.6], [-27.7, -5.4], [-31.5, -4.0], [-29.6, -0.9], [-27.7, -4.0], [-30.4, -6.0]],
-    b: [[-15.0, -2.0], [-15.0, -5.0], [-15.2, 0.8], [-16.2, -3.4], [-15.0, -6.6], [-16.0, -0.6]] },
-  { name: 'east yard',
-    r: [[22.7, -6.3], [23.4, -5.3], [25.5, -2.0], [24.4, -8.2], [26.2, -4.4], [23.0, -1.0]],
-    b: [[15.2, -0.9], [15.2, -3.3], [15.2, -5.5], [15.4, 1.4], [16.2, -2.1], [16.0, -4.4]] }
+  { name: 'street', nr: 4, nb: 3,
+    r: [[-6.8, 31.2], [4.6, 31.8], [12, 33.0], [-17, 31.0], [7.2, 31.6], [-0.3, 31.5], [-12, 22.8], [16.6, 23.4]],
+    b: [[9.5, 11.0], [-4.6, 13.0], [-17, 14.2], [1.3, 13.2], [-10.5, 12.0], [5.6, 11.4]] },
+  { name: 'living room', nr: 2, nb: 2,
+    r: [[-5.0, 7.8], [-5.4, 2.0], [-6.6, 5.0], [-5.2, 9.2]],
+    b: [[-12.8, 1.4], [-12.2, 8.6], [-10.6, 4.4], [-13.2, 5.8]],
+    shots: [{ a: [-13.6, 2.55, 0.4], b: [-13.5, 2.5, 1.4], la: [-6, 0.9, 6], lb: [-6, 0.9, 5] }, { a: [-4.4, 2.5, 9.6], b: [-4.5, 2.5, 8.6], la: [-12, 0.9, 3], lb: [-12, 0.9, 4] }] },
+  { name: 'kitchen', nr: 2, nb: 3,
+    r: [[1.2, -1.2], [1.4, -8.8], [2.6, -5.0], [1.0, -3.6]],
+    b: [[12.4, -8.6], [11.0, -1.4], [12.8, -4.6], [9.6, -9.0], [10.0, -6.0]],
+    shots: [{ a: [13.6, 2.55, -9.6], b: [13.5, 2.5, -8.6], la: [2, 0.9, -4], lb: [2, 0.9, -5] }, { a: [0.5, 2.5, -0.5], b: [0.6, 2.5, -1.4], la: [11, 0.9, -6], lb: [11, 0.9, -5] }] },
+  { name: 'back garden', nr: 3, nb: 3,
+    r: [[-18.6, -14.6], [-15.0, -11.4], [-11.6, -14.8], [-17.0, -12.0], [-8.4, -13.0]],
+    b: [[13.6, -12.2], [8.0, -14.8], [4.0, -11.2], [10.6, -11.4], [1.8, -14.6]],
+    shots: [{ a: [-4, 8, -27], b: [0, 8.4, -27.5], la: [-2, 0.6, -13], lb: [-2, 0.6, -13] }, { a: [-24, 6.5, -20], b: [-23, 6.8, -22], la: [4, 0.6, -13], lb: [4, 0.6, -13] }] },
+  { name: 'west road', nr: 3, nb: 2,
+    r: [[-26.0, -0.8], [-26.0, -7.0], [-31.5, -3.4], [-29.0, 5.6], [-24.0, -19.0], [-28.6, -12.4]],
+    b: [[-17.4, -12.6], [-15.0, 4.0], [-15.2, -4.0], [-16.8, 8.4], [-15.0, -8.6]] },
+  { name: 'east yard', nr: 2, nb: 3,
+    r: [[22.7, -6.3], [30.7, 10.3], [28.0, 17.8], [25.5, -1.0], [24.4, 3.0]],
+    b: [[15.2, -2.2], [16.7, 11.5], [15.3, 5.0], [15.2, -7.5], [16.0, 2.0]] }
 ];
-const MW_W = { r: [0, 3, 0, 5], b: [0, 5, 3, 0] }, MW_N = 4;
+const MW_W = { r: [0, 3, 0, 5], b: [0, 5, 3, 0] };
 class MenuFighter extends AIBot {
   constructor(p, side, w) {
     // (the defenders wear the bots' navy; the attackers are put in red while this one is built)
@@ -108,7 +121,7 @@ function menuWarStart() {
   if (MW.on) return; MW.on = true; if (typeof ENV !== 'undefined' && ENV.w === 'fog') envSet('cloudy', true);
   audioMute(true); MW.list.length = 0; MW.t = 0; MW.locT = 0; MW.shot = 0; MW.shotT = 0; MW.deaths = Math.random() < 0.5 ? 1 : 2;
   const L = MW_LOCS[MW.loc];
-  for (const side of ['r', 'b']) { const spots = L[side].slice(0, MW_N);
+  for (const side of ['r', 'b']) { const spots = L[side].slice(0, side === 'r' ? L.nr : L.nb);
     spots.forEach(([x, z], i) => { const p = new V3(x, 0, z); p.y = floorUnder(x, z, 3);
       const f = new MenuFighter(p, side, MW_W[side][i % 4]); f.spot = p.clone(); MW.list.push(f); dummies.push(f);
       const o = L[side === 'r' ? 'b' : 'r'][0]; f.ayaw = f.yaw = Math.atan2(-(o[0] - x), -(o[1] - z)); }); }
@@ -124,7 +137,7 @@ function updateMenuWar(dt) {
   if (!MW.on) { if ($('menu').style.display !== 'none' && typeof TOWN !== 'undefined' && TOWN.windows && TOWN.windows.length) menuWarStart(); else return; }
   MW.t += dt; MW.locT += dt;
   // (a fight runs its course, three shots of it, then it is over and the next one starts somewhere else)
-  if (MW.locT > MW_FIGHT) { menuWarStop(); MW.loc = (MW.loc + 1) % MW_LOCS.length; menuWarStart(); return; }
+  if (MW.locT > MW_FIGHT) { menuWarStop(); { let n; do n = Math.floor(Math.random() * MW_LOCS.length); while (n === MW.loc && MW_LOCS.length > 1); MW.loc = n; } menuWarStart(); return; }
   for (const f of MW.list) f.update(dt);
 }
 // ---- the camera: a few slow shots, each a gentle drift, cutting from one to the next. The menu covers the left of the
@@ -134,6 +147,7 @@ function updateMenuWar(dt) {
 // the other far up it: both fit the strip big enough to see. Three of them, straight behind and off to either side)
 const MW_FIGHT = 36;
 function mwShots(L) {
+  if (L.shots) return L.shots;
   const c = (list) => list.reduce((s, [x, z]) => [s[0] + x / list.length, s[1] + z / list.length], [0, 0]);
   const A = c(L.r), B = c(L.b), dx = A[0] - B[0], dz = A[1] - B[1], n = Math.hypot(dx, dz), ux = dx / n, uz = dz / n, sx = -uz, sz = ux, mid = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
   return [[0, 12, 9], [7, 11, 8], [-7, 11, 8.5]].map(([side, back, h]) => {

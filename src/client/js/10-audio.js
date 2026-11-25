@@ -4,7 +4,7 @@ import { V3, camera, clamp, rnd } from './00-setup.js';
 import { HOUSE } from './01b-town.js';
 import { S_ } from './05-anatomy.js';
 import { WEAPONS } from './06-weapons.js';
-import { sfxLoad, sfxShot } from './10c-sfx.js';
+import { sfxHas, sfxLoad, sfxPlay, sfxShot } from './10c-sfx.js';
 import { wmFor } from './16-ballistics.js';
 import { P, S } from './17-dummies.js';
 import { PITCH_MIN } from './18-player.js';
@@ -119,10 +119,15 @@ function blip(freq, dur, vol, type) {
   o.connect(g).connect(aMaster); o.start(t); o.stop(t + dur + 0.02);
 }
 // a round passing close: the supersonic crack, then the whizz falling away. Suppression builds with every near miss.
-function suppress(k, speed) {
+// The recordings: one round landing right beside you (landed), or one going past; both evened out to the same loudness when
+// they were cut, played at the same level here so they sit together.
+function suppress(k, speed, landed) {
   if (!P.alive) return;
   P.supp = Math.min(1, (P.supp || 0) + 0.16 + 0.34 * k);
   const a = audio(), t = a.currentTime;
+  const clip = landed ? 'whz_near' : 'whz_fly';
+  if (sfxHas(clip)) { sfxPlay(clip, { dry: true, vol: 0.55 + 0.6 * k, rate: rnd(0.95, 1.05) * (speed > 343 ? 1 : 0.9) });
+    P.pitch = clamp(P.pitch + rnd(-0.02, 0.035) * (0.5 + k), PITCH_MIN, 1.5); P.yaw += rnd(-0.03, 0.03) * (0.5 + k); P.kick += 0.4 * k; return; }
   if (speed > 343) { noiseHit(5200, 0.035, 0.25 + 0.5 * k); noiseHit(1800, 0.06, 0.15 + 0.25 * k); }
   const src = a.createBufferSource(); src.buffer = noiseBuf;
   const f = a.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 9; f.frequency.setValueAtTime(3400, t + 0.01); f.frequency.exponentialRampToValueAtTime(520, t + 0.3);

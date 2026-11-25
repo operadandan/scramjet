@@ -4,6 +4,8 @@ import numpy as np, scipy.io.wavfile as W, subprocess, json
 SR = 44100
 src = {i: W.read(f'/tmp/sfx/src/{i}.wav')[1].astype(np.float32) / 32768 for i in range(1, 14)}
 src[14] = W.read('/tmp/sfx/src/dry.wav')[1].astype(np.float32) / 32768   # the dry-fire clicks (ffmpeg -ac 1 -ar 44100 of the upload)
+# the bullets going by (ffmpeg -ac 1 -ar 44100 of the uploads): 15 a round landing right beside you, 16 one going past
+src[15] = W.read('/tmp/sfx/src/near.wav')[1].astype(np.float32) / 32768; src[16] = W.read('/tmp/sfx/src/fly.wav')[1].astype(np.float32) / 32768
 for i in range(1, 19): src[100 + i] = W.read(f'/tmp/sfx/vo/{i}.wav')[1].astype(np.float32) / 32768
 L = lambda i: (100 + i, 0.0, len(src[100 + i]) / SR)
 def cut(i, a, b, fi=0.003, fo=0.04, tail=None):
@@ -32,6 +34,10 @@ G = {
         'die2': [(12, t - 0.03, t + d + 0.15) for t, d in ((0.045, 0.36), (1.235, 0.56), (4.28, 0.41), (5.7, 1.88), (8.075, 1.02), (9.81, 0.34), (11.13, 0.42))]},
  # pulling the trigger on nothing: five takes of the hammer or striker falling on an empty chamber
  'dry': {'dry': [(14, t - 0.005, t + 0.16, 0.002, 0.05) for t in (0.015, 2.02, 4.025, 6.025, 8.035)]},
+ # bullets by: one landing right beside you and one going past, cut to a similar length and evened out to the same
+ # loudness (below) so neither jumps out over the other
+ 'whz': {'whz_near': [(15, t - 0.04, t + 0.55, 0.004, 0.0, 0.3) for t in (1.05, 4.39, 12.10, 13.83, 22.33, 26.01, 32.74, 37.89, 45.63, 56.06, 62.42, 67.65)],
+         'whz_fly': [(16, t - 0.06, t + 0.62, 0.004, 0.0, 0.3) for t in (0.12, 0.96, 1.71, 2.67, 3.54, 4.52, 5.50, 6.78, 7.76, 8.63)]},
  # the bots' voices: four reload calls (one per bot voice), the rest shared
  'voice': {'vo_reload': [L(1), L(2), L(3), L(4)], 'vo_start': [L(5), L(7), L(11)], 'vo_win': [L(6)], 'vo_rollout': [L(8)], 'vo_moveup': [L(9)], 'vo_cover': [L(10)],
            'vo_fire': [L(12)], 'vo_killq': [L(13), L(14)], 'vo_kill': [L(18)], 'vo_mandown': [L(15), L(16), L(17)]},
@@ -44,6 +50,9 @@ for g, clips in G.items():
     for c in L:
       i, a, b = c[:3]; x = cut(i, a, b, *(c[3:5] if len(c) > 3 else ()), tail=c[5] if len(c) > 5 else None)
       x *= 0.89 / max(1e-6, np.abs(x).max()) if name.startswith(('m4_fire', 'g17_fire', 'm107_fire', 'sg_fire', 'vo_')) else 1
+      if name.startswith('whz_'):   # (the same loudness for every take of both: rumble off, RMS over the loud part, a common ceiling)
+        x = x - np.convolve(x, np.ones(64) / 64, 'same'); a_ = np.abs(x); m_ = a_ > a_.max() * 0.1
+        x *= 0.12 / max(1e-6, np.sqrt(np.mean(x[m_] ** 2))); x = np.clip(x, -0.95, 0.95)
       table[name][1].append([round(at, 4), round(len(x) / SR, 4), round(hit(x), 4)])
       parts.append(x); parts.append(np.zeros(int(0.15 * SR), np.float32)); at += len(x) / SR + 0.15
   y = np.concatenate(parts); lead = float(np.argmax(np.abs(y) > 0.004) / SR)

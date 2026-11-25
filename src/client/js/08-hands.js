@@ -123,7 +123,7 @@ function buildVM(id) {
   const rh = buildGripHand(g, D.hand[0], D.hand[1], D.elbowR, D.hand[2]);
   const L = buildLeftHand(g); vm.add(g);
   const magAxis = D.magRot ? new V3(0, -1, 0).applyEuler(M.mag.rotation) : new V3().fromArray(D.magAxis).normalize();
-  const W = { dust: M.dust || null, imported: !!M.imported, ironsY: M.ironsY, boltIn: M.boltIn || null, bolt: M.bolt || null, boltMode: M.boltMode, boltTravel: M.travel || 0, boltK: 0, heat: 0, id, rh, g, mag: M.mag, magBase: M.mag.position.clone(), magQBase: M.mag.quaternion.clone(), magAxis, muzzle, flash, port, chg: M.chg, ret: null, slide: M.slide, brass, L, scope: !!D.scope,
+  const W = { bipod: M.bipod || null, dust: M.dust || null, imported: !!M.imported, ironsY: M.ironsY, boltIn: M.boltIn || null, bolt: M.bolt || null, boltMode: M.boltMode, boltTravel: M.travel || 0, boltK: 0, heat: 0, id, rh, g, mag: M.mag, magBase: M.mag.position.clone(), magQBase: M.mag.quaternion.clone(), magAxis, muzzle, flash, port, chg: M.chg, ret: null, slide: M.slide, brass, L, scope: !!D.scope,
     elbow: new V3().fromArray(D.elbow), hip: new V3().fromArray(D.hip), ads: new V3().fromArray(D.ads), sightH: D.sightH };
   if (M.eye) W.lens = W.scopeLens = makeScopeLens(g, M.eye, M.eyeR, 6, 'mildot');
   const H1 = new V3().fromArray(D.H1), r0 = D.rot, r1 = [r0[0] + (D.magRot ? 0.06 : 0.1), r0[1], r0[2]];

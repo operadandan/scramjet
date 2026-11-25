@@ -227,6 +227,7 @@ function updatePlayer(dt) {
   if (P.sprinting) { P.adsOn = false; P.leanState = 0; P.inspecting = false; P.healing = false; }
   P.stamina = 100;
 
+  bipodUpdate(dt);
   if (P.mantle) { updateMantle(dt); P.speed = 0; P.vel.set(0, 0, 0); }
   else {
   let spd = P.sprinting ? 5.4 : 3.0;
@@ -349,6 +350,20 @@ function dryFire(w) {
   const d = DRY[w.id] || [1, 0.3];
   if (sfxHas('dry')) sfxPlay('dry', { dry: true, vol: d[1] * rnd(0.9, 1.05), rate: d[0] * rnd(0.97, 1.03) });
   else { blip(1500, 0.02, 0.05); noiseHit(2200, 0.03, 0.04); }
+}
+// the bipod (the Barrett's): it comes down by itself when the gun is aimed and rested, lying prone, or with something of the
+// right height under the front of the gun (a window sill, a wall top, a car bonnet). Rested, the gun hardly sways and the
+// kick is mostly taken into the support; moving, it folds back up
+const _bpF = new V3(), _bpQ = new THREE.Quaternion(), _bpI = new THREE.Quaternion();
+function bipodUpdate(dt) {
+  const V = VMW[P.weapon]; if (!V || !V.bipod || P.slot > 1) { P.bipodK = 0; return; }
+  const fy = new V3(-Math.sin(P.yaw), 0, -Math.cos(P.yaw)), q = camera.position.clone().addScaledVector(fy, 0.62), gunY = camera.position.y - 0.1;
+  const surf = P.prone > 0.7 ? P.pos.y : floorAt(q.x, gunY - 0.06, q.z), gap = gunY - surf;
+  const ok = P.alive && !P.downed && P.ads > 0.5 && P.speed < 0.6 && !P.reloading && (P.prone > 0.7 || (gap > 0.1 && gap < 0.32));
+  P.bipodK = damp(P.bipodK || 0, ok ? 1 : 0, ok ? 7 : 10, dt); P.bipodGap = clamp(P.prone > 0.7 ? 0.2 : gap - 0.04, 0.1, 0.24);
+  // the legs: down to reach the surface (straighter the further it is), splayed a little
+  const th = Math.acos(clamp(P.bipodGap / 0.24, 0, 1));
+  for (const B of V.bipod) { _bpF.set(B.s * 0.16, -Math.cos(th), -Math.sin(th)).normalize(); _bpQ.setFromUnitVectors(B.fold, _bpF); B.piv.quaternion.copy(_bpI).slerp(_bpQ, smooth(P.bipodK)); }
 }
 function rackNeeded() { const G = P.guns[P.weapon]; return canRack() && G && (G.held || (!G.chamber && G.mag > 0)); }
 function workAction() {
@@ -634,7 +649,7 @@ function recoilKick(w, V) {
   if (now - (P.recLast || 0) > 60000 / (w.rpm || 600) + 220) { P.recN = 0; P.recH = 0; }
   P.recLast = now; P.recN = (P.recN || 0) + 1;
   const mv = Math.min(1, Math.hypot(P.vel.x, P.vel.z) / 4);
-  const ctl = (V.mods ? V.mods.recoil : 1) * lerp(1, 0.82, P.ads) * lerp(1, 0.86, P.crouch) * lerp(1, 0.5, P.prone) * (1 + mv * 0.35) * (P.anat.pain > 50 ? 1.25 : 1);
+  const ctl = (V.mods ? V.mods.recoil : 1) * lerp(1, 0.82, P.ads) * lerp(1, 0.86, P.crouch) * lerp(1, 0.5, P.prone) * (1 + mv * 0.35) * lerp(1, 0.35, P.bipodK || 0) * (P.anat.pain > 50 ? 1.25 : 1);
   const first = P.recN === 1 ? 0.85 : Math.min(1.45, 1 + (P.recN - 1) * 0.045);
   const up = R.v * ctl * first * rnd(0.85, 1.15);
   const gs = (Math.random() + Math.random() + Math.random() - 1.5) / 0.5;
