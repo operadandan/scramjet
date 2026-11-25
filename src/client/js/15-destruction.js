@@ -99,12 +99,15 @@ function gridOpenW(mesh, p) { const G = mesh.userData.grid; if (!G || !G.any) re
 function gridPass(c, pos, h, r) {
   const mesh = c.mesh, G = mesh && mesh.userData.grid; if (!G || !G.any) return false;
   const along = G.a1 === 0 ? 'x' : 'z';
-  // a low sill left at the bottom of an opening is stepped over
-  for (let y = pos.y + 0.26; y <= pos.y + h - 0.02 + 1e-6; y += 0.1) for (const s of [-1, -0.5, 0, 0.5, 1]) {
-    const q = { x: pos.x, y, z: pos.z }; q[along] += s * r * 0.8;
-    const k = gridIdx(G, mesh, q.x, q.y, q.z); if (k >= 0 && !G.cell[k]) return false;
+  // forgiving, so a breach is easy to get through: a lip up to knee height at the bottom of an opening is stepped over, the
+  // shoulders squeeze through narrower than the body, and jagged bits left sticking into the hole (up to three in ten of
+  // the points checked, fewer down the middle) don't stop it; the hole itself has to be there, about as tall as the body
+  let n = 0, shut = 0, nc = 0, sc = 0;
+  for (let y = pos.y + 0.42; y <= pos.y + h - 0.05 + 1e-6; y += 0.1) for (const s of [-1, -0.5, 0, 0.5, 1]) {
+    const q = { x: pos.x, y, z: pos.z }; q[along] += s * r * 0.5;
+    const k = gridIdx(G, mesh, q.x, q.y, q.z), c = k >= 0 && !G.cell[k]; n++; if (c) shut++; if (s === 0) { nc++; if (c) sc++; }
   }
-  return true;
+  return shut <= n * 0.3 && sc <= nc * 0.15;
 }
 function updateWallGrid(mesh, D, dir) {
   const G = wallGrid(mesh); if (!G) return;
@@ -599,50 +602,9 @@ function wallFlush() {
     try { settleWallNow(mesh, w.G, w.D, w.dir, w.thick); } catch (e) { console.warn(e); }
   }
 }
-// ---- a breach a body can use: wherever a wall full height has been holed through at body height across 40 cm or more, the
-// opening is cleaned up into a way through, down to the floor, at least 80 cm wide and 2 m tall (less on a low wall), its
-// top corners a little rounded. Ragged holes with a knee-high lip and a jagged top that the body snags on are what made
-// breaching fiddly; what is broken out of the wall to make the way through falls as rubble
-function breachDoorway(mesh, G, D, dir) {
-  const { n1, n2, cs1, cs2, cell } = G, H = n2 * cs2; if (H < 1.8 || !G.any) return 0;
-  // (only walls standing on a floor: a body has to be able to walk in)
-  const ud = mesh.userData; if (ud.door || (!G.hold.bottom && !(ud.box && ud.box.min.y <= 0.02))) return 0;
-  // (a column counts as holed where it is open for 30 cm or more on end somewhere between 30 cm and 1.8 m up; the holed
-  // columns side by side have to make 38 cm or more across: two good swings of a sledge
-  // beside each other, a charge, or a burst of rounds in one place; 0.12 m2 of it at body height)
-  const jb0 = Math.floor(0.3 / cs2), jb1 = Math.min(n2 - 1, Math.ceil(1.8 / cs2)), runMin = Math.ceil(0.3 / cs2), colOpen = new Uint8Array(n1), colN = new Uint16Array(n1);
-  for (let i = 0; i < n1; i++) { let run = 0, best = 0, o = 0; for (let j = jb0; j <= jb1; j++) { if (cell[j * n1 + i]) { o++; if (++run > best) best = run; } else run = 0; } colOpen[i] = best >= runMin ? 1 : 0; colN[i] = o; }
-  const minRun = Math.ceil(0.38 / cs1), wantW = 0.8, wantH = Math.min(2.0, H - 0.25), data = G.tex.image.data; let cut = 0, cu = 0;
-  for (let i = 0; i < n1;) {
-    if (!colOpen[i]) { i++; continue; }
-    let i1 = i; while (i1 + 1 < n1 && colOpen[i1 + 1]) i1++;
-    let area = 0; for (let ii = i; ii <= i1; ii++) area += colN[ii]; area *= cs1 * cs2;
-    if (i1 - i + 1 >= minRun && area >= 0.12) {
-      // the way through: centred on the hole, as wide as it (80 cm at the least), as tall as its top or 2 m
-      let top = 0; for (let ii = i; ii <= i1; ii++) for (let j = n2 - 1; j >= 0; j--) if (cell[j * n1 + ii]) { if (j > top) top = j; break; }
-      const c = (i + i1 + 1) / 2, half = Math.max((i1 - i + 1) / 2, wantW / cs1 / 2), a0 = Math.max(0, Math.floor(c - half)), a1 = Math.min(n1 - 1, Math.ceil(c + half) - 1);
-      const jt = Math.min(n2 - 1, Math.max(top, Math.ceil(wantH / cs2))), rr = Math.round(0.12 / cs1); cu = G.min1 + c * cs1;
-      for (let ii = a0; ii <= a1; ii++) {
-        // (rounded top corners)
-        const dx = Math.max(0, Math.max(a0 + rr - ii, ii - (a1 - rr))), drop = dx > 0 ? Math.round(rr - Math.sqrt(Math.max(0, rr * rr - dx * dx))) : 0;
-        for (let j = 0; j <= jt - drop; j++) { const k = j * n1 + ii; if (!cell[k]) { cell[k] = 1; G.dmg[k] = 1; data[k] = 255; cut++; } }
-      }
-    }
-    i = i1 + 1;
-  }
-  if (cut) {
-    G.tex.needsUpdate = true;
-    // what came out of the wall: rubble and dust at the foot of the opening
-    const q = mesh.position.clone(); q.setComponent(G.a1, q.getComponent(G.a1) + cu); q.y = ud.box.min.y + 0.4;
-    const area = cut * cs1 * cs2, n = Math.min(Math.max(1, WALL_Q.deb), clamp(Math.round(area * 40), 3, 40)); WALL_Q.deb -= n;
-    spawnDebris(q, n, dir.clone().normalize(), 0.5, 1.5, D, 0.03);
-    if (WALL_Q.dust-- > 0) dust(q, dir.clone().normalize(), D.dust, 0.8, 0.6, 2);
-  }
-  return cut;
-}
 function settleWallNow(mesh, G, D, dir, thick) {
   const ud = mesh.userData, q = new V3();
-  updateWallGrid(mesh, D, dir); breachDoorway(mesh, G, D, dir); structDirty();
+  updateWallGrid(mesh, D, dir); structDirty();
   for (const c of ud.dmg || []) c.chips = c.chips.filter(ch => { q.set(0, 0, 0); q.setComponent((c.ax + 1) % 3, ch.u); q.setComponent((c.ax + 2) % 3, ch.v); if (gridOpenW(mesh, mesh.localToWorld(q.clone()))) { dropDecal(ch.m); return false; } return true; });
   if (D.deb === 'rock' && thick > 0.12) rebuildRebar(mesh, G, thick);
 }
