@@ -68,6 +68,8 @@ function updateBrace(hum, dt) {
 const _cv = new V3(), _bv = new V3();
 const SL_GEO = { body: new THREE.CylinderGeometry(0.017, 0.015, 0.11, 10), clip: new THREE.BoxGeometry(0.03, 0.05, 0.012), lens: new THREE.CircleGeometry(0.0165, 12) };
 const SL_MAT = { body: new THREE.MeshStandardMaterial({ color: 0x1a1b1c, roughness: 0.5, metalness: 0.6 }) }; SL_MAT.body.userData.shared = true;
+// how fast the body eases toward what it is told (per second): see Humanoid.update
+const HUM_EASE = { speed: 9, sprint: 6, crouch: 8, prone: 4.5, lean: 9, pitch: 14, ads: 9, air: 10, limp: 4, hurt: 3 }, HUM_SNAP = 22;
 class Humanoid {
   constructor(pal, shadowOnly) {
     this.pal = Object.assign({}, HUM_DEFAULT, pal || {});
@@ -176,6 +178,14 @@ class Humanoid {
     else if (/R$/.test(frame)) { V.sy -= 4 * r(); V.sz -= 2 * k; V.nx += 1.5 * k; }
   }
   update(dt) {
+    // (fluid: the inputs never jump. Whatever drives the body, a bot's brain, a network snapshot or the player, sets where it
+    // wants to be; the body eases there, each thing at its own pace: the feet quick, getting down on the ground slower)
+    { const a0 = this.anim, h = Math.min(dt || 0.016, 0.1), S0 = this._sm || (this._sm = { v: {}, tg: {}, w: {} });
+      for (const k in HUM_EASE) { const x = a0[k]; if (typeof x !== 'number') continue;
+        if (S0.w[k] === undefined || x !== S0.w[k]) S0.tg[k] = x;              // (set anew by the caller: a new target)
+        const cur = S0.v[k] === undefined ? S0.tg[k] : S0.v[k], tg = S0.tg[k];
+        const v = Math.abs(tg - cur) > 4 ? tg : cur + (tg - cur) * (1 - Math.exp(-HUM_EASE[k] * h));
+        S0.v[k] = v; a0[k] = v; S0.w[k] = v; } }
     const a = this.anim, pr = a.prone, s = a.sprint * (1 - pr), air = a.air;
     // an action on top of the rest (a.act = kind + progress): 1 throwing a grenade, 2 putting something down on the floor
     const act = a.act || 0, aK = Math.floor(act), aP = act - aK, place = aK === 2 ? Math.sin(Math.min(1, aP * 1.6) * Math.PI / 2) * (aP > 0.8 ? (1 - aP) / 0.2 : 1) : 0, thr = aK === 1 ? Math.sin(aP * Math.PI) : 0;
@@ -243,6 +253,11 @@ class Humanoid {
     this.rPiv.rotation.set(gx, gy, gz);
     this.pPiv.rotation.set(lerp(P, -0.9, s) - (r > 0 ? 0.3 * Math.sin(r * Math.PI) : 0) - (med ? 0.35 : 0), lerp(0, 0.5, s), 0);
     this.pPiv.position.set(med ? 0 : 0.05, lerp(0.53, 0.38, s), lerp(0, -0.05, s));
+    // (and the body never snaps: each joint goes most of the way to its new pose every frame, so a change of stance, a
+    // flinch or a start from still is a movement, not a cut; the arms are then solved onto the gun where it really is)
+    { const k = 1 - Math.exp(-HUM_SNAP * Math.min(dt || 0.016, 0.1)), L = this._bl || (this._bl = [this.lgL, this.lgR, this.knL, this.knR, this.hips, this.spine, this.neck, this.rPiv, this.pPiv, this.pose].map(o => ({ o, q: o.quaternion.clone(), p: o.position.clone() })));
+      if (this._blOn) for (const B of L) { B.q.slerp(B.o.quaternion, k); B.o.quaternion.copy(B.q); B.p.lerp(B.o.position, k); B.o.position.copy(B.p); }
+      else { for (const B of L) { B.q.copy(B.o.quaternion); B.p.copy(B.o.position); } this._blOn = true; } }
     const G = this.activeGun();
     for (let i = 0; i < this.tp.length; i++) this.tp[i].g.visible = i === a.weapon; this.medkit.g.visible = med && !a.unarmed;
     const magOut = r > 0 && r > 0.18 && r < 0.64;
